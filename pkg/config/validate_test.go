@@ -131,6 +131,8 @@ func TestValidateAccepted(t *testing.T) {
 		"dual scope": pkg(`{platform: x64, scope: perUserOrMachine}`) + strings.Replace(appComponent, "    files:",
 			"    registry: [{root: HKCR, key: .app, value: App.File}, {root: HKMU, key: Software\\X, name: N, value: v}]\n    files:", 1),
 		"dual scope machine first": pkg(`{platform: x64, scope: PerMachineOrUser}`) + appComponent,
+		// The schema allows installerVersion as a number, so 5 is 5.0.
+		"installer version number": pkg(`{platform: x64, installerVersion: 5}`) + appComponent,
 		// A variable follows the context; a perMachine component writes
 		// machine data only per machine.
 		"dual scope variables": strings.Replace(pkg(`{platform: x64, scope: perMachineOrUser}`), "[App]", "[App, Machine, User]", 1) + strings.Replace(appComponent, "    files:",
@@ -183,6 +185,10 @@ func TestValidate(t *testing.T) {
 		"x64 below 2.0": {
 			pkg(`{platform: x64, installerVersion: "1.5"}`) + appComponent,
 			sevError, "package.installerVersion", "at least 2.0",
+		},
+		"signed installer version": {
+			pkg(`{platform: x64, installerVersion: "+5.0"}`) + appComponent,
+			sevError, "package.installerVersion", "major.minor",
 		},
 		"arm64 below 5.0": {
 			pkg(`{platform: arm64, installerVersion: "4.5"}`) + appComponent,
@@ -1499,13 +1505,41 @@ func TestHelpers(t *testing.T) {
 		}
 	}
 
-	if pc, err := config.PageCount("4.5"); err != nil || pc != 405 {
-		t.Errorf("PageCount(4.5) = %d, %v", pc, err)
-	}
-
 	for db, want := range map[int]int{1252: 1252, 932: 932, 65001: 1252, 0: 1252} {
 		if got := config.SummaryCodepage(db); got != want {
 			t.Errorf("SummaryCodepage(%d) = %d, want %d", db, got, want)
+		}
+	}
+}
+
+func TestPageCount(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		version string
+		want    int
+	}{
+		{"5.0", 500},
+		{"4.5", 405},
+		{"2.0", 200},
+		{"05.00", 500},
+		// The schema allows a number, and as a number 5 and 5.0 are the same.
+		{"5", 500},
+	} {
+		if got, err := config.PageCount(tc.version); err != nil || got != tc.want {
+			t.Errorf("PageCount(%q) = %d, %v, want %d", tc.version, got, err, tc.want)
+		}
+	}
+
+	for _, bad := range []string{
+		"", ".", "5.", ".5", "5.0.0", "5.100", "a.b", "v5.0", " 5.0", "5.0 ",
+		// Digits only, as in ParseVersion: strconv.Atoi also takes a sign.
+		"+5.0", "-5.0", "5.-0", "5.+0", "+5", "-0",
+		// major × 100 would wrap around to 500.
+		"4611686018427387909.0",
+	} {
+		if got, err := config.PageCount(bad); err == nil {
+			t.Errorf("PageCount(%q) = %d, want an error", bad, got)
 		}
 	}
 }

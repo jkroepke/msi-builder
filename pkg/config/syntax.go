@@ -61,17 +61,22 @@ func ParseVersion(text string) (Version, error) {
 }
 
 // PageCount converts installerVersion ("5.0", "4.5") into the Summary
-// Information Page Count (major × 100 + minor).
+// Information Page Count (major × 100 + minor). A major alone ("5") is
+// major.0: the schema allows installerVersion as a number, and as a number
+// 5 and 5.0 are the same.
 func PageCount(installerVersion string) (int, error) {
 	major, minor, ok := strings.Cut(installerVersion, ".")
 	if !ok {
-		return 0, fmt.Errorf("installer version %q must be major.minor", installerVersion)
+		minor = "0"
 	}
 
 	majorNum, err1 := strconv.Atoi(major)
 	minorNum, err2 := strconv.Atoi(minor)
 
-	if err1 != nil || err2 != nil || majorNum < 0 || minorNum < 0 || minorNum > 99 {
+	// Digits only, as in ParseVersion: Atoi also takes a sign, and "+5" or
+	// "-0" would pass. The major limit keeps major × 100 from wrapping around.
+	if err1 != nil || err2 != nil || strings.Trim(major, "0123456789") != "" ||
+		strings.Trim(minor, "0123456789") != "" || majorNum > 99 || minorNum > 99 {
 		return 0, fmt.Errorf("installer version %q must be major.minor", installerVersion)
 	}
 
