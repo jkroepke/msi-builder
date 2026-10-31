@@ -378,10 +378,11 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 
 	var all []int
 
-	// seen holds the version data RVAs already read; budget bounds the
+	// seen holds the data entries' RVA and size pairs already read, since
+	// an entry's size decides whether its block fits; budget bounds the
 	// bytes read for all entries, since up to 65535 of them can each
 	// claim a 64 KiB block.
-	seen := make(map[uint32]bool)
+	seen := make(map[uint64]bool)
 	budget := maxVersionData
 
 	for i := 0; i+8 <= len(langs); i += 8 {
@@ -392,13 +393,15 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 
 		// An entry Windows may pick on another machine must be readable
 		// too, as must agreeing versions (expected; not observed).
-		entry, err := res.read(dataEntry, 4)
+		entry, err := res.read(dataEntry, 16)
 		if err != nil {
 			return err
 		}
 
 		dataRVA := binary.LittleEndian.Uint32(entry)
-		if seen[dataRVA] {
+		key := uint64(dataRVA)<<32 | uint64(binary.LittleEndian.Uint32(entry[4:]))
+
+		if seen[key] {
 			continue
 		}
 
@@ -416,11 +419,13 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 			return err
 		}
 
-		if !other.HasVersion {
-			return errors.New("pe: a version resource language has no fixed file info")
+		// A file whose entries all lack VS_FIXEDFILEINFO is unversioned,
+		// as before; a mix depends on the machine.
+		if other.HasVersion != info.HasVersion {
+			return errors.New("pe: version resource languages disagree on having a fixed file info")
 		}
 
-		seen[dataRVA] = true
+		seen[key] = true
 
 		// Only File.Version must agree: MsiGetFileVersionW reports no
 		// product version.

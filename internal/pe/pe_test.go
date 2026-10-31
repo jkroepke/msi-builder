@@ -671,7 +671,7 @@ func TestVersionResourceSelection(t *testing.T) {
 			},
 			version: "1.2.3.4", lang: "1033,1031",
 		},
-		"version data within the budget": {entries: hungryLanguages(t, 255), version: "1.2.3.4", lang: "1033"},
+		"version data within the budget": {entries: hungryLanguages(t, 256), version: "1.2.3.4", lang: "1033"},
 		"too much version data":          {entries: hungryLanguages(t, 257), fails: "too much data"},
 		"other language unreadable": {
 			entries: []resEntry{
@@ -679,6 +679,13 @@ func TestVersionResourceSelection(t *testing.T) {
 				{1, 1033, "1.2.3.4", []int{1033}, nil},
 			},
 			fails: "not binary",
+		},
+		"no fixed file info": {
+			entries: []resEntry{{1, 1033, "", nil, noFixedInfo(t)}},
+		},
+		"one language without fixed file info": {
+			entries: []resEntry{{1, 1031, "", nil, noFixedInfo(t)}, {1, 1033, "1.2.3.4", []int{1033}, nil}},
+			fails:   "fixed file info",
 		},
 		"two languages disagree": {
 			entries: []resEntry{{1, 1031, "1.2.3.4", []int{1031}, nil}, {1, 1033, "9.8.7.6", []int{1033}, nil}},
@@ -871,6 +878,45 @@ func hungryLanguages(t *testing.T, count int) []resEntry {
 	}
 
 	return entries
+}
+
+// noFixedInfo returns a version block whose root value is empty
+// (wValueLength 0), so it holds no VS_FIXEDFILEINFO.
+func noFixedInfo(t *testing.T) []byte {
+	t.Helper()
+
+	blob := blobOf(t, testpe.Options{FileVersion: "1.2.3.4", Languages: []int{1033}})
+	binary.LittleEndian.PutUint16(blob[2:], 0)
+
+	return blob
+}
+
+// TestSharedBlockShortEntry refuses a language entry whose data entry is
+// too short for the block it shares with a readable one: a system that
+// picks it reads no version.
+func TestSharedBlockShortEntry(t *testing.T) {
+	t.Parallel()
+
+	entries := []resEntry{{1, 1033, "1.2.3.4", []int{1033}, nil}, {1, 2057, "1.2.3.4", []int{1033}, nil}}
+	data := versionResources(t, entries)
+
+	// versionResources stores the identical blocks once: root (24 bytes),
+	// name directory (24) and language directory (32), then the second
+	// data entry at 80+16, whose size follows its RVA.
+	second := testRsrcRaw + 80 + 16
+	if binary.LittleEndian.Uint32(data[second:]) != binary.LittleEndian.Uint32(data[second-16:]) {
+		t.Fatal("the entries do not share a block")
+	}
+
+	if _, err := Parse(bytes.NewReader(data)); err != nil {
+		t.Fatalf("shared block refused: %v", err)
+	}
+
+	binary.LittleEndian.PutUint32(data[second+4:], 4)
+
+	if info, err := Parse(bytes.NewReader(data)); err == nil {
+		t.Errorf("short entry accepted: %+v", info)
+	}
 }
 
 // binaryRoot returns a copy of a version block whose root claims text
