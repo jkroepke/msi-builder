@@ -42,7 +42,7 @@ func quoteVars(node *yaml.Node) *strings.Replacer {
 
 	walk = func(node *yaml.Node) {
 		if node.Kind == yaml.ScalarNode && varRef.MatchString(node.Value) {
-			placeholder := fmt.Sprintf("msi-builder-template-placeholder-%d", len(pairs)/2)
+			placeholder := fmt.Sprintf("msi-builder-template-placeholder-%d-end", len(pairs)/2)
 			pairs = append(pairs, placeholder, quotedAction(node.Value))
 			node.Value, node.Style, node.Tag = placeholder, 0, ""
 

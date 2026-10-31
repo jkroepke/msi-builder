@@ -2401,6 +2401,18 @@ func TestConvertVarValues(t *testing.T) {
     <Property Id="MIXED" Value="x $(var.A) y" />
     <Property Id="BRACES" Value="tab&#9;{{ here $(var.A)" />
     <Property Id="LITERAL" Value="tab&#9;{{ there" />
+    <Property Id="P1" Value="v1 $(var.A)" />
+    <Property Id="P2" Value="v2 $(var.A)" />
+    <Property Id="P3" Value="v3 $(var.A)" />
+    <Property Id="P4" Value="v4 $(var.A)" />
+    <Property Id="P5" Value="v5 $(var.A)" />
+    <Property Id="P6" Value="v6 $(var.A)" />
+    <Property Id="P7" Value="v7 $(var.A)" />
+    <Property Id="P8" Value="v8 $(var.A)" />
+    <Property Id="P9" Value="v9 $(var.A)" />
+    <Property Id="P10" Value="v10 $(var.A)" />
+    <Property Id="P11" Value="v11 $(var.A)" />
+    <Property Id="P12" Value="v12 $(var.A)" />
   </Package>
 </Wix>`
 
@@ -2417,6 +2429,8 @@ func TestConvertVarValues(t *testing.T) {
 
 		for prop, want := range map[string]string{
 			"WHOLE": value, "MIXED": "x " + value + " y", "BRACES": "tab\t{{ here " + value, "LITERAL": "tab\t{{ there",
+			// More than ten values, so that placeholder 1 meets 10.
+			"P1": "v1 " + value, "P10": "v10 " + value, "P11": "v11 " + value, "P12": "v12 " + value,
 		} {
 			if got := cfg.Properties[prop].Value; got != want {
 				t.Errorf("%q: %s = %q, want %q", value, prop, got, want)
