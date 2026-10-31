@@ -32,6 +32,10 @@ versioning after 1.0.
   Every file is a Go `text/template` (`template.go`, `Render`, also behind
   `msi-builder render`) with `{{ .NAME }}` as the only variable syntax;
   `vars` live in a header document (`header.go`) read before rendering.
+  The functions (`funcs.go`) are sprig's hermetic set minus other
+  run-to-run functions, with msi-builder's `has`, `quote` and `split`, and
+  caps on `indent`, `nindent`, `repeat`, `until`, `untilStep` and `seq`;
+  a sprig upgrade must keep the build repeatable (`TestTemplateSprig`).
   YAML errors name lines of the rendered text. Template examples in the
   docs that hold a header or `{{-` are fenced as `text`, because the guide
   tests parse every `yaml` block.
@@ -366,8 +370,9 @@ go test ./... -shuffle=on -race
   variables, since a client only has its own context's folder properties.
 - `cmd/msi-builder` uses `spf13/cobra` (with `spf13/pflag`) and nothing else
   outside the standard library; never import `cobra/doc`, which pulls in a
-  man-page renderer. Add no new module dependencies elsewhere without
-  discussing them first.
+  man-page renderer. `pkg/config` uses `Masterminds/sprig/v3` for template
+  functions (Joe's choice, PR #197). Add no new module dependencies
+  elsewhere without discussing them first.
 
 ## Command line
 

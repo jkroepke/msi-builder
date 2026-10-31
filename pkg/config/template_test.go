@@ -180,14 +180,14 @@ func TestTemplateErrors(t *testing.T) {
 func TestTemplateFuncs(t *testing.T) {
 	t.Parallel()
 
-	doc := "a: {{ if has \"X\" }}set{{ else }}unset{{ end }}\nc: {{ indent 2 \"l1\\nl2\" }}\nd:{{ range split \";\" .L }} {{ . }}{{ end }}\n"
+	doc := "a: {{ if has \"X\" }}set{{ else }}unset{{ end }}\nc:{{ nindent 2 \"l1\\nl2\" }}\nd:{{ range split \";\" .L }} {{ . }}{{ end }}\n"
 
 	out, err := config.Render([]byte(doc), config.Options{Vars: map[string]string{"X": "1", "L": "en;de"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if want := "a: set\nc: l1\n  l2\nd: en de\n"; string(out) != want {
+	if want := "a: set\nc:\n  l1\n  l2\nd: en de\n"; string(out) != want {
 		t.Errorf("got %q, want %q", out, want)
 	}
 
@@ -198,6 +198,44 @@ func TestTemplateFuncs(t *testing.T) {
 
 	if !strings.HasPrefix(string(out), "a: unset\n") || !strings.HasSuffix(string(out), "d:\n") {
 		t.Errorf("got %q", out)
+	}
+}
+
+// TestTemplateSprig checks sprig's functions, the caps on the ones that
+// allocate by a number, and the ones left out.
+func TestTemplateSprig(t *testing.T) {
+	t.Parallel()
+
+	out, err := config.Render([]byte(`{{ .V | upper }} {{ .NOPE | default "d" }} {{ semverCompare ">=1.2" .V2 }} {{ seq 3 }} {{ until 2 }} {{ "a" | repeat 3 }} {{ indent 2 "x" }}`),
+		config.Options{Vars: map[string]string{"V": "abc", "V2": "1.4.0"}, LookupEnv: func(string) (string, bool) { return "", false }})
+	if err == nil {
+		t.Fatalf("a missing variable piped to default renders %q", out)
+	}
+
+	out, err = config.Render([]byte(`{{ .V | upper }} {{ semverCompare ">=1.2" .V2 }} {{ seq 3 }} {{ until 2 }} {{ "a" | repeat 3 }} {{ indent 2 "x" }} {{ untilStep 0 6 2 }}`),
+		config.Options{Vars: map[string]string{"V": "abc", "V2": "1.4.0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "ABC true 1 2 3 [0 1] aaa   x [0 2 4]"; string(out) != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+
+	for doc, want := range map[string]string{
+		`{{ repeat 2000000000 "ab" }}`:                               "writes more than",
+		`{{ until 2000000000 }}`:                                     "until: more than",
+		`{{ untilStep -9000000000000000000 9000000000000000000 1 }}`: "untilStep: more than",
+		`{{ seq 1 2000000000 }}`:                                     "seq: more than",
+		`{{ nindent 5000 "x" }}`:                                     "nindent: 5000 is not between",
+		`{{ env "HOME" }}`:                                           "env: read environment variables as {{ .NAME }} and pass --env",
+		`{{ now }}`:                                                  `function "now" not defined`,
+		`{{ randAlpha 3 }}`:                                          `function "randAlpha" not defined`,
+		`{{ genPrivateKey "rsa" }}`:                                  `function "genPrivateKey" not defined`,
+	} {
+		if _, err := config.Render([]byte(doc), config.Options{}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: got %v, want %q", doc, err, want)
+		}
 	}
 }
 

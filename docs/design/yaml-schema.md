@@ -127,7 +127,7 @@ tables: []               # escape hatch: custom tables
 
 ### 3.1 Variables and templates
 
-The file is a Go `text/template` (stdlib only), rendered before it is read
+The file is a Go `text/template` with the [sprig](https://masterminds.github.io/sprig/) functions, rendered before it is read
 as YAML, for what WiX does with preprocessor variables, `<?if?>` and
 `<?foreach?>`. `{{ .NAME }}` reads a variable; it is the only variable
 syntax. Variables come, in order of precedence, from the command line
@@ -166,14 +166,28 @@ components:
 {{- end }}
 ```
 
-The functions are Go's built-in ones and four more:
+The functions are Go's built-in ones and sprig's
+(<https://masterminds.github.io/sprig/>), as in Helm charts, with these
+changes:
 
 | Function | Result |
 |---|---|
-| `has "NAME"` | Whether the variable is set |
-| `quote S` | `S` as a double-quoted YAML string, with the characters YAML does not allow escaped, so any value arrives as given |
-| `indent N S` | `S` with every line after the first indented by `N` spaces |
-| `split SEP S` | The parts of `S` between each `SEP`, for `{{ range split ";" .LANGS }}`; an empty `S` has none, and an empty `SEP` is an error |
+| `has "NAME"` | Whether the variable is set (sprig's `has` tests a list; `mustHas` still does) |
+| `quote S` | `S` as a double-quoted YAML string, with the characters YAML does not allow escaped, so any value arrives as given (sprig's `quote` writes Go escapes, which YAML reads differently) |
+| `split SEP S` | The parts of `S` between each `SEP` as a list, like sprig's `splitList`, for `{{ range split ";" .LANGS }}`; an empty `S` has none, and an empty `SEP` is an error (sprig's `split` gives a dict) |
+| `indent`, `nindent` | As in sprig, with at most 1024 spaces |
+| `repeat`, `until`, `untilStep`, `seq` | As in sprig, refusing more than 16 MiB of text or 1,048,576 entries |
+| `env`, `expandenv` | An error that points to `{{ .NAME }}` with `--env`, so that the environment is read only when the command line says so |
+
+Functions whose result changes from run to run are left out, so that the
+same file and variables build the same package and the same
+`productCode: auto`: sprig's own non-hermetic ones (`now`, `date` and the
+other clock functions, `randAlpha` and the other random strings,
+`uuidv4`, `getHostByName`), and `ago`, `toDate` (the machine's time
+zone), `randInt`, `shuffle`, `bcrypt`, `htpasswd`, `encryptAES` and the
+`gen…` key and certificate functions. `default` applies to an empty
+value; a variable that is not set is an error before `default` sees it,
+so a default goes into the vars header.
 
 A template writes text, so a value with YAML syntax (`: `, a leading `[`,
 a line break) changes the document unless it is written with `quote`. A
@@ -195,7 +209,9 @@ Templates are always on, so a file has one variable syntax. Decisions not
 adopted: a `${NAME}` substitution after parsing next to templates (two
 syntaxes for one thing), an opt-in `--template` flag, and a `vars` block
 inside the templated document (the template could only see it after
-rendering it).
+rendering it). The sprig library came in at Joe's request: Helm users
+know its functions, and the template stays repeatable with the changes
+above.
 
 ### 3.2 Editor support
 

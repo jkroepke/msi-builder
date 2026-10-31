@@ -21,10 +21,6 @@ import (
 // {{ range 1000000000 }} could fill the memory.
 const maxRendered = 16 << 20
 
-// maxIndent caps the indent function, so one call cannot allocate a huge
-// string. It does not bound a template's memory: a template is code.
-const maxIndent = 1024
-
 // errRenderedTooLarge is returned when a template writes more than
 // maxRendered bytes.
 var errRenderedTooLarge = fmt.Errorf("the template writes more than %d bytes", maxRendered)
@@ -355,32 +351,6 @@ func branchNames(node *parse.BranchNode, use func(string)) {
 	fieldNames(node.Pipe, use)
 	fieldNames(node.List, use)
 	fieldNames(node.ElseList, use)
-}
-
-// templateFuncs returns the functions Render adds to Go's built-in ones.
-func templateFuncs(vars *varResolver) template.FuncMap {
-	return template.FuncMap{
-		"has":   vars.defined,
-		"quote": quote,
-		"indent": func(n int, s string) (string, error) {
-			if n < 0 || n > maxIndent {
-				return "", fmt.Errorf("indent: %d is not between 0 and %d", n, maxIndent)
-			}
-
-			return strings.ReplaceAll(s, "\n", "\n"+strings.Repeat(" ", n)), nil
-		},
-		"split": func(sep, list string) ([]string, error) {
-			if sep == "" {
-				return nil, errors.New("split: the separator is empty")
-			}
-
-			if list == "" {
-				return nil, nil
-			}
-
-			return strings.Split(list, sep), nil
-		},
-	}
 }
 
 // notSet is the error for a variable that is not set.

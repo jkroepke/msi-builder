@@ -126,6 +126,14 @@ msi-builder render --var ARCH=arm64 --var VERSION=1.4.0 msi.yaml   # print the r
   backslashes included. Use it for text you do not control, which may
   hold `'`, `: `, a leading `[` or a line break.
 - `{{ "{{" }}` writes a literal `{{`, also in a comment.
+- The [sprig functions](https://masterminds.github.io/sprig/) work as
+  in Helm charts, such as `{{ .NAME | lower }}`, `{{ semverCompare
+  ">=2.0" .VERSION }}` or `{{ .TEXT | nindent 4 }}`. `has`, `quote` and
+  `split` are msi-builder's own, as above. Functions that change from
+  run to run, such as `now`, `uuidv4` and the random ones, are left out,
+  so a build is repeatable. `env` is an error: pass `--env` and write
+  `{{ .NAME }}`. A variable that is not set fails before `default` sees
+  it, so defaults go into the vars header.
 - Put `{{- if ... }}`, `{{- else }}` and `{{- end }}` at the start of their
   own line: `{{-` removes the line break before it, and the YAML
   indentation stays intact. Avoid `-}}`, which also removes the next
