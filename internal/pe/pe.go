@@ -378,14 +378,18 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 		return errors.New("pe: version resource has too many language entries for its sections")
 	}
 
-	var all []int
-
-	// seen holds the data entries' RVA and size pairs already read, since
-	// an entry's size decides whether its block fits; budget bounds the
-	// bytes read for all entries, since up to 65535 of them can each
-	// claim a 64 KiB block.
+	// seen holds the blocks already read, by RVA and wLength; each entry's
+	// own size is checked before, since it decides whether the block fits.
+	// budget bounds the bytes read for all entries, since up to 65535 of
+	// them can each claim a 64 KiB block.
 	seen := make(map[uint64]bool)
 	budget := maxVersionData
+
+	// The languages of all entries, without duplicates, first seen kept;
+	// at most 65536 of them, however often a block repeats them.
+	var all []int
+
+	dup := make(map[int]bool)
 
 	for i := 0; i+8 <= len(langs); i += 8 {
 		dataEntry := binary.LittleEndian.Uint32(langs[i+4:])
@@ -395,30 +399,13 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 
 		// An entry Windows may pick on another machine must be readable
 		// too, as must agreeing versions (expected; not observed).
-		entry, err := res.read(dataEntry, 16)
+		other, err := languageEntry(res, dataEntry, seen, &budget)
 		if err != nil {
 			return err
 		}
 
-		dataRVA := binary.LittleEndian.Uint32(entry)
-		key := uint64(dataRVA)<<32 | uint64(binary.LittleEndian.Uint32(entry[4:]))
-
-		if seen[key] {
+		if other == nil {
 			continue
-		}
-
-		head, err := res.img.read(dataRVA, 2)
-		if err != nil {
-			return err
-		}
-
-		if budget -= int(binary.LittleEndian.Uint16(head)); budget < 0 {
-			return errors.New("pe: version resource language entries hold too much data")
-		}
-
-		other := &Info{}
-		if err := versionEntry(res, dataEntry, other); err != nil {
-			return err
 		}
 
 		// A file whose entries all lack VS_FIXEDFILEINFO is unversioned,
@@ -427,34 +414,68 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 			return errors.New("pe: version resource languages disagree on having a fixed file info")
 		}
 
-		seen[key] = true
-
 		// Only File.Version must agree: MsiGetFileVersionW reports no
 		// product version.
 		if info.HasVersion && other.FileVersion != info.FileVersion {
 			return fmt.Errorf("pe: version resource languages disagree (%s and %s)", info.FileVersion, other.FileVersion)
 		}
 
-		all = append(all, other.Languages...)
+		for _, lang := range other.Languages {
+			if !dup[lang] {
+				dup[lang] = true
+				all = append(all, lang)
+			}
+		}
 	}
 
 	// MsiGetFileVersionW lists the languages last first: stored
 	// 1033,1031,2057 came back as 2057,1031,1033 (FILE-14). The picked
 	// entry's own languages are among all.
-	info.Languages = nil
-
-	dup := make(map[int]bool)
-
-	for _, lang := range all {
-		if !dup[lang] {
-			dup[lang] = true
-			info.Languages = append(info.Languages, lang)
-		}
-	}
-
-	slices.Reverse(info.Languages)
+	slices.Reverse(all)
+	info.Languages = all
 
 	return nil
+}
+
+// languageEntry reads the version of the language entry at dataEntry, or
+// returns nil when its block was read already. The entry's own size is
+// checked first, since it decides whether the block fits; then each block,
+// by RVA and wLength, is read once and charged to budget.
+func languageEntry(res *resources, dataEntry uint32, seen map[uint64]bool, budget *int) (*Info, error) {
+	entry, err := res.read(dataEntry, 16)
+	if err != nil {
+		return nil, err
+	}
+
+	dataRVA := binary.LittleEndian.Uint32(entry)
+
+	head, err := res.img.read(dataRVA, 2)
+	if err != nil {
+		return nil, err
+	}
+
+	length := binary.LittleEndian.Uint16(head)
+	if size := binary.LittleEndian.Uint32(entry[4:]); size < 6 || uint32(length) > size {
+		return nil, fmt.Errorf("pe: version block of %d bytes does not fit its %d-byte resource", length, size)
+	}
+
+	key := uint64(dataRVA)<<32 | uint64(length)
+	if seen[key] {
+		return nil, nil //nolint:nilnil // nil marks a block read already
+	}
+
+	if *budget -= int(length); *budget < 0 {
+		return nil, errors.New("pe: version resource language entries hold too much data")
+	}
+
+	other := &Info{}
+	if err := versionEntry(res, dataEntry, other); err != nil {
+		return nil, err
+	}
+
+	seen[key] = true
+
+	return other, nil
 }
 
 // pickLanguage returns the data entry of the language entry an English

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -977,5 +978,48 @@ func TestManySectionsAndEntries(t *testing.T) {
 				t.Errorf("version %q, want 1.2.3.4", info.FileVersion)
 			}
 		})
+	}
+}
+
+// TestRepointedBlockReadOnce reads a block that many language entries
+// share once, also when their data entries declare different sizes: 256
+// entries on one block of 15000 languages allocated 326 MB before.
+func TestRepointedBlockReadOnce(t *testing.T) { //nolint:paralleltest // measures the allocations of the process
+	const count = 256
+
+	langs := make([]int, 15000)
+	for i := range langs {
+		langs[i] = 1033
+	}
+
+	entries := make([]resEntry, count)
+	for i := range entries {
+		entries[i] = resEntry{1, uint32(1024 + i), "1.2.3.4", langs, nil}
+	}
+
+	data := versionResources(t, entries)
+
+	// The data entries follow the root (24 bytes), the name directory (24)
+	// and the language directory; each gets a size of its own.
+	entryOff := testRsrcRaw + 24 + 24 + 16 + 8*count
+	for i := range count {
+		e := entryOff + 16*i
+		binary.LittleEndian.PutUint32(data[e+4:], binary.LittleEndian.Uint32(data[e+4:])+uint32(i))
+	}
+
+	var before, after runtime.MemStats
+
+	runtime.ReadMemStats(&before)
+
+	info, err := Parse(bytes.NewReader(data))
+
+	runtime.ReadMemStats(&after)
+
+	if err != nil || info.Language() != "1033" {
+		t.Fatalf("got %+v, %v; want language 1033", info, err)
+	}
+
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 16<<20 {
+		t.Errorf("parse allocated %d MB", alloc>>20)
 	}
 }
