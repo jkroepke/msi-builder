@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -223,19 +224,56 @@ func TestTemplateSprig(t *testing.T) {
 	}
 
 	for doc, want := range map[string]string{
-		`{{ repeat 2000000000 "ab" }}`:                               "writes more than",
-		`{{ until 2000000000 }}`:                                     "until: more than",
-		`{{ untilStep -9000000000000000000 9000000000000000000 1 }}`: "untilStep: more than",
-		`{{ seq 1 2000000000 }}`:                                     "seq: more than",
-		`{{ nindent 5000 "x" }}`:                                     "nindent: 5000 is not between",
-		`{{ env "HOME" }}`:                                           "env: read environment variables as {{ .NAME }} and pass --env",
-		`{{ now }}`:                                                  `function "now" not defined`,
-		`{{ randAlpha 3 }}`:                                          `function "randAlpha" not defined`,
-		`{{ genPrivateKey "rsa" }}`:                                  `function "genPrivateKey" not defined`,
+		`{{ repeat 2000000000 "ab" }}`:                                                 "writes more than",
+		`{{ until 2000000000 }}`:                                                       "until: ",
+		`{{ untilStep -9000000000000000000 9000000000000000000 1 }}`:                   "untilStep: ",
+		`{{ seq 1 2000000000 }}`:                                                       "seq: ",
+		`{{ untilStep 9223372036854775806 9223372036854775807 2 }}{{ until 1048577 }}`: "until: 1048577 entries",
+		`{{ $s := repeat 16000000 "\n" }}{{ indent 1024 $s }}`:                         "writes more than",
+		`{{ osBase "a" }}`:                                                             `function "osBase" not defined`,
+		`{{ nindent 5000 "x" }}`:                                                       "nindent: 5000 is not between",
+		`{{ env "HOME" }}`:                                                             "env: read environment variables as {{ .NAME }} and pass --env",
+		`{{ now }}`:                                                                    `function "now" not defined`,
+		`{{ randAlpha 3 }}`:                                                            `function "randAlpha" not defined`,
+		`{{ genPrivateKey "rsa" }}`:                                                    `function "genPrivateKey" not defined`,
 	} {
 		if _, err := config.Render([]byte(doc), config.Options{}); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: got %v, want %q", doc, err, want)
 		}
+	}
+}
+
+// TestTemplateSprigLists checks the list functions at their limits: no
+// overflow at the ends of int, exactly maxList entries, steps that point
+// away from the end, and keys and values in sorted order.
+func TestTemplateSprigLists(t *testing.T) {
+	t.Parallel()
+
+	for doc, want := range map[string]string{
+		`{{ untilStep 9223372036854775806 9223372036854775807 2 }}`:                  "[9223372036854775806]",
+		`{{ untilStep -9223372036854775807 -9223372036854775808 -5 }}`:               "[-9223372036854775807]",
+		`{{ seq 0 4611686018427387904 9223372036854775806 }}`:                        "0 4611686018427387904",
+		`{{ seq 9223372036854775806 9223372036854775807 }}`:                          "9223372036854775806 9223372036854775807",
+		`{{ len (until 1048576) }} {{ len (until -1048576) }}`:                       "1048576 1048576",
+		`{{ untilStep 0 2000000 -1 }} {{ seq 1 -1 2000000 }}|{{ seq 2000000 1 0 }}|`: "[] ||",
+		`{{ seq 3 }} {{ seq 3 1 }} {{ seq 1 2 6 }} {{ seq 0 }} {{ until -2 }}`:       "1 2 3 3 2 1 1 3 5 1 0 [0 -1]",
+		`{{ keys (dict "f" 1 "a" 2 "c" 3) }} {{ values (dict "f" 1 "a" 2 "c" 3) }}`:  "[a c f] [2 3 1]",
+	} {
+		out, err := config.Render([]byte(doc), config.Options{})
+		if err != nil || string(out) != want {
+			t.Errorf("%s: got %q, %v, want %q", doc, out, err, want)
+		}
+	}
+}
+
+// TestTemplateFuncNames pins the function names a template can call, so
+// that a sprig upgrade that adds one is checked for repeatability first.
+func TestTemplateFuncNames(t *testing.T) {
+	t.Parallel()
+
+	got := config.TemplateFuncNames()
+	if want := strings.Fields(funcNames); !slices.Equal(got, want) {
+		t.Errorf("the functions changed; check new ones for repeatability and update funcNames:\n%s", strings.Join(got, " "))
 	}
 }
 
@@ -379,3 +417,29 @@ func TestTemplateUnknownKeyLine(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+// funcNames are the template functions, from TestTemplateFuncNames.
+const funcNames = `
+abbrev abbrevboth add add1 add1f addf adler32sum all any append
+atoi b32dec b32enc b64dec b64enc base biggest buildCustomCert camelcase cat
+ceil chunk clean coalesce compact concat contains decryptAES deepCopy
+deepEqual default derivePassword dict dig dir div divf duration
+durationRound empty env expandenv ext fail first float64 floor fromJson get
+has hasKey hasPrefix hasSuffix hello indent initial initials int int64
+isAbs join kebabcase keys kindIs kindOf last list lower max maxf merge
+mergeOverwrite min minf mod mul mulf mustAppend mustChunk mustCompact
+mustDateModify mustDeepCopy mustFirst mustFromJson mustHas mustInitial
+mustLast mustMerge mustMergeOverwrite mustPrepend mustPush mustRegexFind
+mustRegexFindAll mustRegexMatch mustRegexReplaceAll
+mustRegexReplaceAllLiteral mustRegexSplit mustRest mustReverse mustSlice
+mustToJson mustToPrettyJson mustToRawJson mustUniq mustWithout
+must_date_modify nindent nospace omit pick pluck plural prepend push quote
+regexFind regexFindAll regexMatch regexQuoteMeta regexReplaceAll
+regexReplaceAllLiteral regexSplit repeat replace rest reverse round semver
+semverCompare seq set sha1sum sha256sum sha512sum slice snakecase sortAlpha
+split splitList splitn squote sub subf substr swapcase ternary title
+toDecimal toJson toPrettyJson toRawJson toString toStrings trim trimAll
+trimPrefix trimSuffix trimall trunc tuple typeIs typeIsLike typeOf uniq
+unixEpoch unset until untilStep untitle upper urlJoin urlParse values
+without wrap wrapWith
+`

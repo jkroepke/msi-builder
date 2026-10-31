@@ -175,8 +175,9 @@ changes:
 | `has "NAME"` | Whether the variable is set (sprig's `has` tests a list; `mustHas` still does) |
 | `quote S` | `S` as a double-quoted YAML string, with the characters YAML does not allow escaped, so any value arrives as given (sprig's `quote` writes Go escapes, which YAML reads differently) |
 | `split SEP S` | The parts of `S` between each `SEP` as a list, like sprig's `splitList`, for `{{ range split ";" .LANGS }}`; an empty `S` has none, and an empty `SEP` is an error (sprig's `split` gives a dict) |
-| `indent`, `nindent` | As in sprig, with at most 1024 spaces |
-| `repeat`, `until`, `untilStep`, `seq` | As in sprig, refusing more than 16 MiB of text or 1,048,576 entries |
+| `indent`, `nindent` | As in sprig, with at most 1024 spaces and 16 MiB of text |
+| `repeat`, `until`, `untilStep`, `seq` | As in sprig, refusing more than 16 MiB of text or 1,048,576 entries, and without wrapping around at the ends of the integer range |
+| `keys`, `values` | As in sprig, in the order of the sorted keys (sprig's order changes from run to run) |
 | `env`, `expandenv` | An error that points to `{{ .NAME }}` with `--env`, so that the environment is read only when the command line says so |
 
 Functions whose result changes from run to run are left out, so that the
@@ -185,7 +186,7 @@ same file and variables build the same package and the same
 other clock functions, `randAlpha` and the other random strings,
 `uuidv4`, `getHostByName`), and `ago`, `toDate` (the machine's time
 zone), `randInt`, `shuffle`, `bcrypt`, `htpasswd`, `encryptAES` and the
-`gen…` key and certificate functions. `default` applies to an empty
+`gen…` key and certificate functions, and `osBase`, `osClean`, `osDir`, `osExt` and `osIsAbs`, whose result depends on the operating system that builds (`base`, `dir` and the others work the same everywhere). The caps keep one call from filling the memory; they do not bound a template, which is code. `default` applies to an empty
 value; a variable that is not set is an error before `default` sees it,
 so a default goes into the vars header.
 

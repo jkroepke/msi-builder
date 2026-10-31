@@ -30,16 +30,17 @@ var errRenderedTooLarge = fmt.Errorf("the template writes more than %d bytes", m
 // variable: from Options.Vars, then through Options.LookupEnv, then from
 // the vars header (see header), whose values may use other variables the
 // same way. A variable that is not set is an error. The functions are Go's
-// built-in ones and:
+// built-in ones and sprig's (https://masterminds.github.io/sprig/), less
+// the ones whose result changes from run to run or between operating
+// systems, and with these of msi-builder's own:
 //
 //   - has "NAME": whether the variable is set, for what WiX does with
 //     <?ifdef?>.
 //   - quote S: S as a double-quoted YAML string, for a value that holds
 //     YAML syntax such as ": " or a line break.
-//   - indent N S: S with every line after the first indented by N spaces.
-//   - split SEP S: the parts of S between each SEP, for a range over a list
-//     such as --var LANGS=en;de; an empty S has no parts, and SEP must not
-//     be empty.
+//   - split SEP S: the parts of S between each SEP as a list, for a range
+//     over a list such as --var LANGS=en;de; an empty S has no parts, and
+//     SEP must not be empty.
 //
 // The header is copied to the output as it is. The output is capped at
 // 16 MiB, but a template is code: like a build script, only render files
