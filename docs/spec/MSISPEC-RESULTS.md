@@ -290,6 +290,7 @@ Silent-failure cases a producer has to guard against itself:
 | CA-06 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40925575633 (PR #117): `add rule name=all` fails in any case and quoted; `delete rule name=all` deletes every rule the other filters select, `"all"` and `\"all\"` included; unscoped with `dir=in` it deleted every inbound rule (208, two of them probe rules); names with spaces around `all` are ordinary names; [details](#reserved-firewall-rule-name-ca-06) |
 | CA-07 | Confirmed | [ci](msitest/results/CA-07/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40940932552: `localport=80,443,8000-8010` from the package and from a property is stored as written; uninstall removes the rule |
 | CA-08 | Confirmed | GitHub `windows-latest` runner, 2026-10-30, CI runs 41053365815 and 41058632106 (`TestMsiexecProgressText`, `TestFullUIProgressText`): the full-UI progress page shows a deferred action's `ActionText` description with `[ProductName]` resolved; the verbose log writes descriptions formatted; the German transform replaces the row; a `/qn` log has no description for an immediate action; [details](#progress-texts-ca-08) |
+| CA-09 | Confirmed | [ci](msitest/results/CA-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI runs 41236083486 and 41239378858 (PR #183): in `ALLUSERS=2` packages a no-impersonate action conditioned `ALLUSERS=1` runs as LocalSystem per machine (install, repair, uninstall) and not per user, also not in an administrator's per-user install; unconditioned it runs per user as the installing user, administrator or standard user, in both dual scopes; ICE105 warns about it in `perUserOrMachine` with or without the condition and is silent in `perMachineOrUser`, and treats a `System64Folder` Directory row the same way |
 | SHORTCUT-01 | Confirmed | [hkcu-folder](msitest/results/SHORTCUT-01/hkcu-folder/log.md), [file-component](msitest/results/SHORTCUT-01/file-component/log.md), [file-component-folder](msitest/results/SHORTCUT-01/file-component-folder/log.md), [advertised](msitest/results/SHORTCUT-01/advertised/log.md), [per-user](msitest/results/SHORTCUT-01/per-user/log.md); every layout installs and removes both shortcuts, the Start menu subfolder goes without a `RemoveFile` row; [details](#shortcuts-shortcut-01) |
 | SHORTCUT-02 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40882369236 (PR #98): the engine converts `PropVariantValue` to the property's type and formats it; a CLSID needs braces; an unknown name or a bad value is warning 1946 and the install goes on; [details](#shortcut-properties-shortcut-02) |
 | SHORTCUT-03 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI runs 40900720903 and 40908162979 (PR #105): WriteIniValues writes the `.url` as ANSI with CRLF, the shell reads the address, the `RemoveFile` row deletes it at uninstall after the shell added a section; [details](#shortcut-targets-shortcut-03-shortcut-04) |
@@ -1136,6 +1137,26 @@ full-UI test package with two more actions: `SetMarker`, an immediate
   `ActionStart` operation, so it holds the property values of the moment the
   script was written.
 - Not covered: basic UI (`/qb`).
+
+## Context actions (CA-09)
+
+Run on 2026-10-31 in CI runs 41236083486 and 41239378858 on the
+`Build & Test (windows-latest, native)` job (Windows Server 2025 x64, the
+runner's administrator with a full token, and the throwaway standard user
+`msitest`) by `internal/builder/nativetest/contextactions_windows_test.go`.
+Details: [log](msitest/results/CA-09/ci/log.md).
+
+| Install | Server `ALLUSERS` | `scope: perMachine`, no impersonation | `scope: perUser` | no scope |
+| --- | --- | --- | --- | --- |
+| administrator, per machine (install, repair, uninstall) | `1` | `nt authority\system` | not run | administrator |
+| administrator, per user (install, repair, uninstall) | empty | not run | administrator | administrator |
+| standard user, per user (exit 0) | empty | not run | the user | the user |
+| unconditioned copy, administrator per user (`perUserOrMachine`, and `perMachineOrUser` switched to per user) | empty | administrator | administrator | administrator |
+| unconditioned copy, standard user per user (both dual scopes, exit 0) | empty | the user | the user | the user |
+
+- ICE105 posted one warning, `3073 contains msidbCustomActionTypeNoImpersonate execution option. This is invalid for a per user application. [CustomAction.Action]`, for the `perUserOrMachine` package with and without the condition, and nothing for `perMachineOrUser`.
+- A `System64Folder` Directory row (`TestICEActionFolder`) drew `ICE105 warning: System64Folder invalid directory for a per user application. [Directory.Directory]` in `perUserOrMachine` and nothing in `perMachineOrUser`.
+- Not covered: the wizard's scope page (the condition is evaluated in the server, where INST-02 and ENVVAR-03 showed `ALLUSERS` after a switch), an install elevated by `AlwaysInstallElevated`, Server 2016.
 
 ## Closing running programs (CLOSE-01)
 
