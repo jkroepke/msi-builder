@@ -294,7 +294,9 @@ go test ./... -shuffle=on -race
   `reg query /reg:32` finds a per-user value the package wrote in the 64-bit
   view; only HKLM tells the views apart (SEARCH-06).
 - Quote `{{ .VAR }}` inside a YAML flow mapping
-  (`{ version: "{{ .VERSION }}" }`): `{` and `}` end a plain scalar there,
+  (`{ version: '{{ .VERSION }}' }`, or `{{ .VAR | quote }}` for any text):
+  never in double quotes, which read the backslashes of a path as escapes.
+  `{` and `}` end a plain scalar there,
   so the document fails to parse ("did not find expected ',' or '}'"). The windows-only tests only show
   this in CI, so parse their configs with `config.Parse` on Linux first.
 - Uninstall test products with `defer`, not `t.Cleanup`: `msiexecQuiet` runs

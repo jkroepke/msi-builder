@@ -399,3 +399,20 @@ func TestVariableValues(t *testing.T) {
 		t.Error("a variable that is not valid UTF-8 was accepted")
 	}
 }
+
+// TestRepoConfigs parses the msi.yaml files of the spec probes and test
+// data, which no other Linux test reads.
+func TestRepoConfigs(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"../../docs/spec/msitest/inst02/probe.yaml",
+		"../../docs/spec/msitest/reg05/probe.yaml",
+		"../../docs/spec/msitest/reg05/baseline.yaml",
+		"../../internal/cadll/testdata/probe/msi.yaml",
+	} {
+		if _, err := config.Load(path, config.Options{}); err != nil {
+			t.Error(err)
+		}
+	}
+}

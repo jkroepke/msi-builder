@@ -12,7 +12,7 @@ schema: msi-builder/v1
 product:
   name: Example Agent
   manufacturer: Example
-  version: "{{ .VERSION }}"
+  version: '{{ .VERSION }}'
   upgradeCode: 0f5a3c8e-6b1d-4f2a-9c7e-2d4b8a1e5f60
   arp:
     icon: icon.ico

@@ -1260,7 +1260,12 @@
         "schema",
         "product",
         "package"
-      ]
+      ],
+      "not": {
+        "required": [
+          "vars"
+        ]
+      }
     },
     {
       "description": "A vars header: a first document that holds only vars and ends with a --- line.",

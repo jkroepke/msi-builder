@@ -160,6 +160,10 @@ func TestTemplateErrors(t *testing.T) {
 			doc:  "vars:\n  A: x{{ .B }}\n  B: x{{ .A }}\n---\nx: {{ .A }}\n",
 			want: "line 3: vars.B: A -> B -> A is a cycle",
 		},
+		"vars header yaml": {
+			doc:  "vars:\n  A: x\n  B: \"x {{ .A }}\n---\nx: {{ .A }}\n",
+			want: "vars header: yaml: line",
+		},
 		"vars entry error": {
 			doc:  "vars:\n  A: x{{ .NOPE }}\n---\nx: {{ .A }}\n",
 			want: "line 2: vars.A: line 1:4: at <.NOPE>: variable NOPE is not set",
@@ -302,6 +306,9 @@ func TestTemplateHeader(t *testing.T) {
 		"crlf":            {"vars:\r\n  A: b\r\n---\r\nx: {{ .A }}\r\n", "vars:\r\n  A: b\r\n---\r\nx: b\r\n"},
 		"no header":       {"---\nx: {{ \"b\" }}\n", "---\nx: b\n"},
 		"other first key": {"y: 1\n---\nx: {{ \"b\" }}\n", "y: 1\n---\nx: b\n"},
+		"marker comment":  {"vars:\n  A: b\n--- # end\nx: {{ .A }}\n", "vars:\n  A: b\n--- # end\nx: b\n"},
+		"no last newline": {"vars:\n  A: b\n---", "vars:\n  A: b\n---"},
+		"directive":       {"%YAML 1.1\n---\nvars:\n  A: b\n---\nx: {{ .A }}\n", "%YAML 1.1\n---\nvars:\n  A: b\n---\nx: b\n"},
 	} {
 		out, err := config.Render([]byte(test.doc), config.Options{})
 		if err != nil {

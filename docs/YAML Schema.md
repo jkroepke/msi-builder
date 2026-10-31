@@ -62,7 +62,7 @@ serves every release:
 product:
   name: Hello
   manufacturer: Example
-  version: "{{ .VERSION }}"
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 ```
 
@@ -70,8 +70,11 @@ product:
 msi-builder build --var VERSION=1.4.0 -o hello.msi msi.yaml
 ```
 
-Quote a value that starts with `{{`, as above: YAML editors read an
-unquoted `{{ … }}` as a mapping. With `--env`, environment variables are
+Put a value that starts with `{{` in single quotes, as above: YAML editors
+read an unquoted `{{ … }}` as a mapping. Single quotes keep the
+backslashes of a Windows path; double quotes would read `\t` or `\n` in
+it as escapes. A value that may hold a `'` goes through `quote` instead
+(below). With `--env`, environment variables are
 used too. A variable that is set nowhere is an error that says how to set
 it. `[INSTALLDIR]` and other names in brackets are not variables: Windows
 Installer fills them in at install time.
@@ -89,7 +92,7 @@ vars:
 ---
 schema: msi-builder/v1
 product:
-  name: "{{ .NAME }}"
+  name: '{{ .NAME }}'
 ```
 
 ### Parts that depend on the build
@@ -102,7 +105,7 @@ vars:
   ARCH: x64
 ---
 package:
-  platform: "{{ .ARCH }}"
+  platform: '{{ .ARCH }}'
 components:
   - files:
       - source: hello.exe
@@ -119,8 +122,9 @@ msi-builder render --var ARCH=arm64 --var VERSION=1.4.0 msi.yaml   # print the r
 - `{{ if has "DEBUG" }}` tests whether a variable is set.
 - `{{ range split ";" .LANGS }}` loops over a list such as
   `--var LANGS=en;de`.
-- `{{ .NAME | quote }}` writes any value as a YAML string. Use it for a
-  value that may hold `: `, a leading `[` or a line break.
+- `{{ .NAME | quote }}` writes any value as a YAML string, quotes and
+  backslashes included. Use it for text you do not control, which may
+  hold `'`, `: `, a leading `[` or a line break.
 - `{{ "{{" }}` writes a literal `{{`, also in a comment.
 - Put `{{- if ... }}`, `{{- else }}` and `{{- end }}` at the start of their
   own line: `{{-` removes the line break before it, and the YAML

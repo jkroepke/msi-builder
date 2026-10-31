@@ -824,7 +824,7 @@ func TestConvertDowngradeLaunchCondition(t *testing.T) {
 			`<?define M = "m1" ?>
     <MajorUpgrade DowngradeErrorMessage="$(var.M)" />
     <Launch Condition="NOT WIX_DOWNGRADE_DETECTED" Message="m1" />`,
-			[]string{"downgradeMessage: '{{ .M }}'"},
+			[]string{"downgradeMessage: {{ .M | quote }}"},
 			[]string{"launchConditions", "is left out"},
 		},
 		"two folded launch conditions": {
@@ -837,7 +837,7 @@ func TestConvertDowngradeLaunchCondition(t *testing.T) {
 		"undefined preprocessor variable": {
 			`<MajorUpgrade DowngradeErrorMessage="x" />
     <Launch Condition="NOT $(var.NP)" Message="newer" />`,
-			[]string{"condition: NOT {{ .NP }}", `if NOT {{ "{{" }} .NP }} is the property`},
+			[]string{"condition: {{ print `NOT ` .NP | quote }}", "if NOT {{ `{{` }} .NP }} is the property"},
 			nil,
 		},
 		"no upgrade elements": {
@@ -2215,7 +2215,7 @@ func TestConvertTypeTextsAndURLLaunch(t *testing.T) {
 		"progId: Hello.Project\n", "description: Hello Project File\n", "extension: hlo\n",
 		`Verb Command="Open in [CHANGING]" holds formatted text convert cannot fill in`,
 		`the launch checkbox (action OpenSite: powershell Start-Process https://example.com) "Open the website" starts no file`,
-		"progId: Hello.Pub\n", "contentType: application/x-{{ .AppName }}\n", `ProgId Description="[PUB] [%USERNAME] by Example" holds formatted text`,
+		"progId: Hello.Pub\n", "contentType: {{ print `application/x-` .AppName | quote }}\n", `ProgId Description="[PUB] [%USERNAME] by Example" holds formatted text`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the YAML lacks %q:\n%s", want, out)
@@ -2381,5 +2381,46 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
 
 	if err := config.Validate(cfg).Err(); err != nil {
 		t.Errorf("the converted file does not validate: %v\n%s", err, out)
+	}
+}
+
+// TestConvertVarValues checks that values with quotes, backslashes, YAML
+// syntax and a literal "{{" next to a tab arrive as given once the
+// converted file is rendered.
+func TestConvertVarValues(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="WHOLE" Value="$(var.A)" />
+    <Property Id="MIXED" Value="x $(var.A) y" />
+    <Property Id="BRACES" Value="tab&#9;{{ here $(var.A)" />
+    <Property Id="LITERAL" Value="tab&#9;{{ there" />
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, value := range []string{`Bob's "App"`, `C:\temp\new\a.exe`, "a: b # c", "[x]", "{{ .A }}", "line\nbreak"} {
+		cfg, err := config.Parse(res.YAML, config.Options{Vars: map[string]string{"A": value}})
+		if err != nil {
+			t.Fatalf("%q: %v\n%s", value, err, res.YAML)
+		}
+
+		for prop, want := range map[string]string{
+			"WHOLE": value, "MIXED": "x " + value + " y", "BRACES": "tab\t{{ here " + value, "LITERAL": "tab\t{{ there",
+		} {
+			if got := cfg.Properties[prop].Value; got != want {
+				t.Errorf("%q: %s = %q, want %q", value, prop, got, want)
+			}
+		}
 	}
 }

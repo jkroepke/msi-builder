@@ -22,7 +22,7 @@ schema: msi-builder/v1
 product:
   name: Hello
   manufacturer: Example
-  version: '{{ .Version }}'
+  version: {{ .Version | quote }}
   language: 1031
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
   description: Hello service
@@ -45,7 +45,7 @@ upgrade:
   related:
     - upgradeCode: 513044d7-fae5-4715-984a-14f911d06fcc
       minVersion: 1.0.0
-      maxVersion: '{{ .Version }}'
+      maxVersion: {{ .Version | quote }}
       includeMin: false
       property: OLDX86FOUND
   property: WIX_UPGRADE_DETECTED
@@ -61,7 +61,7 @@ directories:
         configurable: true
         children:
           - id: LogsDir
-            name: '{{ .ShortName }} logs'
+            name: {{ print .ShortName ` logs` | quote }}
   - id: CommonAppDataFolder
     children:
       - id: DataDir
@@ -98,7 +98,7 @@ components:
         id: hello.exe
         checksum: true
         shortcuts:
-          - name: '{{ .ShortcutName }}'
+          - name: {{ .ShortcutName | quote }}
             directory: DesktopFolder
             arguments: --gui
         fileTypes:
@@ -135,7 +135,7 @@ components:
         key: SOFTWARE\Example\Hello
         name: Port
         type: dword
-        value: '{{ .Port }}'
+        value: {{ .Port | quote }}
       - root: HKLM
         key: SOFTWARE\Example\Hello
         name: Hosts
@@ -236,7 +236,7 @@ components:
   - id: FirewallRule
     guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a15
 properties:
-  PORT: '{{ .Port }}'
+  PORT: {{ .Port | quote }}
   API_TOKEN:
     hidden: true
   # The folder of the last version.
@@ -267,7 +267,7 @@ customActions:
     execute: deferred
     impersonate: false
     return: ignore
-    progress: Stopping the hello {{ .Version }} clients
+    progress: {{ print `Stopping the hello ` .Version ` clients` | quote }}
     schedule:
       - {sequence: execute, before: StopServices, when: uninstall}
   - id: ImportData

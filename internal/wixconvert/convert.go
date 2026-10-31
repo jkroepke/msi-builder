@@ -8,7 +8,6 @@
 package wixconvert
 
 import (
-	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -880,22 +879,10 @@ func (c *converter) render(opts Options) ([]byte, error) {
 	docs = append(docs, &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{c.out.node()}})
 	docs[0].Content[0].Content[0].HeadComment = commentText(head)
 
-	var buf bytes.Buffer
-
-	buf.WriteString("# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json\n")
-
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-
-	for _, doc := range docs {
-		if err := enc.Encode(doc); err != nil {
-			return nil, fmt.Errorf("encode: %w", err)
-		}
+	out, err := encodeDocs(docs)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := enc.Close(); err != nil {
-		return nil, fmt.Errorf("encode: %w", err)
-	}
-
-	return buf.Bytes(), nil
+	return append([]byte("# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json\n"), out...), nil
 }

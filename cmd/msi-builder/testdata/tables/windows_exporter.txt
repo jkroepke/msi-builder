@@ -6,7 +6,7 @@ summary  4: prometheus-community
 summary  5: Installer
 summary  6: This installer database contains the logic and data required to install windows_exporter.
 summary  7: x64;1033
-summary  9: {0FF20A7C-CD48-5BBF-8D7F-28CE261017F6}
+summary  9: {D883B368-3A62-5B7C-A260-4556796966B9}
 summary 12: 2026-01-02T03:04:05Z
 summary 13: 2026-01-02T03:04:05Z
 summary 14: 500
@@ -537,7 +537,7 @@ LISTEN_PORT	9182
 MSIRESTARTMANAGERCONTROL	Disable
 Manufacturer	prometheus-community
 MsiHiddenProperties	SERVICE_PASSWORD
-ProductCode	{6830FEB2-7C7B-5CC0-911B-F29F11722313}
+ProductCode	{79578CC2-3AC7-5570-878F-273F831107C1}
 ProductLanguage	1033
 ProductName	windows_exporter
 ProductVersion	0.32.0.5

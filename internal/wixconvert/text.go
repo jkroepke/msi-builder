@@ -60,17 +60,6 @@ func (c *converter) expand(elm *elem, text string) string {
 	return text
 }
 
-// escapeTemplate writes each "{{" in text as a template action that
-// renders it, so that msi-builder reads the text as it is.
-func escapeTemplate(text string) string {
-	return strings.ReplaceAll(text, "{{", `{{ "{{" }}`)
-}
-
-// varAction returns the template action that reads the variable name.
-func varAction(name string) string {
-	return "{{ ." + name + " }}"
-}
-
 // expandVars turns preprocessor variables into {{ .NAME }} actions.
 func (c *converter) expandVars(elm *elem, text string) string {
 	return preprocessorVar.ReplaceAllStringFunc(text, func(m string) string {

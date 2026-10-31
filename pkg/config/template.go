@@ -72,9 +72,12 @@ func renderFile(data []byte, opts Options) (*rendered, error) {
 	vars := &varResolver{opts: opts, raw: make(map[string]string), lines: make(map[string]int), left: maxRendered}
 	body, offset := data, 0
 
-	hdr := splitHeader(data)
+	hdr, err := splitHeader(data)
+	if err != nil {
+		return nil, err
+	}
+
 	if hdr != nil {
-		var err error
 		if vars.raw, vars.lines, err = fileVars(hdr.root); err != nil {
 			return nil, err
 		}

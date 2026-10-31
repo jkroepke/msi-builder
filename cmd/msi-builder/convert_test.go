@@ -40,7 +40,7 @@ func TestConvert(t *testing.T) {
 		t.Fatalf("convert: exit %d: %s", code, stderr.String())
 	}
 
-	if !strings.Contains(stdout.String(), "version: '{{ .Version }}'") || !strings.Contains(stdout.String(), "- source: hello.exe") {
+	if !strings.Contains(stdout.String(), "version: {{ .Version | quote }}") || !strings.Contains(stdout.String(), "- source: hello.exe") {
 		t.Errorf("stdout %q", stdout.String())
 	}
 

@@ -95,7 +95,7 @@ schema: msi-builder/v1
 product:
   name: Hello
   manufacturer: Example
-  version: "{{ .VERSION }}"
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 
 package:
@@ -233,7 +233,7 @@ do in WiX: Windows Installer fills them in at install time.
 product:
   name: Hello
   manufacturer: Example
-  version: "{{ .VERSION }}"
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
   arp:
     icon: hello.ico
@@ -249,7 +249,7 @@ upgrade:
   downgradeMessage: A newer version of [ProductName] is already installed.
   related:                          # Upgrade / UpgradeVersion
     - upgradeCode: 513044d7-fae5-4715-984a-14f911d06fcc
-      maxVersion: "{{ .VERSION }}"
+      maxVersion: '{{ .VERSION }}'
       includeMax: false
       property: OLDX86FOUND
 ```

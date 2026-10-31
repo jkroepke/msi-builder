@@ -14,7 +14,7 @@ vars:
 ---
 schema: msi-builder/v1
 product:
-  name: '{{ .ProductName }}'
+  name: {{ .ProductName | quote }}
   manufacturer: Example
   version: 1.0.0
   upgradeCode: 5d9b2f3a-7c1e-4b8d-9f0a-2e6c4a8b1d37
@@ -54,4 +54,4 @@ components:
 properties:
   # Installs the level 2 features by default.
   INSTALLLEVEL: "2"
-  GREETING: '{{ .Greeting }}, welcome to {{ .ProductName }}'
+  GREETING: {{ print .Greeting `, welcome to ` .ProductName | quote }}

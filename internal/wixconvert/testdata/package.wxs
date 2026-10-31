@@ -2,7 +2,7 @@
 <!-- A sample package in WiX v4 syntax with most of what msi-builder convert maps. -->
 <?define Port = 8080 ?>
 <?define ShortName = "Hello" ?>
-<!-- Takes in ShortName: msi-builder does not expand vars inside vars. -->
+<!-- convert takes in ShortName here. -->
 <?define ShortcutName = "$(var.ShortName) App" ?>
 <?include common.wxi ?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"

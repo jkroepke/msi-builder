@@ -13,7 +13,7 @@ schema: msi-builder/v1
 product:
   name: windows_exporter
   manufacturer: prometheus-community
-  version: "{{ .VERSION }}"
+  version: '{{ .VERSION }}'
   upgradeCode: 66a6eb5b-1fc2-4b14-a362-5ceec6413308
   arp:
     icon: icon.ico
@@ -25,7 +25,7 @@ product:
     installLocation: APPLICATIONFOLDER
 
 package:
-  platform: "{{ .ARCH }}"
+  platform: '{{ .ARCH }}'
   cabinet: windows_exporter.cab
 
 # C:\Program Files\windows_exporter. APPLICATIONFOLDER is the property the
@@ -47,7 +47,7 @@ features:
         guid: 5546455E-B5EA-5AF8-A21A-AA526F04D083
         transitive: true
         files:
-          - source: "{{ .BINARY }}"
+          - source: '{{ .BINARY }}'
             name: windows_exporter.exe
             checksum: true
             # ServiceControl stops the service, but its process can outlive
@@ -165,7 +165,7 @@ customActions:
       - { sequence: execute, before: InstallServices, condition: CONFIG_FILE="config.yaml" AND $Executable=3 }
 
 icons:
-  icon.ico: "{{ .ICON }}"
+  icon.ico: '{{ .ICON }}'
 
 ui:
   enabled: true

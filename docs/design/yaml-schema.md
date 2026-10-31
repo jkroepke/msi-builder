@@ -82,7 +82,7 @@ closes each one.
 | Corrupted cabinet data (MSZIP-01, CAB-04) | Wrong DEFLATE history, or a bit flip without a checksum, installs a corrupted file | Writer: every cabinet data block gets a checksum, and the builder re-extracts every cabinet after writing it and compares each file's SHA-256 with the source. Neither can be turned off, so the schema has no field for them. |
 | Script custom actions (CA-02) | Inline JScript/VBScript actions (types 37/38) report success whatever they return; a Binary script returning 5 ends the install with 0 and leaves files unregistered | There are no script custom actions. Actions run an executable (`exec`, `execProperty`, `exe`), a command through msi-builder's DLL (`run`), a DLL (`dll`), set a property or directory, or fail with an error. |
 | EXE exit codes (CA-02) | Any non-zero exit fails the install unless the action ignores it | `customActions[].return` is required for `exec`, `execProperty`, `exe` and `run` actions (`check` or `ignore`), so the author decides. |
-| Same ProductCode, new package (UPG-03) | Installing a rebuilt package over the installed one fails with 1638 | `product.productCode: auto` derives the code from the upgrade code, version, platform and a digest of every input, including the contents of the wizard's licenses and theme pictures; the release that added these derives a new code once for every configuration that uses them. Changed content gives a new ProductCode (a major upgrade); unchanged content gives the same package byte for byte. Keys whose value means the same as a missing key (null, `""`, `[]`, `{}`) are left out of the digest, so a key a later version adds to the schema (as a pointer, string, list or mapping, or left out when empty) does not change the code of a configuration that does not use it; `false` and `0` stay in, since an explicit `secure: false` is not the default. The release that introduced this pruning derives a new code once for every configuration, unchanged ones included. So did renaming `ui.installDirPage` to `chooseDirectory` (its `false` was in every digest), and renaming `ui.wizard` to `enabled` does for every configuration with `wizard: true`. The release that writes HKCU key paths for components in the user profile (INST-04) derives a new code once for every configuration with such a component. A pinned ProductCode makes the validator warn. |
+| Same ProductCode, new package (UPG-03) | Installing a rebuilt package over the installed one fails with 1638 | `product.productCode: auto` derives the code from the upgrade code, version, platform and a digest of every input, including the contents of the wizard's licenses and theme pictures; the release that added these derives a new code once for every configuration that uses them. Changed content gives a new ProductCode (a major upgrade); unchanged content gives the same package byte for byte. Keys whose value means the same as a missing key (null, `""`, `[]`, `{}`) are left out of the digest, so a key a later version adds to the schema (as a pointer, string, list or mapping, or left out when empty) does not change the code of a configuration that does not use it; `false` and `0` stay in, since an explicit `secure: false` is not the default. The release that introduced this pruning derives a new code once for every configuration, unchanged ones included. So did renaming `ui.installDirPage` to `chooseDirectory` (its `false` was in every digest), and renaming `ui.wizard` to `enabled` does for every configuration with `wizard: true`. The release that writes HKCU key paths for components in the user profile (INST-04) derives a new code once for every configuration with such a component. The variables are left out of the digest, since the template has already written the ones it reads into the configuration; the release that made msi.yaml a template derives a new code once for every configuration with a `vars` header. A pinned ProductCode makes the validator warn. |
 | Quote in a firewall rule description (CA-04) | netsh drops the quote and stores the rest of the description | `firewall[].name` and `firewall[].description` must not contain a double quote. |
 | Firewall rule named `all` (CA-06) | `add rule` refuses the name, `delete rule name=all dir=in` deletes every inbound rule, in lower or upper case and with or without double quotes (also `\"all\"` through `cmd`) | `firewall[].name` must not be `all` in any case (spaces around it included) and must not contain `[` or `]`. |
 | Versions that differ in the fourth field only (UPG-01) | Without an inclusive maximum both products stay installed side by side | `upgrade.allowSameVersion` defaults to `true` (maximum inclusive), so `0.32.0.5` replaces `0.32.0.4`. Four-field versions get a warning that Windows compares only three. |
@@ -141,7 +141,7 @@ ends with a `---` line, as GitLab CI does with `spec: inputs`. It is read
 before rendering, so it is plain YAML; a value in it may itself be a
 template that reads other variables (`NAME: Acme {{ .ARCH }}`, rendered
 once, when it is first needed). A value from the command line or the
-environment is taken as it is. A cycle (`A: "{{ .B }}"`, `B: "{{ .A }}"`)
+environment is taken as it is. A cycle (`A: '{{ .B }}'`, `B: '{{ .A }}'`)
 is an error, reported on the entry that closes it; a broken entry is an
 error only where the template reads it. A `vars` key in the document
 itself is an error that points to the header. `config.Config.Vars` holds
@@ -154,10 +154,10 @@ vars:
 ---
 schema: msi-builder/v1
 product:
-  name: "{{ .NAME }}"
-  version: "{{ .VERSION }}"
+  name: '{{ .NAME }}'
+  version: '{{ .VERSION }}'
 package:
-  platform: "{{ .ARCH }}"
+  platform: '{{ .ARCH }}'
 components:
   - files:
       - source: hello.exe
@@ -177,8 +177,10 @@ The functions are Go's built-in ones and four more:
 
 A template writes text, so a value with YAML syntax (`: `, a leading `[`,
 a line break) changes the document unless it is written with `quote`. A
-value that starts with `{{` is quoted (`version: "{{ .VERSION }}"`): YAML
-editors read an unquoted `{{ … }}` as a mapping. `{{ "{{" }}` writes a
+value that starts with `{{` is put in single quotes
+(`version: '{{ .VERSION }}'`): YAML editors read an unquoted `{{ … }}` as
+a mapping, and double quotes would turn the backslashes of a Windows path
+into escapes. A value that may hold a `'` is written with `quote`. `{{ "{{" }}` writes a
 literal `{{`, also in a comment, which is template text as well.
 Windows Installer's own `[Property]` syntax is left alone. The header is
 copied to the output of `msi-builder render`, which prints the rendered
