@@ -2,6 +2,9 @@ package config_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -413,6 +416,35 @@ func TestRepoConfigs(t *testing.T) {
 	} {
 		if _, err := config.Load(path, config.Options{}); err != nil {
 			t.Error(err)
+		}
+	}
+}
+
+// TestWindowsTestConfigs renders the msi.yaml texts of the Windows-only
+// tests, which no Linux test reads, so that a template error such as a
+// literal "{{" shows here and not only in the Windows CI. Every variable
+// is set to "1".
+func TestWindowsTestConfigs(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob("../../internal/builder/nativetest/*_windows_test.go")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no Windows tests: %v", err)
+	}
+
+	raw := regexp.MustCompile("(?s)`([^`]*schema: msi-builder/v1[^`]*)`")
+	everything := func(string) (string, bool) { return "1", true }
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, m := range raw.FindAllSubmatch(data, -1) {
+			if _, err := config.Render(m[1], config.Options{LookupEnv: everything}); err != nil {
+				t.Errorf("%s: %v", filepath.Base(path), err)
+			}
 		}
 	}
 }
