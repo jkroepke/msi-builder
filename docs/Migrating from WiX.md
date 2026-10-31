@@ -183,7 +183,7 @@ msi-builder does the same by default:
 | `PermissionEx` (SDDL), `Permission` | `permissions.sddl`, `folderPermissions.sddl` |
 | `util:PermissionEx` | `permissions.grant`, `folderPermissions.grant`; on a registry key, `permissions.sddl` |
 | `Property` | `properties` |
-| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search`; a `DirectorySearch` without `Path` in a `RegistrySearch` checks that the folder exists and becomes `type: directory` on the registry search |
+| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search`; a `DirectorySearch` without `Path` in a `RegistrySearch` with `Type="directory"` adds nothing, because that search already finds only a folder that exists. In a `Type="raw"` search, or one without `Type`, it returns the folder that holds the path in the value without checking that it exists (SEARCH-09). Convert keeps the value and adds a note, which says that for a value that is a path the property is set whenever the value exists, so the raw value is enough when only that matters. A search nested in it looks in that folder, while convert searches in the folder the value names, so convert notes that too |
 | `ProductSearch UpgradeCode` | an `upgrade.related` row with `onlyDetect: true` that sets the property |
 | `Launch` (v3 `Condition` under `Product`) | `launchConditions` |
 | `CustomAction`, `SetProperty`, `Custom` | `customActions` |
