@@ -151,21 +151,19 @@ func (im *image) read(rva, size uint32) ([]byte, error) {
 
 	off := int64(sec.rawPointer) + int64(rel) //nolint:gosec // both fit in 33 bits
 
-	// Grow the buffer while reading instead of allocating size up front: a
-	// corrupt header can claim gigabytes that the file does not hold, and
-	// the read then fails at the real end.
-	buf, err := io.ReadAll(io.NewSectionReader(im.r, off, int64(fileBacked)))
-	if err != nil {
+	// Every caller reads a bounded record (at most 512 KiB), so the buffer
+	// is allocated once at its size; the part past the file-backed bytes
+	// stays zero.
+	buf := make([]byte, size)
+	if n, err := im.r.ReadAt(buf[:fileBacked], off); n != len(buf[:fileBacked]) {
+		if err == nil || errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
+
 		return nil, fmt.Errorf("pe: reading RVA %#x: %w", rva, err)
 	}
 
-	if uint64(len(buf)) != fileBacked {
-		return nil, fmt.Errorf("pe: reading RVA %#x: %w", rva, io.ErrUnexpectedEOF)
-	}
-
-	// The zero tail is at most what the section's VirtualSize covers, and
-	// every caller reads a bounded record (at most 512 KiB).
-	return append(buf, make([]byte, uint64(size)-fileBacked)...), nil
+	return buf, nil
 }
 
 // resources is the resource directory at rva. Its records are read one at
@@ -360,9 +358,8 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 	// system), so such a file is refused, which the builder reports like an
 	// unversioned one. The languages are those of every entry, in directory
 	// order, without duplicates, last first: German [1031] and English
-	// [1033] gave 1033,1031 (FILE-14). Entries sharing a data entry's RVA and
-	// size are read once, so a directory of many entries costs one read
-	// per distinct pair.
+	// [1033] gave 1033,1031 (FILE-14). Each entry costs two small record
+	// reads; a block, by RVA and wLength, is parsed once.
 	pick, ok := pickLanguage(langs)
 	if !ok {
 		return nil
@@ -690,7 +687,7 @@ func parseVarFileInfo(data []byte, off int, info *Info) {
 		// Only the first Translation counts: Windows ignored a second one
 		// (FILE-14).
 		if key == "Translation" {
-			var langs []int
+			langs := make([]int, 0, valueLen/4+1)
 
 			// An entry counts once its language word fits the value
 			// length: lengths 6 and 7 gave two languages on Windows, 5
