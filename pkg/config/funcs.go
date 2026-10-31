@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -134,11 +135,17 @@ func direction(start, stop, step int, inclusive bool) uint64 {
 		diff, stride = uint64(start)-uint64(stop), -stride //nolint:gosec // see above
 	}
 
-	if inclusive {
-		return diff/stride + 1
+	count := diff / stride
+	if count == math.MaxUint64 {
+		return count
 	}
 
-	return (diff + stride - 1) / stride
+	// The last entry: stop itself when inclusive, or before it.
+	if inclusive || diff%stride != 0 {
+		count++
+	}
+
+	return count
 }
 
 // steps returns count entries start, start+step, ...; every entry lies
