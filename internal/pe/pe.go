@@ -360,9 +360,9 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 	// system), so such a file is refused, which the builder reports like an
 	// unversioned one. The languages are those of every entry, in directory
 	// order, without duplicates, last first: German [1031] and English
-	// [1033] gave 1033,1031 (FILE-14). Entries sharing version data are read
-	// once, so a directory of many entries costs one read per distinct
-	// block.
+	// [1033] gave 1033,1031 (FILE-14). Entries sharing a data entry's RVA and
+	// size are read once, so a directory of many entries costs one read
+	// per distinct pair.
 	pick, ok := pickLanguage(langs)
 	if !ok {
 		return nil
@@ -372,7 +372,9 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 		return err
 	}
 
-	if (len(langs)/8)*len(res.img.sections) > maxEntryScans {
+	// Divided, not multiplied: the product overflows a 32-bit int. There
+	// is always the header pseudo-section.
+	if len(langs)/8 > maxEntryScans/len(res.img.sections) {
 		return errors.New("pe: version resource has too many language entries for its sections")
 	}
 

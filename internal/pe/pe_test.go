@@ -944,6 +944,8 @@ func TestManySectionsAndEntries(t *testing.T) {
 	}{
 		"within the bound": {entries: maxEntryScans / (sections + 1)},
 		"past the bound":   {entries: maxEntryScans/(sections+1) + 1, fails: true},
+		// 65535 × 65536 wraps a 32-bit int to a negative product.
+		"most entries": {entries: 0xFFFF, fails: true},
 	}
 
 	for name, tc := range tests {
