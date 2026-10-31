@@ -24,7 +24,7 @@ customActions:
     execute: %s
     return: %s
     schedule: [{ sequence: execute, after: %s }]
-`
+%s`
 
 // TestPerUserRollbackWarning checks the CA-01 warning: only a per-user
 // deferred action that can fail and runs after RegisterProduct gets it.
@@ -32,26 +32,29 @@ func TestPerUserRollbackWarning(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		scope, execute, ret, after string
-		want                       bool
+		scope, execute, ret, after, extra string
+		want                              bool
 	}{
-		{"perUser", "deferred", "check", "PublishProduct", true},
-		{"perUser", "deferred", "check", "RegisterProduct", true},
-		{"perUser", "deferred", "asyncWait", "PublishProduct", true},
-		{"perUser", "deferred", "check", "InstallFiles", false},
-		{"perUser", "deferred", "ignore", "PublishProduct", false},
-		{"perUser", "deferred", "asyncNoWait", "PublishProduct", false},
-		{"perUser", "rollback", "check", "PublishProduct", false},
-		{"perUser", "commit", "check", "PublishProduct", false},
-		{"perMachine", "deferred", "check", "PublishProduct", false},
-		{"perUserOrMachine", "deferred", "check", "PublishProduct", true},
-		{"perMachineOrUser", "deferred", "check", "PublishProduct", true},
-		{"perMachineOrUser", "deferred", "check", "InstallFiles", false},
+		{"perUser", "deferred", "check", "PublishProduct", "", true},
+		{"perUser", "deferred", "check", "RegisterProduct", "", true},
+		{"perUser", "deferred", "asyncWait", "PublishProduct", "", true},
+		{"perUser", "deferred", "check", "InstallFiles", "", false},
+		{"perUser", "deferred", "ignore", "PublishProduct", "", false},
+		{"perUser", "deferred", "asyncNoWait", "PublishProduct", "", false},
+		{"perUser", "rollback", "check", "PublishProduct", "", false},
+		{"perUser", "commit", "check", "PublishProduct", "", false},
+		{"perMachine", "deferred", "check", "PublishProduct", "", false},
+		{"perUserOrMachine", "deferred", "check", "PublishProduct", "", true},
+		{"perMachineOrUser", "deferred", "check", "PublishProduct", "", true},
+		{"perMachineOrUser", "deferred", "check", "InstallFiles", "", false},
+		// A perMachine action never runs in a per-user install (CA-09).
+		{"perUserOrMachine", "deferred", "check", "PublishProduct", "    scope: perMachine\n", false},
+		{"perUserOrMachine", "deferred", "check", "PublishProduct", "    scope: perUser\n", true},
 	} {
-		t.Run(tc.scope+"-"+tc.execute+"-"+tc.ret+"-"+tc.after, func(t *testing.T) {
+		t.Run(tc.scope+"-"+tc.execute+"-"+tc.ret+"-"+tc.after+"-"+strings.TrimSpace(tc.extra), func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := config.Parse(fmt.Appendf(nil, perUserRollbackConfig, tc.scope, tc.execute, tc.ret, tc.after), config.Options{})
+			cfg, err := config.Parse(fmt.Appendf(nil, perUserRollbackConfig, tc.scope, tc.execute, tc.ret, tc.after, tc.extra), config.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}

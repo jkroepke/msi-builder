@@ -596,6 +596,18 @@
             "$ref": "#/$defs/bool",
             "default": true
           },
+          "scope": {
+            "description": "In a perUserOrMachine or perMachineOrUser package only: run the action only in this context (the execute sequence only). A perMachine action may run without impersonation.",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^([Pp][Ee][Rr][Mm][Aa][Cc][Hh][Ii][Nn][Ee]|[Pp][Ee][Rr][Uu][Ss][Ee][Rr])$"
+              },
+              {
+                "$ref": "#/$defs/var"
+              }
+            ]
+          },
           "return": {
             "anyOf": [
               {

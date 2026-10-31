@@ -428,10 +428,11 @@ func (b *build) customActions() error { //nolint:cyclop // one pass over the for
 				continue
 			}
 
-			b.schedule(table, custom.ID, placement.FullCondition(b.cfg), placement.Before, placement.After, placement.At)
+			cond := custom.ScheduleCondition(b.cfg, &placement)
+			b.schedule(table, custom.ID, cond, placement.Before, placement.After, placement.At)
 
 			if setter != "" {
-				setters = append(setters, dataPlacement{table: table, name: setter, condition: placement.FullCondition(b.cfg), before: custom.ID})
+				setters = append(setters, dataPlacement{table: table, name: setter, condition: cond, before: custom.ID})
 			}
 		}
 	}

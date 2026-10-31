@@ -32,7 +32,22 @@
     <!-- Placed on left-out setters, so they move to those setters' place. -->
     <SetProperty Id="HELLOMODE" Value="dual" After="OverrideAgain" Sequence="execute" />
     <SetProperty Id="UIMODE" Value="dual" After="OverrideAgain" />
+    <!-- Elevated actions run only per machine in msi-builder (CA-09). -->
+    <CustomAction Id="RegisterMachine" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --register" Execute="deferred" Impersonate="no" />
+    <CustomAction Id="RegisterGuarded" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --guarded" Execute="deferred" Impersonate="no" />
+    <CustomAction Id="ElevatedUser" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --elevated-user" Execute="deferred" Impersonate="no" />
+    <CustomAction Id="SetupUser" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --user" Execute="deferred" />
+    <!-- Scheduled in the UI sequence too, so it keeps its conditions. -->
+    <CustomAction Id="SetMode" Property="HELLOMACHINE" Value="1" />
+    <InstallUISequence>
+      <Custom Action="SetMode" After="CostFinalize" Condition="ALLUSERS=1" />
+    </InstallUISequence>
     <InstallExecuteSequence>
+      <Custom Action="SetMode" After="CostFinalize" Condition="ALLUSERS=1" />
+      <Custom Action="RegisterMachine" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="RegisterGuarded" After="InstallFiles" Condition="ALLUSERS=1" />
+      <Custom Action="ElevatedUser" After="InstallFiles" Condition="NOT ALLUSERS" />
+      <Custom Action="SetupUser" After="InstallFiles" Condition="NOT ALLUSERS" />
       <Custom Action="OverridePerMachineFolder" After="WixSetDefaultPerMachineFolder" />
       <Custom Action="OverrideAgain" After="OverridePerMachineFolder" />
       <RemoveExistingProducts After="InstallValidate" Condition="NOT UPGRADINGPRODUCTCODE" />

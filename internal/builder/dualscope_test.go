@@ -153,3 +153,52 @@ ui: { enabled: false }
 		}
 	}
 }
+
+// TestContextActions checks the custom actions of a dual package that run
+// in one context: the scope's condition joins each schedule's, the data
+// action of a run action gets the same, and a perMachine action keeps its
+// no-impersonate bit (CA-09).
+func TestContextActions(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perUserOrMachine", "x64", `customActions:
+  - id: Machine
+    run: { command: '"[System64Folder]whoami.exe"' }
+    execute: deferred
+    impersonate: false
+    scope: perMachine
+    return: check
+    schedule: [{ sequence: execute, before: InstallFinalize, when: install }]
+  - id: User
+    setProperty: { name: A, value: b }
+    scope: perUser
+    schedule: [{ sequence: execute, after: CostFinalize }]
+  - id: Both
+    setProperty: { name: B, value: c }
+    schedule: [{ sequence: execute, after: CostFinalize, condition: OPT }]
+ui: { enabled: false }
+`)
+	database := res.Database
+
+	conditions := map[string]any{}
+	for _, row := range rows(t, database, "InstallExecuteSequence") {
+		conditions[fmt.Sprint(row[0])] = row[1]
+	}
+
+	want := map[string]any{
+		"Machine":      "(NOT Installed AND NOT OLDERVERSIONBEINGUPGRADED) AND ALLUSERS=1",
+		"Machine.Data": "(NOT Installed AND NOT OLDERVERSIONBEINGUPGRADED) AND ALLUSERS=1",
+		"User":         "NOT ALLUSERS",
+		"Both":         "OPT",
+	}
+	for action, cond := range want {
+		if conditions[action] != cond {
+			t.Errorf("%s: condition %v, want %v", action, conditions[action], cond)
+		}
+	}
+
+	typ := cell(t, database, "CustomAction", "Type", func(row []any) bool { return row[0] == "Machine" })
+	if n, err := strconv.Atoi(fmt.Sprint(typ)); err != nil || n&0x800 == 0 {
+		t.Errorf("Machine type %v, want the no-impersonate bit 0x800", typ)
+	}
+}
