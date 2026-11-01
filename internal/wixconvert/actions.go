@@ -295,7 +295,8 @@ func (c *converter) emittedActions() map[string]bool {
 func (c *converter) emitMoved(reanchor func(string, []any)) {
 	emitted := c.emittedActions()
 	kept := make(map[string][]*omap)
-	c.launchKept = c.keptLaunchMoves(emitted)
+
+	c.decideMoves(emitted)
 
 	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
 		placements := c.moved[name]
@@ -370,7 +371,7 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 // moved in the same sequence too: before it is the default order, so the
 // move is dropped silently; after it cannot be taken.
 func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, string) {
-	if name != actAppSearch || !c.runsLaunchConditions() || c.launchKept[placement.str("sequence")] {
+	if name != actAppSearch || !c.runsLaunchConditions() || c.movesIn(actLaunchConditions, placement.str("sequence")) {
 		return false, ""
 	}
 
@@ -384,18 +385,45 @@ func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, stri
 	}
 }
 
-// keptLaunchMoves returns the sequences in which convert keeps a
-// LaunchConditions move, decided before the AppSearch moves that depend on
-// it.
-func (c *converter) keptLaunchMoves(emitted map[string]bool) map[string]bool {
-	kept := make(map[string]bool)
-	if c.movedIdle(actLaunchConditions) != "" {
-		return kept
+// decideMoves works out in which sequences convert keeps the move of each
+// movable action. Whether one move can be taken depends on whether the
+// others are kept (a number that collides with an unmoved action,
+// AppSearch next to an unmoved LaunchConditions), so it starts from every
+// move in the sequences and drops refused ones until nothing changes.
+func (c *converter) decideMoves(emitted map[string]bool) {
+	c.keptMoves = nil
+	current := c.movesBySequence(func(string, *omap) bool { return true })
+
+	for range len(movableActions) + 1 {
+		c.keptMoves = current
+		next := c.movesBySequence(func(name string, placement *omap) bool {
+			silent, reason := c.moveRefused(name, c.movedIdle(name), placement, emitted)
+
+			return !silent && reason == ""
+		})
+
+		if maps.EqualFunc(current, next, maps.Equal) {
+			break
+		}
+
+		current = next
 	}
 
-	for _, entry := range c.moved[actLaunchConditions] {
-		if placement, ok := entry.(*omap); ok && c.atCollision(actLaunchConditions, placement) == "" && c.movedAnchorFails(placement, emitted) == "" {
-			kept[placement.str("sequence")] = true
+	c.keptMoves = current
+}
+
+// movesBySequence returns, per movable action, the sequences of the moves
+// that keep reports true for.
+func (c *converter) movesBySequence(keep func(string, *omap) bool) map[string]map[string]bool {
+	kept := make(map[string]map[string]bool)
+
+	for name, entries := range c.moved {
+		kept[name] = make(map[string]bool)
+
+		for _, entry := range entries {
+			if placement, ok := entry.(*omap); ok && keep(name, placement) {
+				kept[name][placement.str("sequence")] = true
+			}
 		}
 	}
 
@@ -430,13 +458,10 @@ func (c *converter) atCollision(name string, placement *omap) string {
 	return ""
 }
 
-// movesIn reports whether the sequences move an action in a sequence.
+// movesIn reports whether convert keeps a move of an action in a
+// sequence, as far as decideMoves has worked it out.
 func (c *converter) movesIn(name, seq string) bool {
-	return slices.ContainsFunc(c.moved[name], func(entry any) bool {
-		placement, ok := entry.(*omap)
-
-		return ok && placement.str("sequence") == seq
-	})
+	return c.keptMoves[name][seq]
 }
 
 // noteLaunchBeforeFind notes a move that puts LaunchConditions before

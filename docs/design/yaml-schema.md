@@ -2185,8 +2185,9 @@ LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
 100 is treated as running after it even when a long chain of search actions
 would push LaunchConditions further; one moved to exactly 100 collides with
 it, which validate reports when the package runs no AppSearch and leaves to
-the build otherwise. AppSearch cannot be placed next to an unmoved
-LaunchConditions, which follows it. The other standard actions keep their
+the build otherwise. In a package with launch conditions (its own or the downgrade check),
+AppSearch cannot be placed next to an unmoved LaunchConditions, which
+follows it. The other standard actions keep their
 numbers.
 
 A remembered install folder (`installDir.remember`) is restored right after

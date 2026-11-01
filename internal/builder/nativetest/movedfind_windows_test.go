@@ -4,12 +4,14 @@ package nativetest_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jkroepke/msi-builder/internal/builder"
 	"github.com/jkroepke/msi-builder/internal/testpe"
 )
 
@@ -18,7 +20,9 @@ import (
 // ALLUSERS=1 when it finds one, so that it installs in the context of the
 // previous install, as Far Manager and ImageGlass do; %s is the
 // standardActions section, empty or one that moves FindRelatedProducts
-// behind that setter.
+// behind that setter. Each case replaces MovedFind and the last digit of the
+// upgrade code, so that a version a failed cleanup leaves behind does not
+// meet the next case.
 const movedFindConfig = `schema: msi-builder/v1
 product: { name: MsiBuilderMovedFind, manufacturer: msi-builder tests, version: VERSION, upgradeCode: 9b4e2d70-6c1a-4f38-a5d9-3e8b7c2f1a64 }
 package: { platform: x64, scope: perUserOrMachine }
@@ -74,7 +78,7 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
 	inputs := map[string][]byte{"app.exe": app}
 
-	for _, tc := range []struct {
+	for i, tc := range []struct {
 		name, ui string
 		moved    bool
 		// oldAfter is where v1 is registered after the v2 install.
@@ -87,8 +91,12 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 	} {
 		t.Run("UPG-14 "+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
+			name := fmt.Sprintf("MovedFind%d", i)
 			config := func(version string) string {
 				doc := strings.Replace(movedFindConfig, "VERSION", version, 1)
+				doc = strings.ReplaceAll(doc, "MovedFind", name)
+				doc = strings.Replace(doc, "3e8b7c2f1a64", fmt.Sprintf("3e8b7c2f1a6%d", i), 1)
+
 				if tc.moved {
 					doc += moveFind
 				}
@@ -100,12 +108,16 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 			newer, newRes := buildConfigResult(t, mkdir(t, dir, "v2"), "v2", config("1.1.0"), inputs)
 
 			defer func() {
-				for _, pkg := range []string{newer, older} {
-					_ = exec.CommandContext(context.Background(), "msiexec", "/x", pkg, "/qn", "/norestart").Run()
-					_ = exec.CommandContext(context.Background(), "msiexec", "/x", pkg, "/qn", "/norestart", "MSIINSTALLPERUSER=").Run()
+				for _, res := range []*builder.Result{newRes, oldRes} {
+					removed := filepath.Join(dir, "remove-"+res.ProductCode+".log")
+					_ = exec.CommandContext(context.Background(), "msiexec", "/x", res.ProductCode, "/qn", "/norestart", "/l*v", removed).Run() //nolint:gosec // test-controlled arguments
+
+					if left := registered(t, res.ProductCode); left != "none" {
+						t.Errorf("%s is still registered in %s after the cleanup:\n%s", res.ProductCode, left, readLog(removed))
+					}
 				}
 
-				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKLM\Software\MsiBuilderTest\MovedFind`, "/f", "/reg:64").Run()
+				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKLM\Software\MsiBuilderTest\`+name, "/f", "/reg:64").Run() //nolint:gosec // test-controlled arguments
 			}()
 
 			msiexecQuiet(t, filepath.Join(dir, "v1.log"), "/i", older, `MSIINSTALLPERUSER=""`)
@@ -143,7 +155,7 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 				t.Errorf("v1 is registered in %s after the v2 install, want %s", oldAfter, tc.oldAfter)
 			}
 
-			if _, err := os.Stat(filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilderMovedFind", "app.exe")); err != nil {
+			if _, err := os.Stat(filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilder"+name, "app.exe")); err != nil {
 				t.Errorf("app.exe after the v2 install: %v", err)
 			}
 		})
