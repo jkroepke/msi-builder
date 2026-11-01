@@ -326,7 +326,7 @@ func (b *build) propertyPath(name string, dir *dirInfo) string {
 	switch {
 	case dir != nil && name == b.cfg.InstallDir.ID:
 		return "installDir"
-	case dir != nil && dir.long != "":
+	case dir != nil && !dir.standard:
 		return "directories"
 	default:
 		return "properties." + name

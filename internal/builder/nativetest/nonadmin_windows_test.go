@@ -209,14 +209,15 @@ components:
 %s`
 
 // nonAdminContextComponents gives a dual package's component a variable
-// that follows the context and adds a component with an HKLM value that
-// installs only per machine: neither may need elevation per user
-// (ENVVAR-03).
+// that follows the context and adds a component with an HKLM value and a
+// firewall rule that installs only per machine: none may need elevation
+// per user (ENVVAR-03, INST-08).
 const nonAdminContextComponents = `    environment: [{ name: MSIBUILDER_NONADMIN_TEST, value: x }]
   - id: MachineOnly
     directory: INSTALLDIR
     scope: perMachine
     registry: [{ root: HKLM, key: Software\MsiBuilderNonAdmin, name: Only, value: machine }]
+firewall: [{ name: MsiBuilderNonAdmin, component: MachineOnly, program: '[INSTALLDIR]app.exe' }]
 `
 
 // TestNonAdminInstallScopes installs packages of each scope silently as a
@@ -226,7 +227,8 @@ const nonAdminContextComponents = `    environment: [{ name: MSIBUILDER_NONADMIN
 // perUser package's component has the HKCU key path the builder adds
 // (INST-04); a repair as the user restores its deleted file. The dual
 // packages have a variable that follows the context and an HKLM value in a
-// perMachine component, which the per-user install leaves out (ENVVAR-03).
+// perMachine component with a firewall rule, which the per-user install
+// leaves out (ENVVAR-03, INST-08).
 //
 //nolint:paralleltest // msiexec runs one installation at a time
 func TestNonAdminInstallScopes(t *testing.T) {
@@ -288,6 +290,10 @@ func TestNonAdminInstallScopes(t *testing.T) {
 
 			if regHas(t, "64", `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`, "MSIBUILDER_NONADMIN_TEST") {
 				t.Error("the per-user install wrote the variable to the machine environment")
+			}
+
+			if exec.CommandContext(t.Context(), "netsh", "advfirewall", "firewall", "show", "rule", "name=MsiBuilderNonAdmin").Run() == nil {
+				t.Error("the per-user install added the firewall rule of the perMachine component")
 			}
 
 			if tc.scope == "perUser" {

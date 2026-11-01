@@ -19,7 +19,9 @@ asking the maintainer, since every exported name is bound by semantic
 versioning after 1.0.
 
 - [`pkg/config`](pkg/config): the YAML schema (`docs/design/yaml-schema.md`,
-  `pkg/config/schema.json`), parsing and validation. The builder consumes a
+  `pkg/config/schema.json`), parsing and validation. The schema's
+  `properties` lists Windows Installer properties with their values and
+  refuses exactly `builderProperties` (`TestJSONSchemaBuilderProperties`). The builder consumes a
   validated `*config.Config` and never reads YAML. Folder sources (a file
   `source` ending in `/`) are the one part that lists folders:
   `Config.ExpandFolders` (`folder.go`) replaces their component with one per
@@ -133,8 +135,20 @@ versioning after 1.0.
   from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
   for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
-  from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
+  from the observed behaviour only: never read WiX source for it. A package
+  that chooses its install context with context conditions or
+  `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a dual scope (`context.go`),
+  because execute-sequence setters leave the install inconsistent (INST-07).
+  A WiX v3 package without a scope only does when it reads
+  `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
+  per-machine packages per-user in review, so they stay perMachine.
+  The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
+  Nameless and `.` Directories are settled before the directories link
+  (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
+  (`name: .`), directly in a standard folder they become it, and in
+  TARGETDIR they become the standard folder an unconditioned SetDirectory
+  sets (`[WindowsVolume]`), which is then `consumed` and left out.
   Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
   branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
   a block only when every element directly in it is one whose output stays
@@ -323,6 +337,9 @@ go test ./... -shuffle=on -race
   on the `windows-latest` runner: push the branch and start CI with
   `workflow_dispatch` on it, then read the job log. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
+  A repair while another process holds an installed file open lost the
+  hosted runner every time (PROP-04, no job log at all), so probe Restart
+  Manager elsewhere.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with

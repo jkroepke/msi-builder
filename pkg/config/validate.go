@@ -430,10 +430,12 @@ func compareVersion3(left, right Version) int {
 		cmp.Compare(left.Build, right.Build))
 }
 
-func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,gocognit // a flat list of independent checks
+func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop // a flat list of independent checks
 	seen := make(map[string]bool)
 
 	var walk func([]*Directory, string, bool)
+
+	inStandard := standardChildren(cfg.Directories)
 
 	walk = func(ds []*Directory, prefix string, top bool) {
 		names := make(map[string]string)
@@ -455,21 +457,7 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,goco
 				seen[dir.ID] = true
 			}
 
-			problem := nameProblem(dir.Name, "folder name")
-
-			switch {
-			case top && !standardFolders[dir.ID]:
-				v.errorf(dirPath+".id", "a top-level directory must be a standard folder such as ProgramFiles64Folder")
-			case top && dir.Name != "":
-				v.errorf(dirPath+".name", "a standard folder has no name")
-			case !top && !v.required(dirPath+".name", dir.Name):
-			case !top && problem != "" && dir.origin == productNamePath:
-				v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)
-			case !top && problem != "" && dir.origin != "":
-				v.errorf(dir.origin, "%s", problem)
-			case !top && problem != "":
-				v.errorf(dirPath+".name", "%s", problem)
-			}
+			v.directoryName(dirPath, dir, top, inStandard[dir])
 
 			if dir.Configurable && !IsPublicProperty(dir.ID) {
 				v.errorf(dirPath+".id", "a configurable directory needs an upper-case id")
@@ -506,10 +494,32 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,goco
 	}
 }
 
+// propInstallPerUser picks the context of an ALLUSERS=2 package.
+const propInstallPerUser = "MSIINSTALLPERUSER"
+
 // builderProperty reports a property the builder or the installer sets: a
 // dual package also writes MSIINSTALLPERUSER and its scope page's property.
 func (v *validator) builderProperty(name string) bool {
-	return builderProperties[name] || v.scope.Dual() && (name == "MSIINSTALLPERUSER" || name == "BuilderInstallScope")
+	return builderProperties[name] || v.scope.Dual() && (name == propInstallPerUser || name == "BuilderInstallScope")
+}
+
+// contextSetter warns about an action that sets ALLUSERS or
+// MSIINSTALLPERUSER. In the execute sequence of a silent install, setting
+// ALLUSERS=1 registered the product per machine with the per-user folders
+// and MSIINSTALLPERUSER already resolved, and setting MSIINSTALLPERUSER=1
+// changed no context but made conditions on it hold per machine (INST-07).
+// A setter in the UI sequence was not tested. Other scopes were not
+// tested with such setters, so they get no warning.
+func (v *validator) contextSetter(actionPath, name string) {
+	if !v.scope.Dual() || name != "ALLUSERS" && name != propInstallPerUser {
+		return
+	}
+
+	v.warnf(actionPath+".setProperty.name", "an action that sets %s leaves the install inconsistent: in a dual "+
+		"package, ALLUSERS=1 set in the execute sequence registered the product per machine but kept the per-user "+
+		"folders and MSIINSTALLPERUSER, and MSIINSTALLPERUSER=1 kept the context but made conditions on it hold "+
+		"(INST-07); use scope perUserOrMachine or perMachineOrUser, whose scope page and command line pick the "+
+		"context, and components[].scope", name)
 }
 
 // installPerUser warns about MSIINSTALLPERUSER outside a dual package: it
@@ -517,7 +527,7 @@ func (v *validator) builderProperty(name string) bool {
 // install was seen deleting it, which skips a component conditioned on it
 // (reported).
 func (v *validator) installPerUser(propPath, name string) {
-	if name == "MSIINSTALLPERUSER" && !v.scope.Dual() {
+	if name == propInstallPerUser && !v.scope.Dual() {
 		v.warnf(propPath, "MSIINSTALLPERUSER has no effect unless ALLUSERS is 2, and a condition on it may not hold; "+
 			"use scope perUserOrMachine for a package that installs per user or per machine")
 	}
@@ -584,12 +594,66 @@ func (v *validator) rememberIDs(cfg *Config) {
 	}
 }
 
+// standardChildren returns the children of top-level nodes and of standard
+// folders nested deeper: an alias there would be a second id for a
+// standard folder or TARGETDIR.
+func standardChildren(roots []*Directory) map[*Directory]bool {
+	inStandard := make(map[*Directory]bool)
+
+	var mark func([]*Directory, bool)
+
+	mark = func(ds []*Directory, top bool) {
+		for _, dir := range ds {
+			for _, child := range dir.Children {
+				inStandard[child] = top || standardFolders[dir.ID]
+			}
+
+			mark(dir.Children, false)
+		}
+	}
+
+	mark(roots, true)
+
+	return inStandard
+}
+
+// directoryName checks the name of a directory node: none at the top
+// level, a valid folder name below it, or AliasName for a second id of a
+// named parent folder (inTop marks a child of a top-level node or of a
+// standard folder).
+func (v *validator) directoryName(dirPath string, dir *Directory, top, inTop bool) { //nolint:cyclop // a flat list of independent checks
+	// Only a node written in directories can be an alias; a generated
+	// one, from product.name or a path, needs a real name.
+	alias := dir.Name == AliasName && dir.origin == ""
+
+	problem := nameProblem(dir.Name, "folder name")
+	if alias {
+		problem = ""
+	}
+
+	switch {
+	case top && !standardFolders[dir.ID]:
+		v.errorf(dirPath+".id", "a top-level directory must be a standard folder such as ProgramFiles64Folder")
+	case top && dir.Name != "":
+		v.errorf(dirPath+".name", "a standard folder has no name")
+	case top || !v.required(dirPath+".name", dir.Name):
+	case alias && inTop:
+		v.errorf(dirPath+".name", "%q names the parent folder itself, here a standard folder; use that folder's id instead", dir.Name)
+	case problem != "" && dir.origin == productNamePath:
+		v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)
+	case problem != "" && dir.origin != "":
+		v.errorf(dir.origin, "%s", problem)
+	case problem != "":
+		v.errorf(dirPath+".name", "%s", problem)
+	}
+}
+
 // sameFolder warns when two sibling directories name the same folder: the
 // rows install to one place, but setting one on the command line leaves the
 // other behind.
 func (v *validator) sameFolder(names map[string]string, dirPath string, dir *Directory, top bool) {
 	// A standard folder's path comes from its property, not its name.
-	if top || dir.Name == "" || standardFolders[dir.ID] {
+	if top || dir.Name == "" || dir.Name == AliasName || standardFolders[dir.ID] {
 		return
 	}
 
@@ -831,7 +895,10 @@ func directoryPaths(dirs []*Directory, parent string, out map[string]string) map
 	for _, dir := range dirs {
 		dirPath := dir.ID
 
-		if parent != "" {
+		switch {
+		case parent != "" && dir.Name == AliasName:
+			dirPath = parent
+		case parent != "":
 			dirPath = parent + `\` + strings.ToLower(dir.Name)
 		}
 
@@ -1148,11 +1215,14 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 		}
 	}
 
-	// The builder keys an Environment row by name, action and scope, so a
-	// second entry with all three equal would be a duplicate key. Names are
-	// compared without case to be safe; how the engine treats FOO and foo
-	// in two Environment rows is not tested.
+	// Two entries with the same name, action and scope set the variable
+	// twice, which only append and prepend can do with different values:
+	// each adds its own part (ENVVAR-04). The builder then keys the second
+	// row by its value too. Names are compared without case to be safe;
+	// how the engine treats FOO and foo in two Environment rows is not
+	// tested.
 	seen := make(map[[3]string]bool)
+	values := make(map[[4]string]bool)
 
 	if slices.ContainsFunc(comp.Environment, func(env *Environment) bool { return env.Scope == envAuto }) {
 		v.contextConditionLength(compPath+".condition", comp.Condition)
@@ -1163,11 +1233,19 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 		v.environment(envPath, env, perUser)
 
 		key := [3]string{strings.ToUpper(env.Name), env.Action, env.Scope}
-		if env.Name != "" && seen[key] {
-			v.errorf(envPath, "%s with action %s and scope %s is set twice in this component", env.Name, env.Action, env.Scope)
+		part := [4]string{key[0], key[1], key[2], env.Value}
+
+		switch {
+		case env.Name == "":
+		case values[part]:
+			v.errorf(envPath, "%s with action %s, scope %s and this value is set twice in this component", env.Name, env.Action, env.Scope)
+		case seen[key] && env.Action != envAppend && env.Action != envPrepend:
+			v.errorf(envPath, "%s with action %s and scope %s is set twice in this component; "+
+				"only append and prepend may add several parts", env.Name, env.Action, env.Scope)
 		}
 
 		seen[key] = true
+		values[part] = true
 	}
 }
 
@@ -1662,7 +1740,7 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 
 		v.oneOf(entryPath+".on", entry.On, RemoveOnInstall, RemoveOnUninstall, RemoveOnBoth)
 
-		row := [3]string{cmp.Or(entry.Directory, comp.Directory), strings.ToLower(entry.Name), entry.On}
+		row := [3]string{removeFileFolder(comp, entry), strings.ToLower(entry.Name), entry.On}
 		if seen[row] {
 			v.errorf(entryPath, "this component already removes %q there", entry.Name)
 		}
@@ -1673,7 +1751,55 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 			v.errorf(entryPath+".directory", "directory %q is not defined", entry.Directory)
 		}
 
+		if entry.Property != "" {
+			v.removeFileProperty(cfg, known, entryPath, entry)
+		}
+
 		v.removeFilePattern(entryPath+".name", entry.Name, *cfg.Package.LongFileNames)
+	}
+}
+
+// engineFolderProperties are folder properties the installer sets itself
+// (specification section 8.3): ROOTDRIVE, the drive with the most free
+// space, and the source folder of the package.
+var engineFolderProperties = map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"ROOTDRIVE": true, "SourceDir": true, "SOURCEDIR": true, "PrimaryVolumePath": true,
+}
+
+// removeFileFolder names the folder of a removeFiles entry: its directory,
+// the component's, or [property].
+func removeFileFolder(comp *Component, entry *RemoveFile) string {
+	if entry.Property != "" {
+		return "[" + entry.Property + "]"
+	}
+
+	return cmp.Or(entry.Directory, comp.Directory)
+}
+
+// removeFileProperty checks the property of a removeFiles entry, whose
+// value the engine reads as the folder's full path when RemoveFiles runs.
+func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath string, entry *RemoveFile) {
+	field := entryPath + ".property"
+	name := entry.Property
+
+	switch {
+	case entry.Directory != "":
+		v.errorf(entryPath, "give directory or property, not both")
+	case !IsIdentifier(name) || len(name) > MaxIdentifierLength:
+		v.errorf(field, "%q is not a property name", name)
+	case known.dirs[name] != nil || IsStandardFolder(name): // TARGETDIR is one
+		v.errorf(field, "%s is a directory; use directory: %s", name, name)
+	case engineFolderProperties[name]:
+		v.errorf(field, "%s is a folder the installer picks itself, not one of the product; name a folder the package installs or remembers", name)
+	case entry.On != RemoveOnUninstall && cfg.Package.Scope != ScopePerUser:
+		// A standard user may start a repair of a per-machine product,
+		// which runs elevated and reinstalls the component, with the
+		// property on the command line; nothing checks the folder.
+		v.errorf(entryPath+".on", "on: %s with a property runs on every repair, which a standard user can start elevated with "+
+			"%s set to any folder; remove these files on uninstall, or name a directory of the package", entry.On, name)
+	case !setProperties(cfg)[name]:
+		v.warnf(field, "nothing in the package sets %s, so only the command line can name the folder, and the row "+
+			"does nothing without it; use a property with a search that finds the folder again at uninstall", name)
 	}
 }
 
@@ -2267,6 +2393,8 @@ func (v *validator) actionKind(cfg *Config, actionPath string, action *CustomAct
 		if inScript {
 			v.errorf(actionPath+".execute", "setProperty cannot be deferred; deferred actions read CustomActionData")
 		}
+
+		v.contextSetter(actionPath, action.SetProperty.Name)
 	case action.SetDirectory != nil:
 		if known.dirs[action.SetDirectory.Directory] == nil {
 			v.errorf(actionPath+".setDirectory.directory", "directory %q is not defined", action.SetDirectory.Directory)
@@ -2614,9 +2742,28 @@ func (v *validator) firewall(cfg *Config, known *refs) { //nolint:cyclop // a fl
 			v.oneOf(fmt.Sprintf("%s.profiles[%d]", p, j), prof, "all", "domain", "private", "public")
 		}
 
-		if cfg.Package.Scope.MayBePerUser() {
-			v.errorf(p, "firewall rules need a perMachine package")
-		}
+		v.firewallScope(p, known.components[rule.Component])
+	}
+}
+
+// firewallScope checks the context a firewall rule's component installs
+// in: netsh runs without impersonation, so the rule needs a perMachine
+// package or, in a dual package, a component with scope perMachine
+// (INST-08).
+func (v *validator) firewallScope(rulePath string, comp *Component) {
+	switch {
+	case !v.scope.MayBePerUser():
+	case !v.scope.Dual():
+		v.errorf(rulePath, "firewall rules need a perMachine package, or a component with scope perMachine in a "+
+			"perUserOrMachine or perMachineOrUser package")
+	case comp == nil:
+	case comp.Scope != ScopePerMachine:
+		v.errorf(rulePath+".component", "a firewall rule in a %s package needs a component with scope perMachine, "+
+			"since netsh needs an elevated per-machine install", v.scope)
+	case v.scope == ScopePerUserOrMachine:
+		// ICE105 reads only the CustomAction type (CA-09).
+		v.warnf(rulePath, "ICE105 warns about the netsh actions without impersonation and their System64Folder or "+
+			"SystemFolder working directory, although they run only per machine")
 	}
 }
 
@@ -2992,6 +3139,9 @@ const (
 	envMachine = "machine"
 	envUser    = "user"
 	envAuto    = "auto"
+	// envAppend and envPrepend add a part to a variable.
+	envAppend  = "append"
+	envPrepend = "prepend"
 )
 
 // componentRoots lists the registry roots a component writes to or

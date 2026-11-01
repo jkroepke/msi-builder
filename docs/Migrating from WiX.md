@@ -169,7 +169,7 @@ msi-builder does the same by default:
 | `File` | `components[].files`; a File without `Source` takes the `FileSource` of its Directory |
 | Heat harvesting, `Files` (v5) | A folder `source` ending in `/` |
 | `CreateFolder` | `components[].createFolder` |
-| `RemoveFile`, `RemoveFolder` | `components[].removeFiles` |
+| `RemoveFile`, `RemoveFolder` | `components[].removeFiles`; `Property` is `property` (or `directory` for a directory ID) |
 | `util:RemoveFolderEx` | `components[].purge` (the component's own folder), `components[].removeFolders` (a folder from a property) |
 | `RegistryKey`, `RegistryValue` | `components[].registry` |
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
@@ -360,6 +360,27 @@ upgrade:
   installs next to it (seen in a real-world port). Remove the old version
   first; as it is registered for one user, run `msiexec /x {old ProductCode}`
   as the user who installed it.
+- A package that chooses its context without `ALLUSERS=2`, such as a
+  per-user package that a bootstrapper installs per machine with
+  `ALLUSERS=1`, or one that sets `ALLUSERS` or `MSIINSTALLPERUSER` with
+  its own actions, becomes a dual scope. `convert` makes a per-user
+  package `perUserOrMachine` when a component's condition names the
+  context or an action sets one of the two properties; choose
+  `perMachineOrUser` if the install should default to all users. It turns
+  the conditions into `components[].scope` and drops the setters with a
+  note, also in a package that already has `ALLUSERS=2`, and moves actions
+  placed after a dropped setter to its place. A per-machine package keeps
+  its scope and its conditions, since `ALLUSERS=1` always holds there; a
+  setter of `ALLUSERS=1` there that runs in the execute sequence without a
+  condition or under `NOT Installed` is dropped with a note. A WiX
+  v3 package without `InstallScope` and `ALLUSERS` converts to perMachine,
+  as before, whatever it does with `ALLUSERS`; only one that sets
+  `MSIINSTALLPERUSER` or tests it in a condition becomes
+  `perUserOrMachine`, and it stays perMachine when that dual package would
+  not validate (for example because of services, HKLM data or a folder
+  such as `CommonAppDataFolder`) and perMachine validates no worse.
+  `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line still pick the
+  context (INST-07).
 - WiX sets `WIX_UPGRADE_DETECTED` during an upgrade, msi-builder sets
   `OLDERVERSIONBEINGUPGRADED`. If your conditions use the WiX name, keep it
   with `upgrade.property: WIX_UPGRADE_DETECTED`, and
@@ -426,6 +447,16 @@ components:
 - A `SetDirectory` that points a folder somewhere else at install time
   becomes a `setDirectory` custom action. Often a standard folder does the
   same: `[%SYSTEMROOT]\Temp\Hello` is `WindowsFolder/Temp/Hello`.
+  A folder on the Windows volume, written in WiX as a Directory without
+  a name plus `<SetDirectory Id="WINDOWSVOLUME" Value="[WindowsVolume]" />`,
+  is a path below the standard folder `WindowsVolume`, such as
+  `WindowsVolume/opt/hello` for `C:\opt\hello`; `msi-builder convert`
+  writes it that way and leaves the action out.
+- A Directory with `Name="."`, or without a name below a named folder, is
+  a second ID for its parent folder. Write it in `directories` with
+  `name: .`. Setting it on the command line moves only its own components,
+  and it follows the parent otherwise (tested on Windows). One directly in a
+  standard folder is that folder: use the standard folder's ID.
 - A WiX `RegistrySearch` that restores the install folder from the last
   install is `installDir.remember: true`. It writes its own value,
   `InstallDir` under `HKLM\Software\<manufacturer>\<product name>`, so the
@@ -442,6 +473,7 @@ components:
 | WiX `Component` / `File` | msi-builder |
 |---|---|
 | `Component Id`, `Guid`, `Directory`, `Condition` (v3 child `Condition`) | `id`, `guid`, `directory`, `condition` |
+| `Condition` that only names the context (`ALLUSERS=1`, `NOT ALLUSERS`, `MSIINSTALLPERUSER=1`, `MSIINSTALLPERUSER<>1` and the like) | `scope: perMachine` or `scope: perUser`, which makes the package a dual scope (INST-07) |
 | `Permanent`, `NeverOverwrite`, `SharedDllRefCount`, `Transitive` | `permanent`, `neverOverwrite`, `sharedDllRefCount`, `transitive` |
 | `Bitness="always32"`, `"always64"` (v3 `Win64`) | `bitness: 32`, `64` |
 | `KeyPath="yes"` on a later file or a registry value | `keyPath` |
@@ -597,6 +629,11 @@ nested keys, only deletes the key, so convert writes it as such a
 | `System="yes"`, `System="no"` | `scope: machine`, `scope: user` |
 | `Permanent="yes"` | `removeOnUninstall: false` |
 
+Several `Environment` elements of one variable in one component, such
+as a program folder and its `Scripts` folder both appended to `PATH`,
+stay separate entries: each adds its own part and the uninstall removes
+each (ENVVAR-04).
+
 Drop the `BroadcastEnvironmentChange` custom action reference that WiX
 packages often carry. Windows Installer itself tells running programs that
 the environment changed, after the install, a repair and the uninstall, so
@@ -749,6 +786,9 @@ firewall:
   key becomes an SDDL string too.
 - `Scope="any"` is the default; `remoteAddresses` limits the rule and
   `profiles` the networks.
+- In a dual-scope package a rule's component needs `scope: perMachine`,
+  which `convert` writes for a component conditioned on the context
+  (INST-08); a per-user install then adds no rule.
 - An exception without `Protocol` becomes `protocol: any`, or `protocol:
   tcp` when it has a `Port`, which is the rule WiX installs.
   `IgnoreFailure="yes"` becomes `ignoreFailure: true`. To open a port for
@@ -825,7 +865,7 @@ element in a sequence becomes a `schedule` placement of that entry:
 | `Execute`, `Impersonate`, `Return`, `HideTarget` | `execute`, `impersonate`, `return`, `hideTarget` |
 | `Impersonate="no"` on a deferred action in a per-user package | dropped with a note: a per-user package cannot run an action without impersonation (ICE105), and CA-09 saw per-user installs of dual-scope packages run such an action as the installing user; `Impersonate="no"` on an immediate action is dropped silently, since an immediate action always runs as the installing user |
 | `Impersonate="no"` on a deferred action in a dual-scope package | `impersonate: false` with `scope: perMachine`: the action runs only in per-machine installs (CA-09); one whose conditions all say `NOT ALLUSERS` becomes an impersonated `scope: perUser` action, since CA-09 saw a per-user install run it as the installing user anyway; one also scheduled outside `InstallExecuteSequence` keeps `impersonate: false` without a scope and gets a note to split it, since a scope needs the execute sequence; one whose condition tests `ALLUSERS` among other terms keeps it and gets `scope: perMachine` with a note, since a per-user test then never holds |
-| A `Custom` condition that only names the context (such as `ALLUSERS=1`, `ALLUSERS`, `NOT ALLUSERS` or `ALLUSERS=""`) in a dual-scope package, on every placement and all in `InstallExecuteSequence` | `scope: perMachine` or `scope: perUser`; otherwise the condition stays |
+| A `Custom` condition that only names the context (such as `ALLUSERS=1`, `ALLUSERS`, `NOT ALLUSERS`, `ALLUSERS=""`, `MSIINSTALLPERUSER=1` or `MSIINSTALLPERUSER<>1`) in a dual-scope package, on every placement and all in `InstallExecuteSequence` | `scope: perMachine` or `scope: perUser`; otherwise the condition stays |
 | `CustomAction Directory` naming a folder ICE105 rejects (`SystemFolder`, `WindowsFolder`, `TempFolder`, …) in a per-user or dual-scope package | A `run` action runs without a working directory and an `exec` action keeps it, both with a note: msi-builder refuses these folders as an action's directory there |
 | `ProgressText` for the action (in `UI`) | `progress`; a `Template` has no counterpart |
 
@@ -833,7 +873,8 @@ element in a sequence becomes a `schedule` placement of that entry:
 |---|---|
 | In `InstallExecuteSequence`, `InstallUISequence` | `sequence: execute`, `sequence: ui` |
 | `Before`, `After`, `Sequence` | `before`, `after`, `at` |
-| `Condition` (v3: the element's text) | `condition` |
+| `Condition` (v3: the element's text, also of `SetProperty`) | `condition` |
+| `SetProperty` or a property-setting `CustomAction` for `ALLUSERS` or `MSIINSTALLPERUSER` | dropped with a note: the dual scope sets both, and its scope page or the command line picks the context (INST-07) |
 
 ```xml
 <Property Id="HELLO_ARGS" Secure="yes" />
@@ -997,6 +1038,14 @@ components:
     createFolder: true
     purge: true                       # util:RemoveFolderEx: the folder and everything in it
 ```
+
+A `RemoveFile` whose `Property` names a property that is not a
+directory, typically one a `RegistrySearch` fills, keeps it as
+`property: LOGDIR` in place of `directory`, on uninstall only: outside a
+`perUser` package msi-builder refuses `on: install` and `both` there,
+because a standard user can start an elevated repair with the property set
+to any folder, and `convert` leaves that half out with a note. Nothing
+checks the folder, unlike `removeFolders`.
 
 `purge` deletes the component's folder on uninstall, but not when an
 upgrade replaces the product. The folder must be outside the install

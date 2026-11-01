@@ -229,6 +229,8 @@ Silent-failure cases a producer has to guard against itself:
 | INST-04 | Confirmed | CI runs 40966711286, 40967057615, 40969857298, 40974297757, 40976031652 and 40976459274, `TestMsiexecProfileKeyPath`, `TestICEProfileKeyPath`, `TestICEProfileHKMUKeyPath`, `TestNonAdminInstallScopes`; [details](#hkcu-key-paths-for-profile-components-inst-04) |
 | INST-05 | Confirmed | CI runs 41076138963, 41079437345, 41083409657 and 41085596960, `TestMsiexecFeatureConditions`; [details](#feature-conditions-inst-05) |
 | INST-06 | Confirmed | CI runs 41230441589 and 41230502028, `TestMsiexecFeatureConditions`; [details](#condition-enabled-disabled-features-inst-06) |
+| INST-07 | Confirmed | [ci](msitest/results/INST-07/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41298756247 (PR #207): in `ALLUSERS=2` packages the command line (`ALLUSERS=1`, `MSIINSTALLPERUSER` empty, `0` or `1`) picks the context and conditions on `ALLUSERS` and on `MSIINSTALLPERUSER` follow it; an execute-sequence setter of `ALLUSERS=1` registers per machine in the per-user folders, one of `MSIINSTALLPERUSER=1` changes no context but fools conditions on it; [details](#dual-scope-leftovers-envvar-04-inst-07-inst-08) |
+| INST-08 | Confirmed | [ci](msitest/results/INST-08/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41298756247 (PR #207): a firewall rule on an `ALLUSERS=1` component with `ALLUSERS=1` netsh actions is added per machine (install, repair) and removed at uninstall, never added per user, also not by a standard user (exit 0); ICE105 warns about the actions and `System64Folder` in `perUserOrMachine` only |
 | FILE-01 | Confirmed | [empty version, REP 1401](msitest/results/FILE-01/empty-version-rep1401/log.md) deletes the file |
 | FILE-02 | Confirmed | [log](msitest/results/FILE-02/file-hash/log.md) |
 | FILE-03 | Confirmed | [removefile-upgrade](msitest/results/FILE-03/removefile-upgrade/log.md), [purge-upgrade](msitest/results/FILE-03/purge-upgrade/log.md); `RemoveFile` `*` also runs on upgrade and leaves subfolders; the conditioned `rmdir` action removes the tree only on a real uninstall; [details](#use-case-gap-cases-upg-05-search-03-file-03-svc-03) |
@@ -243,6 +245,7 @@ Silent-failure cases a producer has to guard against itself:
 | FILE-12 | Confirmed | GitHub `windows-latest` runner, 2026-10-30, PR #150 (`TestMsiexecRemoveFoldersUserSID`), CI run 41086933283: the type-51 action changed the session's property (`PROPERTY CHANGE: Modifying UserSID property. Its current value is 'S-1-5-21-…-500'. Its new value: 'S-1-5-32-546'`), yet the deferred action's administrator check passed and it moved and deleted `DATA_DIR`, so a deferred action reads the engine's own `UserSID`, not the session property. The forging was done by a type-51 action, not by `MsiSetPropertyW` from a tampered custom action server, which is expected to change the same property table (not tested). The test's cleanup failed on a canceled context, fixed afterwards. Rerun on the engine-built data (PR #170, CI run 41146602047): the deferred action again accepted the administrator and deleted `DATA_DIR`. |
 | FILE-13 | Confirmed | GitHub `windows-latest` runner, 2026-10-31, PR #170 (`TestMsiexecRemoveFoldersLineBreak`), CI run 41146602047: with `LINE_DIR` set by a type-51 action to a value with a line break and a forged `f` line naming a bait folder, the deferred action logged `the folder removal data has more lines than entries: a formatted folder contains a line break; nothing removed`, and both `DATA_DIR` and the bait folder stayed. |
 | FILE-15 | Confirmed | GitHub `windows-latest` runner (Windows Server 2025), 2026-10-31, PR #185 (`TestMsiGetFileVersionAgrees`), CI run 41244742062: `pe.Parse` reported the same version and languages as `MsiGetFileVersionW` on every case of the row, and no version where Windows returned 13 or 1006. Earlier runs on this PR showed the rules now in §11.5: languages last stored first and combined across language entries, `SizeOfRawData` rounded up to `FileAlignment` (raw sizes 1 to 0x58 with the data at 0x58 gave the version without languages, 0x60 gave them), resources in the headers give no languages, a partial `Translation` entry counts once its language word fits. A value length of 5 depends on the msi.dll build: 5.0.26100.33648 (runner, CI run 41287162843, 2026-11-01) gave `1033`, 5.0.26100.1742 (Codex review run, five repeats, 2026-11-01) gave `1031,1033`; the test accepts either and `pe.Parse` gives `1033`. Disagreeing language entries (`TestMsiGetFileVersionDisagreeingLanguages`) are refused by `pe.Parse` by design; Windows picked the English entry on the English runner. |
+| FILE-16 | Confirmed | GitHub `windows-latest` runner (Windows Server 2025), 2026-11-01, PR #210 (`TestMsiexecFolderCases`, `TestICEFolderCases`), CI run 41299124405: with `TARGETDIR=C:\MsiBuilderFolderCasesTarget\` on the command line the `WindowsVolume` row below `TARGETDIR` (`DefaultDir` `.`) still put its children at `C:\MsiBuilderFolderCases\`, and nothing went below the target; `OPTDIR=` moved the folder with its `.` alias and its `lib` child, and `BINDIR=` (the alias) moved only the alias's component; uninstall removed every folder. `RemoveFile` rows with `DirProperty` `CLEANDIR`, a public property a registry search filled, removed the matching files of that folder at install (`InstallMode` 1) and uninstall (2) and kept others; with the registry value gone the property stayed empty, the log showed `Dir (target): Key: CLEANDIR, Object: NULL` and `Note: 1: 2756 2: CLEANDIR`, and matching files in System32, SysWOW64, the test's current folder and the volume root stayed. ICE99 reported an error for the Directory key `WindowsVolume` ("the same as one of the MSI Public Properties"); no other ICE error. The install-mode row is no longer accepted on a property outside `perUser` packages (YAML schema, "File removal") |
 | REG-01 | Confirmed | [x64](msitest/results/REG-01/x64/log.md) and [Intel](msitest/results/REG-01/Intel/log.md) templates: bit 256 picks the view |
 | REG-02 | Confirmed | [log](msitest/results/REG-02/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40863315162: install deletes whole keys (with subkeys) and single values in the component's view only, HKMU as HKLM; a `/fomus` repair deletes them again; uninstall leaves them and removes only the package's own values |
 | REG-03 | Confirmed | [log](msitest/results/REG-03/powershell/log.md); SERVER2025, 2026-10-29: hand-made keys under `EventLog\Application` are sources with and without `CustomSource`, which changes nothing; `New-EventLog` writes only `EventMessageFile`; [details](#event-log-sources-reg-03) |
@@ -255,6 +258,7 @@ Silent-failure cases a producer has to guard against itself:
 | ENVVAR-01 | Contradicted | [log](msitest/results/ENVVAR-01/environment/log.md); finding 4; segment removal on uninstall confirmed |
 | ENVVAR-02 | Confirmed | [ci](msitest/results/ENVVAR-02/ci/log.md); GitHub `windows-latest` runner, 2026-10-30, CI runs 41049121338 and 41052974347 (PR #142): one `WM_SETTINGCHANGE` with `"Environment"` after each install, repair and uninstall of the machine, user (per-machine package) and user (per-user package) variants, none without `Environment` rows; Explorer's environment block gained and lost each variable and picked up a value written by `reg add` without a broadcast before each step |
 | ENVVAR-03 | Confirmed | [ci](msitest/results/ENVVAR-03/ci/log.md); GitHub `windows-latest` runner, 2026-10-30, CI runs 41054581404, 41055965846 and 41058183558 (PR #149): in `ALLUSERS=2` packages a variable split into components conditioned `ALLUSERS=1` (`*` name) and `NOT ALLUSERS`, and HKLM/HKCU values in such components, install only in their context, silently and through the scope page; a standard user's per-user install writes neither the machine variable nor the HKLM value; a repair of transitive components keeps them (server `ALLUSERS` `1` or empty); ICE105 warns about the conditioned HKLM `Registry` and `RemoveRegistry` rows in `perUserOrMachine` only and never about the `*` row |
+| ENVVAR-04 | Confirmed | [ci](msitest/results/ENVVAR-04/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41298756247 (PR #207): two appends and two prepends of `PATH` in one component each add their part per machine and per user and the uninstall removes all four; the parts do not follow row-definition order; a trailing empty entry of the user `PATH` is dropped |
 | PROP-01 | Confirmed | [ci](msitest/results/PROP-01/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40945525570: a standard user's install elevated by `AlwaysInstallElevated` passes a command-line value to a deferred action only for the property listed in `SecureCustomProperties` (`SECURE=cmd PLAIN=default`); an administrator's install passes both |
 | PROP-02 | Contradicted | [ci](msitest/results/PROP-02/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40944028040: on build 26100 `VersionNT` is 603 (confirmed) and `WindowsBuild` 9600 (contradicts section 19.2); a registry search of `CurrentBuildNumber` gives 26100 and `OS_BUILD >= 22000` is true; Windows 11 not run |
 | PROP-03 | Confirmed | [ci](msitest/results/PROP-03/ci/log.md); GitHub `windows-latest` and `windows-11-arm` runners, 2026-10-30, CI run 41142970055 (PR #168, `TestMsiexecNativeArch`): the registry search of `PROCESSOR_ARCHITECTURE` gives `AMD64` and `ARM64`, `[%PROCESSOR_ARCHITECTURE]` the same; `Msix64`/`Intel` are 6/6 on x64 and 3401/15 for the x64 package on Arm64, `VersionNT64` 603 on both; the launch condition refuses Arm64 with 1603 and its message in the `/qn` log and lets x64 install |
@@ -1171,6 +1175,37 @@ full-UI test package with two more actions: `SetMarker`, an immediate
   `ActionStart` operation, so it holds the property values of the moment the
   script was written.
 - Not covered: basic UI (`/qb`).
+
+## Dual-scope leftovers (ENVVAR-04, INST-07, INST-08)
+
+Run on 2026-11-01 in CI run 41298756247 on the
+`Build & Test (windows-latest, native)` job (Windows Server 2025 x64, the
+runner's administrator with a full token, and the throwaway standard user
+`msitest`) by `internal/builder/nativetest/dualscope_windows_test.go` and
+`nonadmin_windows_test.go`. Details: [ENVVAR-04](msitest/results/ENVVAR-04/ci/log.md),
+[INST-07](msitest/results/INST-07/ci/log.md), [INST-08](msitest/results/INST-08/ci/log.md).
+
+INST-07, silent installs by the administrator:
+
+| Package | Command line | Registered | Server `ALLUSERS` / `MSIINSTALLPERUSER` | Components installed |
+| --- | --- | --- | --- | --- |
+| `perUserOrMachine` | none | user | empty / `1` | `MSIINSTALLPERUSER=1`, `NOT ALLUSERS` |
+| `perUserOrMachine` | `MSIINSTALLPERUSER=""` | machine | `1` / empty | `MSIINSTALLPERUSER<>1`, `ALLUSERS=1` |
+| `perUserOrMachine` | `MSIINSTALLPERUSER=0` | machine | `1` / empty | `MSIINSTALLPERUSER<>1`, `ALLUSERS=1` |
+| `perUserOrMachine` | `ALLUSERS=1` | machine | `1` / empty | `MSIINSTALLPERUSER<>1`, `ALLUSERS=1` |
+| `perUserOrMachine` | setter `ALLUSERS=1` after `ValidateProductID` | machine, `INSTALLDIR` in `%LOCALAPPDATA%\Programs` | `1` / `1` | `MSIINSTALLPERUSER=1`, `ALLUSERS=1` |
+| `perMachineOrUser` | none | machine | `1` / empty | `MSIINSTALLPERUSER<>1`, `ALLUSERS=1` |
+| `perMachineOrUser` | `MSIINSTALLPERUSER=1` | user | empty / `1` | `MSIINSTALLPERUSER=1`, `NOT ALLUSERS` |
+| `perMachineOrUser` | setter `MSIINSTALLPERUSER=1` after `ValidateProductID` | machine | `1` / `1` | `MSIINSTALLPERUSER=1`, `ALLUSERS=1` |
+
+"Empty" includes a property absent from the log's final `Property(S)`
+dump. ENVVAR-04: the four parts came out as
+`prepend2;prepend1;…;append2;append1` in both contexts, and the uninstall
+restored the machine `PATH` exactly and the user `PATH` without its
+trailing `;`. INST-08: see the case table above.
+
+- Not covered: setters in the UI sequence, the wizard's scope page with a
+  setter, Server 2016.
 
 ## Context actions (CA-09)
 

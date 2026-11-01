@@ -468,6 +468,11 @@ func (cc *compConv) createFolder(elm *elem) {
 
 	cc.out.set("createFolder", true)
 
+	if target := conv.folded[cc.cp.dir]; target != "" && slices.ContainsFunc(elm.kids, func(k *elem) bool { return permissionElems[k.qname()] }) {
+		conv.todof(cc.out, "", elm.line, "the permissions on %s: that Directory has no name, so it is the standard folder %s, and "+
+			"the grant applies to %s itself; check that it should", cc.cp.dir, target, target)
+	}
+
 	for _, k := range elm.kids {
 		if permissionElems[k.qname()] {
 			conv.permission(cc.out, "folderPermissions", k, rightsFile)
@@ -479,25 +484,41 @@ func (cc *compConv) createFolder(elm *elem) {
 
 func (cc *compConv) removeFile(elm *elem) {
 	conv := cc.c
+	cc.noteFoldedFolder(elm)
+
 	row := newMap()
-	row.order("id", "name", "directory", "on")
+	row.order("id", "name", "directory", "property", "on")
 
 	if elm.is(elemRemoveFile) {
 		row.set("name", conv.value(elm, "Name"))
 	}
 
-	if elm.has(attrProperty) {
-		conv.todof(row, "", elm.line, "the folder comes from the property %s: msi-builder takes a directory ID", elm.attr(attrProperty))
+	cc.removeFileFolder(row, elm)
+
+	when, keep := cc.removeFileOn(row, elm)
+	if !keep {
+		return
 	}
 
-	if d := elm.attr(attrDirectory); d != "" && d != cc.cp.dir {
-		row.set("directory", conv.dirRef(d))
-	}
-
-	switch on := elm.attr("On"); on {
+	switch when {
 	case onInstall, onBoth:
-		row.set("on", on)
+		row.set("on", when)
 	}
+
+	// On="both" on a property becomes uninstall-only outside a per-user
+	// package, and can then equal an uninstall row of the same folder.
+	key := [5]string{elm.name, strings.ToLower(row.str("name")), row.str("directory"), row.str("property"), row.str("on")}
+	if cc.removeRows[key] {
+		if elm.attr("On") != when {
+			conv.todof(cc.out, "", elm.line, "the install half of %s On=%q on the property %s was not converted: a repair, "+
+				"which a standard user can start elevated, would remove files wherever the property points; the uninstall "+
+				"half equals another row", elm.name, elm.attr("On"), elm.attr(attrProperty))
+		}
+
+		return
+	}
+
+	cc.removeRows[key] = true
 
 	if elm.is(elemRemoveFolder) {
 		cc.removeFolder = append(cc.removeFolder, row)
@@ -506,6 +527,57 @@ func (cc *compConv) removeFile(elm *elem) {
 	}
 
 	cc.out.add("removeFiles", row)
+}
+
+// noteFoldedFolder notes a RemoveFile or RemoveFolder on a nameless
+// Directory that became a standard folder.
+func (cc *compConv) noteFoldedFolder(elm *elem) {
+	conv := cc.c
+	if folder := cmp.Or(elm.attr(attrDirectory), elm.attr(attrProperty), cc.cp.dir); conv.folded[folder] != "" {
+		conv.todof(cc.out, "", elm.line, "%s on %s: that Directory has no name, so it is the standard folder %s, and the "+
+			"rows remove files in %s itself; check that they should", elm.name, folder, conv.folded[folder], conv.folded[folder])
+	}
+}
+
+// removeFileFolder sets the directory or property of a removeFiles row:
+// Property names a directory or any property that holds a full path.
+func (cc *compConv) removeFileFolder(row *omap, elm *elem) {
+	conv := cc.c
+
+	if prop := elm.attr(attrProperty); prop != "" && prop != cc.cp.dir {
+		if _, isDir := conv.dirs[prop]; isDir || isStandardFolder(prop) {
+			row.set("directory", conv.stdID(conv.dirRef(prop)))
+		} else {
+			row.set("property", prop)
+		}
+	}
+
+	if d := elm.attr(attrDirectory); d != "" && d != cc.cp.dir {
+		row.set("directory", conv.stdID(conv.dirRef(d)))
+	}
+}
+
+// removeFileOn returns the On of a removeFiles row and whether the row is
+// kept. msi-builder refuses install-time rows on a property outside a
+// per-user package, since a standard user's elevated repair could name any
+// folder, so that half is left out with a note.
+func (cc *compConv) removeFileOn(row *omap, elm *elem) (string, bool) {
+	conv := cc.c
+	when := elm.attr("On")
+
+	if row.get("property") == nil || when == "" || when == onUninstall || conv.scope == scopeUser {
+		return when, true
+	}
+
+	target := row
+	if when == onInstall {
+		target = cc.out
+	}
+
+	conv.todof(target, "", elm.line, "the install half of %s On=%q on the property %s was not converted: a repair, which "+
+		"a standard user can start elevated, would remove files wherever the property points", elm.name, when, elm.attr(attrProperty))
+
+	return "", when != onInstall
 }
 
 // movableDir returns the first directory from dirID up to its root that can
@@ -556,19 +628,16 @@ func (c *converter) setDirs() map[string]bool {
 // at install time.
 func (cc *compConv) purge(elm *elem) {
 	conv := cc.c
-	prop := elm.attr(attrProperty)
-	when := elm.attr("On")
+	folder := cc.removedFolder(elm)
 	cond := conv.value(elm, "Condition")
 
-	// A property that only reads the component's own folder back, by a
-	// RegistrySearch of a value the component writes, names that folder.
-	if prop != "" && cc.remembers(prop) {
-		prop = cc.cp.dir
+	if cc.foldedRemoval(elm, folder) {
+		return
 	}
 
-	when = cc.uninstallHalf(elm, cmp.Or(prop, cc.cp.dir), when)
+	when := cc.uninstallHalf(elm, folder, elm.attr("On"))
 
-	if (prop == "" || prop == cc.cp.dir) && (when == "" || when == "uninstall") && conv.movableDir(cc.cp.dir) == "" &&
+	if folder == cc.cp.dir && (when == "" || when == "uninstall") && conv.movableDir(cc.cp.dir) == "" &&
 		cc.out.get("purge") == nil {
 		if cond != "" {
 			cc.out.set("purge", newMap().set("condition", cond))
@@ -579,7 +648,34 @@ func (cc *compConv) purge(elm *elem) {
 		return
 	}
 
-	cc.removeFolders(elm, cmp.Or(prop, cc.cp.dir), when, cond)
+	cc.removeFolders(elm, folder, when, cond)
+}
+
+// removedFolder returns the folder a util:RemoveFolderEx removes: its
+// property, or the component's folder when it has none or when the
+// property only reads that folder back, by a RegistrySearch of a value the
+// component writes.
+func (cc *compConv) removedFolder(elm *elem) string {
+	prop := elm.attr(attrProperty)
+	if prop == "" || cc.remembers(prop) {
+		return cc.cp.dir
+	}
+
+	return prop
+}
+
+// foldedRemoval notes and reports a util:RemoveFolderEx on a nameless
+// Directory that became a standard folder, which is left out.
+func (cc *compConv) foldedRemoval(elm *elem, folder string) bool {
+	conv := cc.c
+	if conv.folded[folder] == "" {
+		return false
+	}
+
+	conv.todof(cc.out, "", elm.line, "util:RemoveFolderEx on %s was not converted: that Directory has no name, so it is the "+
+		"standard folder %s, which msi-builder never removes", folder, conv.folded[folder])
+
+	return true
 }
 
 // uninstallHalf returns the On a util:RemoveFolderEx keeps: a folder of

@@ -175,9 +175,18 @@ func (b *build) writeEnvironment(info *componentInfo) {
 	b.table("Environment")
 
 	comp := info.cfg
+	used := make(map[string]bool, len(comp.Environment))
 
 	for _, env := range comp.Environment {
 		key := generatedID("env", "Environment", comp.ID, env.Name, env.Action, env.Scope)
+		// A second part of the same variable (append or prepend, ENVVAR-04)
+		// is keyed by its value too; the first keeps the key it always had.
+		if used[key] {
+			key = generatedID("env", "Environment", comp.ID, env.Name, env.Action, env.Scope, env.Value)
+		}
+
+		used[key] = true
+
 		if env.Scope != envAuto {
 			b.environmentRow(key, env, env.Scope, comp.ID)
 

@@ -73,7 +73,7 @@ func registered(t *testing.T, productCode string) string {
 
 // TestMsiexecMovedFindRelatedProducts upgrades a per-machine install of a
 // perUserOrMachine product with a version that starts in the per-user
-// context and sets ALLUSERS=1 from a search (UPG-14). FindRelatedProducts
+// context and sets ALLUSERS=1 from a search (UPG-15). FindRelatedProducts
 // only finds products in the context it runs in, so at its default number
 // (25, before AppSearch) it misses the per-machine v1; moved behind the
 // setter it finds and removes it. Silently, and with the reduced UI, which
@@ -106,7 +106,7 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 		{"moved with folder /qn", "/qn", true, true, "none", "machine"},
 		{"moved with folder /qr", "/qr", true, true, "none", "machine"},
 	} {
-		t.Run("UPG-14 "+tc.name, func(t *testing.T) {
+		t.Run("UPG-15 "+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			name := fmt.Sprintf("MovedFind%d", i)
 			config := func(version string) string {
@@ -167,7 +167,7 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 			}
 
 			oldAfter, newAfter := registered(t, oldRes.ProductCode), registered(t, newRes.ProductCode)
-			t.Logf("UPG-14 %s: v1 %s, v2 %s, server ALLUSERS %q, OLDERVERSIONBEINGUPGRADED %q", tc.name, oldAfter, newAfter,
+			t.Logf("UPG-15 %s: v1 %s, v2 %s, server ALLUSERS %q, OLDERVERSIONBEINGUPGRADED %q", tc.name, oldAfter, newAfter,
 				serverProperties(text)["ALLUSERS"], serverProperties(text)["OLDERVERSIONBEINGUPGRADED"])
 
 			if newAfter != "machine" {
@@ -186,7 +186,7 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 				want, other = machineApp, userApp
 			}
 
-			t.Logf("UPG-14 %s: server INSTALLDIR %q", tc.name, serverProperties(text)["INSTALLDIR"])
+			t.Logf("UPG-15 %s: server INSTALLDIR %q", tc.name, serverProperties(text)["INSTALLDIR"])
 
 			if _, err := os.Stat(want); err != nil {
 				t.Errorf("app.exe after the v2 install: %v (server INSTALLDIR %q)", err, serverProperties(text)["INSTALLDIR"])

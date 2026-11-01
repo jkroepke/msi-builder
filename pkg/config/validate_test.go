@@ -118,6 +118,9 @@ func TestValidateAccepted(t *testing.T) {
 		"remote property":     firewall("[REMOTE_ADDR]"),
 		"environment scopes":  environment("{name: FOO, value: a}, {name: FOO, value: b, scope: user}"),
 		"environment actions": environment("{name: FOO, value: a}, {name: FOO, value: b, action: append}"),
+		// ENVVAR-04: several parts of one variable in one component.
+		"environment parts": environment("{name: PATH, value: a, action: append}, {name: Path, value: b, action: append}, " +
+			"{name: PATH, value: c, action: prepend}, {name: PATH, value: d, action: prepend}"),
 		"property search": base + appComponent +
 			"properties: {P: {value: x, search: {registry: {root: HKLM, key: Software\\X, name: V, bitness: 32, type: directory}}}}\n",
 		"property searches": base + appComponent + "properties: {P: {value: x, search: [" +
@@ -155,6 +158,17 @@ func TestValidateAccepted(t *testing.T) {
 			"    eventLog: [{source: X, messageFile: '[SystemFolder]EventCreate.exe'}]\n" +
 			"    environment: [{name: BAR, value: b, scope: machine}, {name: BAZ, value: c}]\n" +
 			"  - {id: User, directory: INSTALLDIR, scope: perUser, environment: [{name: BAZ, value: c}]}\n",
+		// INST-08: a dual package's firewall rule on a perMachine
+		// component, and under a feature, whose carrier installs only per
+		// machine; perMachineOrUser has no ICE105 warning.
+		"dual scope firewall": strings.Replace(pkg(`{platform: x64, scope: perMachineOrUser}`), "[App]", "[App, Fw]", 1) + appComponent +
+			"  - {id: Fw, directory: INSTALLDIR, scope: perMachine, createFolder: true}\n" +
+			"firewall: [{name: a, component: Fw, program: x}]\n",
+		// The INST-07 warning is about dual packages only.
+		"per-machine context setter": base + appComponent +
+			"customActions: [{id: Flip, setProperty: {name: ALLUSERS, value: '1'}, schedule: [{sequence: execute, after: ValidateProductID}]}]\n",
+		"dual scope feature firewall": strings.Replace(pkg(`{platform: x64, scope: perMachineOrUser}`), "    components: [App]\n",
+			"    components: [App]\n    firewall: [{name: a, program: x}]\n", 1) + appComponent,
 		"language dialog texts": base + appComponent + "properties: {OPT: {}, NAME: {}}\nui:\n  enabled: true\n  dialogs:\n    - {id: ExtraDlg, title: x, after: WelcomeDlg, fields: [{property: OPT, type: choice, options: [a, b]}, {property: NAME}]}\n" +
 			"  launch: {file: app.exe}\n" +
 			"  languages: {de: {launch: {text: '&Starten'}, dialogs: {ExtraDlg: {title: y, description: z, " +
@@ -644,6 +658,37 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    environment: [{name: FOO, value: a}, {name: FOO, value: b}]\n    files:", 1),
 			sevError, "components[0].environment[1]", "FOO with action set and scope machine is set twice",
 		},
+		// ENVVAR-04: append and prepend may add several parts, but not
+		// the same one twice.
+		"environment same part twice": {
+			base + strings.Replace(appComponent, "    files:", "    environment: [{name: PATH, value: a, action: append}, {name: path, value: a, action: append}]\n    files:", 1),
+			sevError, "components[0].environment[1]", "path with action append, scope machine and this value is set twice",
+		},
+		"environment remove twice": {
+			base + strings.Replace(appComponent, "    files:", "    environment: [{name: FOO, action: remove}, {name: FOO, value: b, action: remove}]\n    files:", 1),
+			sevError, "components[0].environment[1]", "only append and prepend",
+		},
+		// INST-07.
+		"context setter": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent +
+				"customActions: [{id: Flip, setProperty: {name: ALLUSERS, value: '1'}, schedule: [{sequence: execute, after: ValidateProductID}]}]\n",
+			sevWarning, "customActions[0].setProperty.name", "INST-07",
+		},
+		// INST-08.
+		"dual scope firewall without scope": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent + "firewall: [{name: a, component: App, program: x}]\n",
+			sevError, "firewall[0].component", "needs a component with scope perMachine",
+		},
+		"dual scope firewall warns": {
+			strings.Replace(pkg(`{platform: x64, scope: perUserOrMachine}`), "    components: [App]\n",
+				"    components: [App]\n    firewall: [{name: a, program: x}]\n", 1) + appComponent,
+			sevWarning, "features[0].firewall[0]", "ICE105 warns about the netsh actions",
+		},
+		"per-user firewall": {
+			pkg(`{platform: x64, scope: perUser}`) + strings.Replace(appComponent, "INSTALLDIR", "LocalAppDataFolder", 1) +
+				"firewall: [{name: a, component: App, program: x}]\n",
+			sevError, "firewall[0]", "firewall rules need a perMachine package",
+		},
 		"firewall description quote": {
 			base + appComponent + "firewall: [{name: a, component: App, program: x, description: 'say \"hi\"'}]\n",
 			sevError, "firewall[0].description", "double quote",
@@ -847,6 +892,38 @@ func TestValidate(t *testing.T) {
 		"removeFiles long pattern in a short-name package": {
 			pkg("{platform: x64, longFileNames: false}") + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"service-*.log\"}]\n    files:", 1),
 			sevError, "components[0].removeFiles[0].name", "8.3 pattern",
+		},
+		"removeFiles directory and property": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", directory: INSTALLDIR, property: LOGDIR}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0]", "not both",
+		},
+		"removeFiles property is a directory": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: INSTALLDIR}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "use directory: INSTALLDIR",
+		},
+		"removeFiles property nothing sets": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR}]\n    files:", 1),
+			sevWarning, "components[0].removeFiles[0].property", "nothing in the package sets LOGDIR",
+		},
+		"removeFiles property bad name": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: \"LOG DIR\"}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "not a property name",
+		},
+		"alias of a standard folder": {
+			strings.Replace(base, "        name: App\n", "        name: .\n", 1),
+			sevError, "directories[0].children[0].name", "standard folder",
+		},
+		"alias of a nested standard folder": {
+			strings.Replace(base, "        configurable: true\n", "        configurable: true\n        children: [{id: CommonAppDataFolder, children: [{id: DATA, name: .}]}]\n", 1),
+			sevError, "directories[0].children[0].children[0].children[0].name", "standard folder",
+		},
+		"removeFiles property on install": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR, on: both}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].on", "standard user",
+		},
+		"removeFiles property ROOTDRIVE": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: ROOTDRIVE}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "installer picks itself",
 		},
 		"recovery restart delay negative": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {restartDelay: -1s, actions: [restart]}}]\n    files:", 1),
