@@ -369,8 +369,6 @@ features:
 ### Close the running program before an upgrade
 
 ```yaml
-properties:
-  MSIRESTARTMANAGERCONTROL: Disable   # let close handle running programs
 components:
   - files:
       - source: hello.exe
@@ -385,6 +383,33 @@ running from the installed folder is ended, also a copy without a window
 This also happens on a repair that does not replace the file. A copy of `hello.exe` in another folder keeps running.
 `close: { timeout: 30s, terminate: false }` waits longer and never ends
 the program; Windows Installer then treats the file as in use.
+
+Windows Installer also has a helper of its own, Restart Manager, and
+msi-builder leaves it on. In a silent install it shuts down the processes
+that hold a file being replaced or removed, without asking. In a test on
+2026-10-25 that included an unrelated program that only had the file
+open. Console programs started without a console kept running in
+msi-builder's tests; `close` ends them, unless `terminate: false`. msi-builder accepts
+that risk, because it lets an upgrade replace files without a reboot. A
+package that cannot accept it turns Restart Manager off:
+
+```yaml
+properties:
+  MSIRESTARTMANAGERCONTROL: Disable
+```
+
+`restartResources` hands Restart Manager things the package does not
+install: a file that other programs keep open, a program by its full path,
+or a service. What holds or runs them is then meant to be shut down like
+a program that holds a package file:
+
+```yaml
+components:
+  - files: [{ source: hello.exe }]
+    restartResources:
+      - file: '[CommonAppDataFolder]Hello\state.db'
+      - service: HelloHelper
+```
 
 ### Let the user pick optional parts
 
@@ -868,6 +893,7 @@ The keys used most inside them:
 | `components[].files[].name` | the source's name | The installed name |
 | `components[].files[].shortcuts` | none | Start menu and desktop shortcuts |
 | `components[].files[].close` | `false` | Close the running program before it is replaced or removed |
+| `components[].restartResources` | none | Files, programs and services for Restart Manager to shut down |
 | `components[].services` | none | A Windows service for the component's program |
 | `components[].registry` | none | Registry values |
 | `components[].environment` | none | Environment variables such as `PATH` |

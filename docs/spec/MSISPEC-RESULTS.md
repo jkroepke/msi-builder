@@ -1262,6 +1262,51 @@ with `MSIRESTARTMANAGERCONTROL=Disable`. The test starts the helpers itself
   install, another user's session, a 32-bit or Arm64 package, a major
   upgrade, Windows Server 2016.
 
+## Restart Manager (CLOSE-03, CLOSE-04, CLOSE-05)
+
+Run on 2026-11-01 in the `Build & Test (windows-latest, native)` job
+(Windows Server 2025 x64, elevated) of PR #211, run 41299418584 (commit
+966fe48), by `TestMsiexecClosesAppsWithRestartManager` and
+`TestMsiexecRestartResources` in
+`internal/builder/nativetest/restart_windows_test.go`. Restart Manager was
+on (no `MSIRESTARTMANAGERCONTROL` in the packages). The helpers run
+without a console (`CREATE_NO_WINDOW`); in this run the windowed helper
+handled only `WM_CLOSE`, not `WM_ENDSESSION`.
+
+| Case and step | Result |
+| --- | --- |
+| CLOSE-03 `/fomus` repair, `gui.exe` (hidden window), `cli.exe` and `keep.exe` (`terminate: false`, console) from the install folder, a copy of `cli.exe` elsewhere | exit 0. `gui.exe` got `close`'s `WM_CLOSE` and exited with 0, `BuilderCloseExec` ended `cli.exe`, `keep.exe` and the copy kept running. Restart Manager opened and closed a session but shut nothing down: no file was copied |
+| CLOSE-03 `/x`, the same programs | exit 0. `gui.exe` closed by `WM_CLOSE`; Restart Manager logged `Successfully shut down all applications in the service's session that held files in use`, then about 30 seconds passed before the next action; `BuilderCloseExec` still found and ended `cli.exe`, `keep.exe` kept running, the copy elsewhere kept running |
+| CLOSE-04 `/i` with a file held by a program outside the package, a program outside the package (and a copy of it elsewhere) and a running service | exit 0. `BuilderRestartRegister` logged `file ...: registered`, `process <pid> (...\tool.exe): registered` and `service MsiBuilderRestartSvc: registered`; Restart Manager logged that it shut down all applications; the holder and the registered program exited, the copy elsewhere kept running; the service was `RUNNING` afterwards (whether it was stopped and started again was not recorded) |
+| CLOSE-04 `/fomus` repair with `MSIRESTARTMANAGERCONTROL=Disable` on the command line | exit 0. Restart Manager opened a session anyway and the action registered the service; `HELD_FILE` and `OTHER_PROGRAM` from the same command line did not reach the action (`cannot format`) |
+
+- The impersonated immediate action of an elevated per-machine install
+  joins the engine's session (`RmJoinSession` succeeded).
+- The file was registered by its 8.3 path (`C:\Users\RUNNER~1\...`) and
+  its holder was still shut down.
+- A console program without a console survived Restart Manager although
+  the log reported success; the close-apps evaluation's PowerShell, which
+  had a console, did not.
+- Every run logged `Previously shut down applications have been
+  restarted`; none of the helpers had registered for a restart.
+
+Second run on 2026-11-01, run on commit 3d650a8 of PR #211 (same job), with
+the repair step split and CLOSE-05 added (`TestMsiexecRestartsRegisteredProgram`).
+The window helpers now exit on `WM_ENDSESSION` and record it.
+
+| Case and step | Result |
+| --- | --- |
+| CLOSE-04 `/i` | exit 0. All three registered; the holder and the registered program got `WM_ENDSESSION`; the service ran as PID 3220 before and 6980 after |
+| CLOSE-04 `/fomus` repair with `MSIRESTARTMANAGERCONTROL=Disable` on the command line | exit 0. Session opened anyway; `HELD_FILE` and `OTHER_PROGRAM` `cannot format`; service registered, PID 6980 before and 7528 after |
+| CLOSE-04 second product with `MSIRESTARTMANAGERCONTROL=Disable` in its `Property` table | exit 0. `RESTART MANAGER: Disabled by MSIRESTARTMANAGERCONTROL property; Windows Installer will use the built-in FilesInUse functionality`; the action logged `no Restart Manager session; nothing registered`; service PID 7528 unchanged |
+| CLOSE-05 `/i` with a program that called `RegisterApplicationRestart` 65 s before | exit 0. Registered and shut down (`WM_ENDSESSION`); msiexec returned at 13:56:40.784, the restarted copy (new PID 8200, started with the registered command line) wrote its marker at 13:56:40.911 |
+
+- Restart Manager stops and starts a registered running service again.
+- Programs are restarted when the session closes at the end of the
+  installation, not right after `InstallValidate`.
+- Not covered: a full-UI or basic-UI install, a standard user, another
+  user's session, Windows Server 2016.
+
 ## Custom action DLL review fixes (SEC-06, CLOSE-02, FILE-14)
 
 Run on 2026-10-31 in the `Build & Test (windows-latest, native)` job

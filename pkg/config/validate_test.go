@@ -1434,6 +1434,26 @@ func TestValidate(t *testing.T) {
 			pkg(`{platform: x64, scope: perUser}`) + strings.Replace(appComponent, "    files:", "    serviceControl: [{name: Old, stopOnInstall: true}]\n    files:", 1),
 			sevError, "components[0].serviceControl[0]", "elevation",
 		},
+		"restart resource with two kinds": {
+			base + strings.Replace(appComponent, "    files:", "    restartResources: [{file: 'C:\\a.dat', service: Svc}]\n    files:", 1),
+			sevError, "components[0].restartResources[0]", "exactly one",
+		},
+		"restart resource twice": {
+			base + strings.Replace(appComponent, "    files:", "    restartResources: [{service: Svc}, {service: svc}]\n    files:", 1),
+			sevError, "components[0].restartResources[1].service", "already registers",
+		},
+		"restart resource long service name": {
+			base + strings.Replace(appComponent, "    files:", "    restartResources: [{service: S"+strings.Repeat("s", 255)+"}]\n    files:", 1),
+			sevError, "components[0].restartResources[0].service", "holds 255",
+		},
+		"per-user restart resource service": {
+			pkg(`{platform: x64, scope: perUser}`) + strings.Replace(appComponent, "    files:", "    restartResources: [{service: Svc}]\n    files:", 1),
+			sevError, "components[0].restartResources[0].service", "elevation",
+		},
+		"restart resources with Restart Manager off": {
+			base + "properties: {MSIRESTARTMANAGERCONTROL: Disable}\n" + strings.Replace(appComponent, "    files:", "    restartResources: [{program: '[SystemFolder]x.exe'}]\n    files:", 1),
+			sevWarning, "components[0].restartResources", "nothing is registered",
+		},
 		"dword value": {
 			base + strings.Replace(appComponent, "    files:", "    registry: [{root: HKLM, key: Software\\X, name: N, type: dword, value: abc}]\n    files:", 1),
 			sevError, "components[0].registry[0].value", "32-bit integer",
