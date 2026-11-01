@@ -100,7 +100,7 @@ func anchoredIn(cfg *Config, action, schedule string) bool {
 // search actions) and is not numbered here, a FindRelatedProducts at 100
 // or later counts as after it.
 func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []sequence.Numbered) {
-	if !launchSeesFind(cfg) {
+	if !hasLaunchConditions(cfg) {
 		return
 	}
 
@@ -147,20 +147,18 @@ func (v *validator) findOnLaunch(cfg *Config, table string, find int) {
 	}
 }
 
-// launchSeesFind reports whether the order of LaunchConditions and
-// FindRelatedProducts matters: the package has launch conditions and the
-// upgrade section; without it FindRelatedProducts, run only as an anchor,
-// sets no properties.
-func launchSeesFind(cfg *Config) bool {
-	return hasLaunchConditions(cfg) && upgrades(cfg)
-}
-
 // reportLaunchBeforeFind reports launch conditions before
 // FindRelatedProducts: an error with the downgrade check of
 // upgrade.downgrade: error, a warning otherwise. The numbers are left out,
 // because the builder adds actions validate does not number.
 func (v *validator) reportLaunchBeforeFind(cfg *Config, path string) {
-	if upgrades(cfg) && cfg.Upgrade.Downgrade == downgradeError {
+	// Without the upgrade section FindRelatedProducts, run only as an
+	// anchor, sets no properties, so the order does not matter.
+	if !upgrades(cfg) {
+		return
+	}
+
+	if cfg.Upgrade.Downgrade == downgradeError {
 		v.errorf(path, "LaunchConditions runs before FindRelatedProducts, so the downgrade check of upgrade.downgrade: "+
 			"error never sees a newer version; keep FindRelatedProducts before it or move LaunchConditions too")
 

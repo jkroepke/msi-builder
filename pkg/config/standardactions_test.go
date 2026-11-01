@@ -152,6 +152,12 @@ func TestStandardActionsNumbered(t *testing.T) {
 			launch + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: LaunchConditions}]}\n",
 			"standardActions[0].schedule[0]", "move LaunchConditions instead",
 		},
+		"FindRelatedProducts on the number of LaunchConditions without upgrade": {
+			"upgrade: false\n" + launch +
+				"customActions:\n  - {id: AfterFind, setProperty: {name: P, value: x}, schedule: [{sequence: execute, after: FindRelatedProducts}]}\n" +
+				"standardActions:\n  - {action: FindRelatedProducts, schedule: [{sequence: execute, at: 100}]}\n",
+			"standardActions[0].schedule[0]", "takes the number of LaunchConditions",
+		},
 		"FindRelatedProducts on the number of LaunchConditions": {
 			"upgrade: {downgrade: allow}\n" + launch +
 				"standardActions:\n  - {action: FindRelatedProducts, schedule: [{sequence: execute, at: 100}]}\n",
