@@ -244,10 +244,6 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<?ifndef V ?><?define V = "1" ?><?endif ?><?define V = "$(var.V)-x" ?><Property Id="P" Value="$(var.V)" />`,
 			note: "<?ifndef V?> is not evaluated: only its first branch was converted",
 		},
-		"default given twice": {
-			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
-			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
-		},
 		"default after a block that defines the variable": {
 			body: `<?ifdef D ?><?define X = "d" ?><?endif ?><?ifndef X ?><?define X = "def" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
 			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
@@ -393,6 +389,30 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
     <Property Id="Q" Value="$(var.Y)" />`,
 			want: `Y: '{{ if has "D" }}{{ .X }}-y{{ end }}'`,
 			vars: []string{"D"},
+		},
+		"default given twice": {
+			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.X)" />`,
+			want: `{{ else }}1{{ end }}`,
+			vars: []string{"X"},
+		},
+		"brace before a value": {
+			body: `<?ifndef G ?><?define G = "g" ?><?endif ?><?ifdef E ?><?define Code = "{$(var.G)}" ?><?else ?><?define Code = "a{" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.Code)" /><Property Id="R" Value="{$(var.Code)}" />`,
+			want: "{{ `{` }}",
+			vars: []string{"E"},
+		},
+		"default in a block read outside it": {
+			body: `<?ifdef E ?><?ifndef Y ?><?define Y = "y" ?><?endif ?><?endif ?><?define Z = "$(var.Y)-z" ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.Z)" />`,
+			want: `Z: '{{ .Y }}-z'`,
+			vars: []string{"E", "Y"},
 		},
 		"property in both branches on one line": {
 			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>

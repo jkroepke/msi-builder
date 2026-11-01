@@ -1123,6 +1123,13 @@ func (c *converter) mergeBranches(frame *defineFrame, defaults map[string]string
 		}
 
 		env[name] = c.branchValue(frame, name)
+
+		if def, ok := defaults[name]; ok && strings.Contains(env[name], defaultRef(name)) {
+			// A default inside this block: the variable's value tests
+			// the block, and readers still read the variable.
+			defaults[name] = strings.ReplaceAll(env[name], defaultRef(name), def)
+			env[name] = defaultRef(name)
+		}
 	}
 
 	return env
@@ -1201,14 +1208,25 @@ func (c *converter) definesVar(name string) bool {
 }
 
 // definedBefore reports whether a <?define?> before blk sets the
-// variable: the header var then always has a value, so has tells nothing.
+// variable in some builds only, or without a value: the header var has a
+// value in every build, so has tells nothing.
 func (c *converter) definedBefore(blk *ppBlock, name string) bool {
 	for _, proc := range c.doc.procs {
 		if proc.block == blk {
 			return false
 		}
 
-		if defined, _, _ := strings.Cut(proc.inst, "="); proc.target == piDefine && varName(strings.TrimSpace(defined)) == name {
+		// A define with a value that every build runs makes has true in
+		// WiX too.
+		defined, _, valued := strings.Cut(proc.inst, "=")
+		if proc.target != piDefine || varName(strings.TrimSpace(defined)) != name {
+			continue
+		}
+
+		// An earlier default leaves the header var defined in every
+		// build too, so a later default never applies, as in WiX.
+		earlierDefault := len(proc.pos) == 1 && defaultBlock(proc.pos[0].block, name, c.doc.procs)
+		if !valued || len(proc.pos) > 0 && !earlierDefault {
 			return true
 		}
 	}

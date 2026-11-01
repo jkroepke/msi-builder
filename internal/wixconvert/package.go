@@ -9,6 +9,15 @@ import (
 	"github.com/jkroepke/msi-builder/pkg/config"
 )
 
+// braceSafe writes a literal { that comes just before an action of a
+// vars header value as an action of its own: {{{ would read the { as
+// part of the action. Literal text never holds {{, which escapeTemplate
+// writes as an action. The body needs none: quoteVars splits it into
+// operands.
+func braceSafe(text string) string {
+	return strings.ReplaceAll(text, "{{{", "{{ `{` }}{{")
+}
+
 // emitVars writes the defines as vars. A define that uses an earlier one
 // takes in its value, as the WiX preprocessor does.
 // A variable that a kept block defines becomes a template that tests the
@@ -20,7 +29,7 @@ func (c *converter) emitVars() {
 
 	for _, define := range c.defines {
 		if v, ok := conditional[define[0]]; ok {
-			c.out.child("vars").set(define[0], v)
+			c.out.child("vars").set(define[0], braceSafe(v))
 
 			continue
 		}
