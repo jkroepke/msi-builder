@@ -662,11 +662,12 @@ func readBinaryCells(tbl *Table, rows [][]any, stored [][]uint32, keys int, bina
 			continue
 		}
 
-		// A binary stream is named by the key, so a table without one
-		// cannot name its rows' streams; checkSchema reported the table.
-		if keys == 0 {
+		// A binary stream is named by the key, so a table without one, or
+		// whose key holds this column, cannot name its rows' streams;
+		// checkSchema reported the table.
+		if keys == 0 || colIdx < keys {
 			if slices.ContainsFunc(stored, func(cells []uint32) bool { return cells[colIdx] != 0 }) {
-				addProblem(database, fmt.Sprintf("table %s: the binary cells of column %s are not read, the table has no primary key", tbl.Name, col.Name))
+				addProblem(database, fmt.Sprintf("table %s: the binary cells of column %s are not read, the key cannot name their streams", tbl.Name, col.Name))
 			}
 
 			continue

@@ -193,7 +193,7 @@ func TestUnmarshalKeylessBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"table T has no primary key", "table T: the binary cells of column D are not read, the table has no primary key"}
+	want := []string{"table T has no primary key", "table T: the binary cells of column D are not read, the key cannot name their streams"}
 	if !slices.Equal(database.Problems, want) {
 		t.Errorf("problems %q, want %q", database.Problems, want)
 	}
@@ -209,6 +209,24 @@ func TestUnmarshalKeylessBinary(t *testing.T) {
 
 	if !slices.Contains(names, "T.a") || !slices.Contains(names, "T.b") {
 		t.Errorf("streams %q, want T.a and T.b kept", names)
+	}
+}
+
+// A binary key column cannot name its own stream either.
+func TestUnmarshalBinaryKeyCells(t *testing.T) {
+	t.Parallel()
+
+	tbl := &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("D", "V0", false)}}
+	tbl.Add("a", []byte("first"))
+
+	database, err := Unmarshal(patchedCatalog(t, tbl, map[int]catalogEdit{2: {key: 1}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"table T: binary column D cannot be a key", "table T: the binary cells of column D are not read, the key cannot name their streams"}
+	if !slices.Equal(database.Problems, want) || database.Table("T").Rows[0][1] != nil {
+		t.Errorf("problems %q, rows %v; want %q", database.Problems, database.Table("T").Rows, want)
 	}
 }
 

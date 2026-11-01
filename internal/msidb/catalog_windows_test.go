@@ -148,6 +148,7 @@ func TestNativeMalformedCatalog(t *testing.T) { //nolint:paralleltest // msi.dll
 		edits map[int]catalogEdit
 		named map[string][][]string // a query by column names and its rows; nil rows: error 1615
 		name  string
+		want  string // the reader's one problem
 		keys  []string
 	}{
 		{name: "control", keys: []string{"K"}, named: map[string][][]string{
@@ -155,23 +156,23 @@ func TestNativeMalformedCatalog(t *testing.T) { //nolint:paralleltest // msi.dll
 			"SELECT `V` FROM `T` WHERE `K`='b'": {{"y"}},
 		}},
 		// K, K, N: V is gone.
-		{name: "duplicate key name", edits: map[int]catalogEdit{2: {name: "K"}}, keys: []string{"K"}, named: map[string][][]string{
+		{name: "duplicate key name", want: "table T: column K defined twice", edits: map[int]catalogEdit{2: {name: "K"}}, keys: []string{"K"}, named: map[string][][]string{
 			"SELECT `K`, `V`, `N` FROM `T`":     nil,
 			"SELECT `N` FROM `T` WHERE `K`='b'": {{"2"}},
 			"SELECT `K` FROM `T` WHERE `N`=2":   {{"b"}},
 		}},
 		// K, V, V: `V` is column 2, N is gone.
-		{name: "duplicate non-key name", edits: map[int]catalogEdit{3: {name: "V"}}, keys: []string{"K"}, named: map[string][][]string{
+		{name: "duplicate non-key name", want: "table T: column V defined twice", edits: map[int]catalogEdit{3: {name: "V"}}, keys: []string{"K"}, named: map[string][][]string{
 			"SELECT `K`, `V`, `N` FROM `T`":     nil,
 			"SELECT `V` FROM `T` WHERE `K`='b'": {{"y"}},
 		}},
-		{name: "no primary key", edits: map[int]catalogEdit{1: {key: -1}}, keys: nil, named: map[string][][]string{
+		{name: "no primary key", want: "table T has no primary key", edits: map[int]catalogEdit{1: {key: -1}}, keys: nil, named: map[string][][]string{
 			"SELECT `V` FROM `T` WHERE `K`='b'": {{"y"}},
 		}},
-		{name: "key after a non-key column", edits: map[int]catalogEdit{3: {key: 1}}, keys: []string{"K"}, named: map[string][][]string{
+		{name: "key after a non-key column", want: "table T: key column N must come before the other columns", edits: map[int]catalogEdit{3: {key: 1}}, keys: []string{"K"}, named: map[string][][]string{
 			"SELECT `N` FROM `T` WHERE `V`='y'": {{"2"}},
 		}},
-		{name: "only key last", edits: map[int]catalogEdit{1: {key: -1}, 3: {key: 1}}, keys: nil, named: map[string][][]string{
+		{name: "only key last", want: "table T: key column N must come before the other columns", edits: map[int]catalogEdit{1: {key: -1}, 3: {key: 1}}, keys: nil, named: map[string][][]string{
 			"SELECT `N` FROM `T` WHERE `V`='y'": {{"2"}},
 		}},
 	} {
@@ -227,7 +228,7 @@ func TestNativeMalformedCatalog(t *testing.T) { //nolint:paralleltest // msi.dll
 				t.Errorf("reader rows %q, msi.dll %q", got, allRows)
 			}
 
-			if (tc.edits == nil) != (len(database.Problems) == 0) {
+			if want := []string{tc.want}; !slices.Equal(database.Problems, want) && (tc.want != "" || len(database.Problems) > 0) {
 				t.Errorf("reader problems %q", database.Problems)
 			}
 
