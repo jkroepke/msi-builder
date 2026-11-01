@@ -19,7 +19,9 @@ asking the maintainer, since every exported name is bound by semantic
 versioning after 1.0.
 
 - [`pkg/config`](pkg/config): the YAML schema (`docs/design/yaml-schema.md`,
-  `pkg/config/schema.json`), parsing and validation. The builder consumes a
+  `pkg/config/schema.json`), parsing and validation. The schema's
+  `properties` lists Windows Installer properties with their values and
+  refuses exactly `builderProperties` (`TestJSONSchemaBuilderProperties`). The builder consumes a
   validated `*config.Config` and never reads YAML. Folder sources (a file
   `source` ending in `/`) are the one part that lists folders:
   `Config.ExpandFolders` (`folder.go`) replaces their component with one per
@@ -323,6 +325,9 @@ go test ./... -shuffle=on -race
   on the `windows-latest` runner: push the branch and start CI with
   `workflow_dispatch` on it, then read the job log. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
+  A repair while another process holds an installed file open lost the
+  hosted runner every time (PROP-04, no job log at all), so probe Restart
+  Manager elsewhere.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with

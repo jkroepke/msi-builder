@@ -377,51 +377,1144 @@
     },
     "properties": {
       "type": "object",
-      "additionalProperties": {
-        "anyOf": [
-          {
-            "type": [
-              "string",
-              "number",
-              "boolean",
-              "null"
-            ],
-            "description": "Short form: the value only."
-          },
-          {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": [
-                  "string",
-                  "number"
-                ]
-              },
-              "secure": {
-                "$ref": "#/$defs/bool"
-              },
-              "hidden": {
-                "$ref": "#/$defs/bool"
-              },
-              "search": {
-                "description": "Fills the property from the target machine before the install. A command-line value wins; value is the fallback when nothing is found. A list is tried in order; the first search that finds something wins.",
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/search"
-                  },
-                  {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {
-                      "$ref": "#/$defs/search"
+      "description": "Properties of the package. Any name can be defined. The Windows Installer properties listed here are described from Microsoft's documentation, which is not verified on Windows unless docs/spec/MSISPEC.md names a test case; the properties the builder writes and the request properties are refused, and the description of a builder one names the key to use.",
+      "properties": {
+        "ADDDEFAULT": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "ADDLOCAL": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "ADDSOURCE": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "ADVERTISE": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "ALLUSERS": {
+          "description": "Written by the builder from package.scope; set that instead.",
+          "not": {}
+        },
+        "ARPAUTHORIZEDCDFPREFIX": {
+          "description": "URL prefix of the product's update channel, written to the Uninstall key as AuthorizedCDFPrefix.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
                     }
                   }
-                ]
-              }
+                }
+              ]
+            }
+          ]
+        },
+        "ARPCOMMENTS": {
+          "description": "Written by the builder from product.arp.comments; set that instead.",
+          "not": {}
+        },
+        "ARPCONTACT": {
+          "description": "Written by the builder from product.arp.contact; set that instead.",
+          "not": {}
+        },
+        "ARPHELPLINK": {
+          "description": "Written by the builder from product.arp.helpLink; set that instead.",
+          "not": {}
+        },
+        "ARPHELPTELEPHONE": {
+          "description": "Support telephone number, written to the Uninstall key as HelpTelephone.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
             },
-            "additionalProperties": false
-          }
-        ]
+            {
+              "anyOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "ARPINSTALLLOCATION": {
+          "description": "Written by the builder from product.arp.installLocation; set that instead.",
+          "not": {}
+        },
+        "ARPNOMODIFY": {
+          "description": "Written by the builder from product.arp.noModify; set that instead.",
+          "not": {}
+        },
+        "ARPNOREMOVE": {
+          "description": "Written by the builder from product.arp.noRemove; set that instead.",
+          "not": {}
+        },
+        "ARPNOREPAIR": {
+          "description": "Written by the builder from product.arp.noRepair; set that instead.",
+          "not": {}
+        },
+        "ARPPRODUCTICON": {
+          "description": "Written by the builder from product.arp.icon; set that instead.",
+          "not": {}
+        },
+        "ARPREADME": {
+          "description": "Readme location of the product, written to the Uninstall key as Readme.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "ARPSIZE": {
+          "description": "Written by the builder from product.arp.size; set that instead.",
+          "not": {}
+        },
+        "ARPSYSTEMCOMPONENT": {
+          "description": "1 hides the product from Apps & features.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1",
+                        1
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "1",
+                            1
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "ARPURLINFOABOUT": {
+          "description": "Written by the builder from product.arp.aboutLink; set that instead.",
+          "not": {}
+        },
+        "ARPURLUPDATEINFO": {
+          "description": "Written by the builder from product.arp.updateLink; set that instead.",
+          "not": {}
+        },
+        "COMPADDDEFAULT": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "COMPADDLOCAL": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "COMPADDSOURCE": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "DISABLEROLLBACK": {
+          "description": "Set to any value, usually 1, it turns rollback off: a failed install leaves what it already changed, and rollback and commit actions are skipped.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1",
+                        1
+                      ]
+                    },
+                    {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "1",
+                            1
+                          ]
+                        },
+                        {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "FILEADDDEFAULT": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "FILEADDLOCAL": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "FILEADDSOURCE": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "INSTALLLEVEL": {
+          "description": "The install level of a first install: a feature is installed when its level is from 1 to this value. Default 1. Write a decimal number.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 32767
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^([1-9][0-9]{0,3}|[12][0-9]{4}|3[01][0-9]{3}|32[0-6][0-9]{2}|327[0-5][0-9]|3276[0-7])$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 32767
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^([1-9][0-9]{0,3}|[12][0-9]{4}|3[01][0-9]{3}|32[0-6][0-9]{2}|327[0-5][0-9]|3276[0-7])$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "LIMITUI": {
+          "description": "Set to any value, usually 1, it limits the user interface to basic UI, so the wizard is never shown. Microsoft asks such a package to set ARPNOMODIFY too (product.arp.noModify).",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1",
+                        1
+                      ]
+                    },
+                    {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "1",
+                            1
+                          ]
+                        },
+                        {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "Manufacturer": {
+          "description": "Written by the builder from product.manufacturer; set that instead.",
+          "not": {}
+        },
+        "MSIARPSETTINGSIDENTIFIER": {
+          "description": "Semicolon-separated registry locations of the application's settings, written to the Uninstall key as SettingsIdentifier. Windows Installer 4.0.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MSIDISABLERMRESTART": {
+          "description": "1: programs Restart Manager shut down are not restarted after the install; 0 restarts the services it shut down and the applications registered with Restart Manager. Ignored when Restart Manager is unavailable or disabled.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "0",
+                        0,
+                        "1",
+                        1
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "0",
+                            0,
+                            "1",
+                            1
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MSIENFORCEUPGRADECOMPONENTRULES": {
+          "description": "1 makes small updates and minor upgrades fail when they remove a component or add a feature that is not a leaf.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1",
+                        1
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "1",
+                            1
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MSIFASTINSTALL": {
+          "description": "Sum of 1 (no system restore point), 2 (file costing only) and 4 (fewer progress messages). Default 0. Windows Installer 5.0.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "0",
+                        0,
+                        "1",
+                        1,
+                        "2",
+                        2,
+                        "3",
+                        3,
+                        "4",
+                        4,
+                        "5",
+                        5,
+                        "6",
+                        6,
+                        "7",
+                        7
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "0",
+                            0,
+                            "1",
+                            1,
+                            "2",
+                            2,
+                            "3",
+                            3,
+                            "4",
+                            4,
+                            "5",
+                            5,
+                            "6",
+                            6,
+                            "7",
+                            7
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MsiHiddenProperties": {
+          "description": "Written by the builder from hidden on each property; set that instead.",
+          "not": {}
+        },
+        "MSIINSTALLPERUSER": {
+          "description": "1 installs a package with ALLUSERS 2 per user. Packages with package.scope perUserOrMachine or perMachineOrUser manage it, so it cannot be defined there, and it has no effect in other packages.",
+          "$ref": "#/$defs/property"
+        },
+        "MsiLogging": {
+          "description": "Logs every install of the product, as with msiexec /l: the letters iwearucmopvx and !. The engine writes MSI*.LOG and sets MsiLogFileLocation to its path. Windows Installer 4.0.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[iwearucmopvxIWEARUCMOPVX!]+$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[iwearucmopvxIWEARUCMOPVX!]+$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MSIRESTARTMANAGERCONTROL": {
+          "description": "Whether Restart Manager handles files in use. 0 (default) uses Restart Manager; Disable turns it off and uses the FilesInUse dialog; DisableShutdown uses the FilesInUse dialog and Restart Manager only to detect files in use, never to shut programs down. Ignored when Restart Manager is unavailable or disabled; a custom action changing it has no effect.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "0",
+                        0,
+                        "Disable",
+                        "DisableShutdown"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "0",
+                            0,
+                            "Disable",
+                            "DisableShutdown"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MSIRMSHUTDOWN": {
+          "description": "How Restart Manager shuts down programs that hold files: 0 shuts them down, 1 also forces those that do not respond, 2 shuts down only if every one is registered for a restart. Ignored when Restart Manager is unavailable or disabled.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "0",
+                        0,
+                        "1",
+                        1,
+                        "2",
+                        2
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "0",
+                            0,
+                            "1",
+                            1,
+                            "2",
+                            2
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "MSIUSEREALADMINDETECTION": {
+          "description": "1 sets AdminUser from the user's actual rights; without it AdminUser equals Privileged on Windows Vista and later. Conditions should use Privileged anyway.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1",
+                        1
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "1",
+                            1
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "PRIMARYFOLDER": {
+          "description": "A directory whose volume sets the PrimaryVolumePath, PrimaryVolumeSpaceAvailable, PrimaryVolumeSpaceRequired and PrimaryVolumeSpaceRemaining properties.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "ProductCode": {
+          "description": "Written by the builder from product.productCode; set that instead.",
+          "not": {}
+        },
+        "ProductLanguage": {
+          "description": "Written by the builder from product.language; set that instead.",
+          "not": {}
+        },
+        "ProductName": {
+          "description": "Written by the builder from product.name; set that instead.",
+          "not": {}
+        },
+        "ProductVersion": {
+          "description": "Written by the builder from product.version; set that instead.",
+          "not": {}
+        },
+        "REBOOT": {
+          "description": "Force asks for a restart after the install, and restarts without asking when there is no UI unless msiexec runs with /norestart; Suppress drops the restart prompt at the end but keeps the restarts of ForceReboot, which happen without asking when there is no UI; ReallySuppress drops every restart. Only the first letter is read.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "Force",
+                        "Suppress",
+                        "ReallySuppress"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[FSR]"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "Force",
+                            "Suppress",
+                            "ReallySuppress"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[FSR]"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "REBOOTPROMPT": {
+          "description": "Suppress (or S): a needed restart happens without asking the user. It does not cause a restart.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "Suppress",
+                        "S"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "Suppress",
+                            "S"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "REINSTALL": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "REINSTALLMODE": {
+          "description": "Letters, in any case and order, that say what a repair or reinstall overwrites: p, o, e, d, a, c for files, u and m for registry, s for shortcuts, v to re-cache the package. Default omus. msiexec /f sets its own letters; in the package it makes ICE40 warn, and files[].version is the fix for one file whose version went down.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/property"
+            },
+            {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[poedacumsvPOEDACUMSV]+$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[poedacumsvPOEDACUMSV]+$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
+                          "$ref": "#/$defs/var"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "REMOVE": {
+          "description": "A request property, given on the msiexec command line; a package cannot define it.",
+          "not": {}
+        },
+        "SecureCustomProperties": {
+          "description": "Written by the builder from secure on each property; set that instead.",
+          "not": {}
+        },
+        "UpgradeCode": {
+          "description": "Written by the builder from product.upgradeCode; set that instead.",
+          "not": {}
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/property"
       }
     },
     "launchConditions": {
@@ -3059,6 +4152,54 @@
         "progId"
       ],
       "additionalProperties": false
+    },
+    "property": {
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ],
+          "description": "Short form: the value only."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "secure": {
+              "$ref": "#/$defs/bool"
+            },
+            "hidden": {
+              "$ref": "#/$defs/bool"
+            },
+            "search": {
+              "description": "Fills the property from the target machine before the install. A command-line value wins; value is the fallback when nothing is found. A list is tried in order; the first search that finds something wins.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/search"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/search"
+                  }
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }
