@@ -284,22 +284,7 @@ func (b *build) directories() error {
 				continue
 			}
 
-			info := &dirInfo{id: dir.ID}
-
-			switch {
-			case parent == nil && config.IsStandardFolder(dir.ID):
-				info.parent = targetDir
-				info.standard = true
-				info.canonical = dir.ID
-			case parent == nil:
-				info.parent = targetDir
-				info.long = dir.Name
-				info.canonical = "TARGETDIR\\" + strings.ToLower(dir.Name)
-			default:
-				info.parent = parent.id
-				info.long = dir.Name
-				info.canonical = parent.canonical + "\\" + strings.ToLower(dir.Name)
-			}
+			info := newDirInfo(dir, parent)
 
 			if dir.Configurable {
 				b.secure[dir.ID] = true
@@ -313,6 +298,33 @@ func (b *build) directories() error {
 	walk(b.cfg.Directories, nil)
 
 	return nil
+}
+
+// newDirInfo resolves a directory node below parent, nil for a top-level
+// node: a standard folder, a named folder, or a second id for the parent
+// folder (DefaultDir ".").
+func newDirInfo(dir *config.Directory, parent *dirInfo) *dirInfo {
+	info := &dirInfo{id: dir.ID}
+
+	switch {
+	case parent == nil && config.IsStandardFolder(dir.ID):
+		info.parent = targetDir
+		info.standard = true
+		info.canonical = dir.ID
+	case parent == nil:
+		info.parent = targetDir
+		info.long = dir.Name
+		info.canonical = "TARGETDIR\\" + strings.ToLower(dir.Name)
+	case dir.Name == config.AliasName:
+		info.parent = parent.id
+		info.canonical = parent.canonical
+	default:
+		info.parent = parent.id
+		info.long = dir.Name
+		info.canonical = parent.canonical + "\\" + strings.ToLower(dir.Name)
+	}
+
+	return info
 }
 
 func (b *build) addDir(d *dirInfo) {
@@ -350,6 +362,8 @@ func (b *build) writeDirectoryTable() {
 			}
 
 			tbl.Add(dir.id, dir.parent, name)
+		case dir.long == "":
+			tbl.Add(dir.id, dir.parent, config.AliasName)
 		default:
 			key := b.folderKey(dir.parent) + "\x1f" + strings.ToLower(dir.long)
 			if _, ok := names[key]; !ok {

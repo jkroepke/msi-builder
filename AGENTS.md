@@ -137,6 +137,11 @@ versioning after 1.0.
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
   from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
+  Nameless and `.` Directories are settled before the directories link
+  (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
+  (`name: .`), directly in a standard folder they become it, and in
+  TARGETDIR they become the standard folder an unconditioned SetDirectory
+  sets (`[WindowsVolume]`), which is then `consumed` and left out.
   Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
   branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
   a block only when every element directly in it is one whose output stays

@@ -982,7 +982,6 @@ func (c *converter) sequenceEntries() map[string][]seqEntry {
 func (c *converter) quietExecCommands() {
 	sources := c.commandSources()
 	c.quietCommands = make(map[string]commandSource)
-	c.consumed = make(map[*elem]bool)
 
 	for _, quiet := range c.actionOrder {
 		if !quietExec[quiet.attr("DllEntry")] {
@@ -1276,7 +1275,7 @@ func (c *converter) setter(setter *elem) (*omap, []any) {
 
 	for _, seq := range sequences {
 		placement := flowMap().set("sequence", seq).set("before", before).set("after", after)
-		c.setCondition(placement, c.value(setter, "Condition"))
+		c.setCondition(placement, c.condition(setter))
 		schedule = append(schedule, placement)
 	}
 

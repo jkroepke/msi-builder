@@ -379,3 +379,36 @@ func TestConvertComputedCodesV3NoArch(t *testing.T) {
 		t.Errorf("Reg64 got %s without --arch:\n%s", code, res.YAML)
 	}
 }
+
+// TestConvertComputedCodesFoldedFolder computes the code of a component
+// below a nameless Directory in ProgramFiles6432Folder from the source's
+// own records: the folder stays a "." in the key path, so the code follows
+// the platform, although the YAML names the standard folder.
+func TestConvertComputedCodesFoldedFolder(t *testing.T) {
+	t.Parallel()
+
+	source := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="COMPANY">
+        <Directory Id="INSTALLFOLDER" Name="Hello">
+          <Component Id="App"><File Source="hello.exe" /></Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+  </Package>
+</Wix>`
+
+	x86, _ := convertCodes(t, source, wixconvert.Options{Arch: "x86"})
+	x64, res := convertCodes(t, source, wixconvert.Options{Arch: "x64"})
+
+	if x86["App"] == "" || x86["App"] == x64["App"] {
+		t.Errorf("App codes x86 %q, x64 %q: want two different codes\n%s", x86["App"], x64["App"], res.YAML)
+	}
+
+	if strings.Contains(string(res.YAML), "COMPANY") {
+		t.Errorf("the folded folder is still in the YAML:\n%s", res.YAML)
+	}
+}

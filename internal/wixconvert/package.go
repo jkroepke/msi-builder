@@ -569,6 +569,8 @@ const (
 	scopeMachineOrUser = "perMachineOrUser"
 	// propAllUsers is the property that selects the scope.
 	propAllUsers = "ALLUSERS"
+	// propWixUIInstallDir names the folder the WixUI wizard installs into.
+	propWixUIInstallDir = "WIXUI_INSTALLDIR"
 	// propInstallPerUser picks the per-user install of an ALLUSERS=2
 	// package.
 	propInstallPerUser = "MSIINSTALLPERUSER"
@@ -827,7 +829,7 @@ func (c *converter) skippedProperty(propID string) bool {
 	}
 
 	switch propID {
-	case propAllUsers, "WixShellExecTarget", "QtExecCmdLine", "QtExec64CmdLine", "WixQuietExecCmdLine", "WixQuietExec64CmdLine", "WIXUI_INSTALLDIR",
+	case propAllUsers, "WixShellExecTarget", "QtExecCmdLine", "QtExec64CmdLine", "WixQuietExecCmdLine", "WixQuietExec64CmdLine", propWixUIInstallDir,
 		"WIXUI_EXITDIALOGOPTIONALCHECKBOX", "WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT", "WIXUI_EXITDIALOGOPTIONALTEXT":
 		return true
 	}

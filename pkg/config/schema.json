@@ -2405,7 +2405,7 @@
         },
         "name": {
           "type": "string",
-          "description": "Directory name (the long name; the 8.3 short name is generated). Required below the top level."
+          "description": "Directory name (the long name; the 8.3 short name is generated). Required below the top level. \".\" makes the directory a second id for its parent folder (not for a standard folder)."
         },
         "configurable": {
           "$ref": "#/$defs/bool",
@@ -3046,6 +3046,10 @@
               "directory": {
                 "type": "string",
                 "description": "A directory ID, default the component's directory."
+              },
+              "property": {
+                "type": "string",
+                "description": "Instead of directory: a property that holds the folder's full path when RemoveFiles runs, for example one a registry search fills. An empty property removes nothing."
               },
               "on": {
                 "enum": [

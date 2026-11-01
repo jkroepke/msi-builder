@@ -659,6 +659,27 @@ directories:
   `CommonFilesFolder` or `SystemFolder` gets a warning (ICE80): those are the
   32-bit folders on 64-bit Windows.
 - `configurable: true` requires an upper-case ID.
+- `name: .` makes the directory a second ID for its parent folder
+  (`DefaultDir` `.`, specification section 8.3): its components install
+  into the parent's folder and share its short names and the GUID path, it
+  follows the parent when the parent moves, and setting the alias itself on
+  the command line (with `configurable: true`) moves only its own
+  components (FILE-16). Converted WiX packages keep the IDs their text refers
+  to that way. A `.` directly below a top-level node would be a second ID for
+  a standard folder or `TARGETDIR` and is an error; use that folder's ID.
+  Folder paths in `components[].directory` cannot name an alias.
+- `WindowsVolume` is a standard folder like the others: a top-level node or
+  a path such as `WindowsVolume/opt/app` installs to `C:\opt\app` on a
+  system on drive C. Its row sits below `TARGETDIR` with `DefaultDir` `.` and
+  takes the `WindowsVolume` property, so it stays on the Windows volume
+  when `TARGETDIR` points elsewhere (with `ROOTDRIVE` expected the same,
+  from section 8.3 of the specification; not tested), and a configurable folder
+  below it still moves on the command line (FILE-16). ICE99 reports an
+  error for the key, because `WindowsVolume` is also a public property; the
+  engine resolved it correctly in FILE-16, so the builder writes it anyway
+  (a private key set by an action would be ICE clean, but adds actions for
+  no change on Windows). It is per machine (ICE105), and `purge` and
+  `removeFolders` refuse it, as every standard folder.
 
 ### 4.5 `features`
 
@@ -835,6 +856,7 @@ components:
         on: uninstall                 # install | uninstall (default) | both
       - directory: LOGS               # no name: the folder itself, once empty
       - { name: stale.txt, on: install }
+      - { name: '*.log', property: LOGDIR }   # a folder a property holds
 ```
 
 The engine removes the files when the component is installed (`install`),
@@ -848,6 +870,23 @@ FILE-03: a pattern never matches in subfolders, so the folder row only
 removes a folder whose subfolders are gone, and `uninstall` rows also run
 when a major upgrade removes the old product, so logs or data matched by
 them do not survive an upgrade. Use `purge` for a data folder that must.
+`property` replaces `directory` with a property that holds the folder's
+full path when RemoveFiles runs (the `RemoveFile.DirProperty` column takes
+any property), typically one a `search` fills from a path the first install
+wrote to the registry. In FILE-16 the rows removed the matching files of
+such a folder, and an empty property removed nothing, also not in the
+current folder of either msiexec process. The
+builder warns when nothing in the package sets the property; a directory ID
+is an error there, use `directory`. Unlike `removeFolders`, nothing checks
+the folder: the engine deletes what matches wherever the property points,
+and a property with a `search` is public and secure, so the command line can
+set it whenever the search finds nothing. For that reason `on: install` and
+`both` are errors with a property outside a `perUser` package: a standard
+user can start a repair of a per-machine product, which runs elevated and
+reinstalls the component (as SEC-03 found for grants). An uninstall-time
+row runs only when the component is removed; whether a standard user can
+start that elevated, by removing a feature in a maintenance install, was
+not tested.
 The builder already removes the folders of shortcuts and of components in
 the user profile on uninstall; a folder entry for one of them warns, since
 it only adds a second row.

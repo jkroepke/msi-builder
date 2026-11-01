@@ -110,3 +110,59 @@ func TestRemoveFilesDuplicateFolder(t *testing.T) {
 		t.Errorf("warnings at %v, want %v", warned, want)
 	}
 }
+
+// TestFolderCases writes a directory named "." as DefaultDir "." with its
+// parent's short-name set and component GUID path, a WindowsVolume row
+// below TARGETDIR, and a RemoveFile row whose DirProperty is a property.
+func TestFolderCases(t *testing.T) {
+	t.Parallel()
+
+	database := buildYAML(t, `schema: msi-builder/v1
+product: { name: Hello, manufacturer: Example, version: 1.0.0, upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301 }
+package: { platform: x64 }
+directories:
+  - id: WindowsVolume
+    children:
+      - id: INSTALLDIR
+        name: Hello
+        configurable: true
+        children: [{ id: BINDIR, name: . }]
+properties:
+  LOGDIR: { search: { registry: { root: HKLM, key: 'SOFTWARE\Example', name: Logs, type: directory } } }
+components:
+  - id: App
+    files: [{ source: hello.exe }]
+    removeFiles:
+      - { name: 'application-*.log', property: LOGDIR }
+      - { property: LOGDIR }
+  - id: Tool
+    directory: BINDIR
+    files: [{ source: hello.exe, name: hello-tool.exe }]
+`)
+
+	byKey := func(id string) func([]any) bool { return func(r []any) bool { return r[0] == id } }
+
+	if got := cell(t, database, "Directory", "DefaultDir", byKey("BINDIR")); got != "." {
+		t.Errorf("BINDIR DefaultDir %v, want .", got)
+	}
+
+	if got := cell(t, database, "Directory", "Directory_Parent", byKey("WindowsVolume")); got != "TARGETDIR" {
+		t.Errorf("WindowsVolume parent %v, want TARGETDIR", got)
+	}
+
+	var props int
+
+	for _, row := range rows(t, database, "RemoveFile") {
+		if row[3] == "LOGDIR" {
+			props++
+
+			if name, ok := row[2].(string); ok && !strings.HasSuffix(name, "|application-*.log") {
+				t.Errorf("pattern %q has no generated short name part", name)
+			}
+		}
+	}
+
+	if props != 2 {
+		t.Errorf("%d RemoveFile rows on LOGDIR, want 2: %v", props, rows(t, database, "RemoveFile"))
+	}
+}

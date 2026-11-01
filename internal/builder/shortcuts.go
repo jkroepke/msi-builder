@@ -444,19 +444,7 @@ func (b *build) removeFiles() error {
 
 	for i, comp := range b.cfg.Components {
 		for j, entry := range comp.RemoveFiles {
-			dirID := cmp.Or(entry.Directory, comp.Directory)
-			b.dirs[dirID].used = true
-
-			b.warnDuplicateFolderRow(fmt.Sprintf("%s.removeFiles[%d]", comp.Path(i), j), dirID, entry)
-
-			key := cmp.Or(entry.ID, generatedID("rmf", "RemoveFile", comp.ID, dirID, strings.ToLower(entry.Name), entry.On))
-
-			var name any
-			if entry.Name != "" {
-				name = b.removeFileName(dirID, entry.Name)
-			}
-
-			b.table("RemoveFile").Add(key, comp.ID, name, dirID, removeModes[entry.On])
+			b.removeFileRow(fmt.Sprintf("%s.removeFiles[%d]", comp.Path(i), j), comp, entry)
 		}
 
 		// A component of shortcuts only has no row in its directory.
@@ -470,6 +458,32 @@ func (b *build) removeFiles() error {
 	}
 
 	return nil
+}
+
+// removeFileRow writes the RemoveFile row of one removeFiles entry.
+func (b *build) removeFileRow(path string, comp *config.Component, entry *config.RemoveFile) {
+	dirID := cmp.Or(entry.Directory, comp.Directory)
+	// A folder from a property is no directory of the package: its short
+	// names have a set of their own.
+	names := dirID
+
+	if entry.Property != "" {
+		dirID = entry.Property
+		names = "property:" + entry.Property
+	} else {
+		b.dirs[dirID].used = true
+
+		b.warnDuplicateFolderRow(path, dirID, entry)
+	}
+
+	key := cmp.Or(entry.ID, generatedID("rmf", "RemoveFile", comp.ID, names, strings.ToLower(entry.Name), entry.On))
+
+	var name any
+	if entry.Name != "" {
+		name = b.removeFileName(names, entry.Name)
+	}
+
+	b.table("RemoveFile").Add(key, comp.ID, name, dirID, removeModes[entry.On])
 }
 
 // warnDuplicateFolderRow warns about a removeFiles entry that removes a
