@@ -82,7 +82,7 @@ type Options struct {
 func Convert(r io.Reader, opts Options) (*Result, error) {
 	src, err := io.ReadAll(r)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read the WiX file: %w", err)
 	}
 
 	res, conv, err := convertOnce(src, opts, false)
@@ -221,11 +221,8 @@ type converter struct {
 	uiSet         string
 	platform      string
 	// scope is the package's install scope, as package.scope names it.
-	scope string
-	// guessedDual is set when a WiX v3 package without a scope became a
-	// dual package; noDual keeps such a package perMachine.
-	guessedDual, noDual bool
-	launchAction        string
+	scope        string
+	launchAction string
 	// doActions are the DoAction control events by the action they run.
 	doActions map[string]*elem
 	// otherSequences are the sequences without a counterpart, such as
@@ -287,6 +284,9 @@ type converter struct {
 	// floorSeen is set once a hand-made major upgrade became
 	// upgrade.minVersion.
 	floorSeen bool
+	// guessedDual is set when a WiX v3 package without a scope became a
+	// dual package; noDual keeps such a package perMachine.
+	guessedDual, noDual bool
 }
 
 type dir struct {

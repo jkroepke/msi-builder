@@ -505,10 +505,13 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,goco
 	}
 }
 
+// propInstallPerUser picks the context of an ALLUSERS=2 package.
+const propInstallPerUser = "MSIINSTALLPERUSER"
+
 // builderProperty reports a property the builder or the installer sets: a
 // dual package also writes MSIINSTALLPERUSER and its scope page's property.
 func (v *validator) builderProperty(name string) bool {
-	return builderProperties[name] || v.scope.Dual() && (name == "MSIINSTALLPERUSER" || name == "BuilderInstallScope")
+	return builderProperties[name] || v.scope.Dual() && (name == propInstallPerUser || name == "BuilderInstallScope")
 }
 
 // contextSetter warns about an action that sets ALLUSERS or
@@ -519,7 +522,7 @@ func (v *validator) builderProperty(name string) bool {
 // A setter in the UI sequence was not tested. Other scopes were not
 // tested with such setters, so they get no warning.
 func (v *validator) contextSetter(actionPath, name string) {
-	if !v.scope.Dual() || name != "ALLUSERS" && name != "MSIINSTALLPERUSER" {
+	if !v.scope.Dual() || name != "ALLUSERS" && name != propInstallPerUser {
 		return
 	}
 
@@ -535,7 +538,7 @@ func (v *validator) contextSetter(actionPath, name string) {
 // install was seen deleting it, which skips a component conditioned on it
 // (reported).
 func (v *validator) installPerUser(propPath, name string) {
-	if name == "MSIINSTALLPERUSER" && !v.scope.Dual() {
+	if name == propInstallPerUser && !v.scope.Dual() {
 		v.warnf(propPath, "MSIINSTALLPERUSER has no effect unless ALLUSERS is 2, and a condition on it may not hold; "+
 			"use scope perUserOrMachine for a package that installs per user or per machine")
 	}
