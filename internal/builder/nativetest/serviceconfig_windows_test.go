@@ -133,6 +133,10 @@ func TestMsiexecConfiguresServiceSid(t *testing.T) {
 				if out, err := exec.CommandContext(t.Context(), "sc", "sidtype", sidService, "unrestricted").CombinedOutput(); err != nil {
 					t.Fatalf("sc sidtype: %v\n%s", err, out)
 				}
+
+				if got := sidTypeOf(t, sidService); got != "UNRESTRICTED" {
+					t.Fatalf("sc sidtype left %q, want UNRESTRICTED before the install", got)
+				}
 			}
 
 			defer uninstall(path, sidService, installDir)

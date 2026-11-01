@@ -1602,7 +1602,11 @@ registered, since InstallServices reconfigures it (SVC-06).
 that accepts preshutdown notifications before shutdown goes on; a whole
 number of milliseconds from 1 ms to about 24.8 days. Both become
 `MsiServiceConfig` rows that `MsiConfigureServices` applies at install and
-repair (SVC-10). A service's required privileges (ConfigType 6) are not
+repair (SVC-10). Microsoft documents that a restricted service in a
+shared process needs every service of that process restricted, so a
+`shareProcess` service with `sidType: restricted` next to another
+`shareProcess` service of the package that is not restricted is a warning.
+A service's required privileges (ConfigType 6) are not
 supported; see `MSISPEC.md` section 19.1.
 
 `deleteOnInstall` (default `false`) adds event 8: DeleteServices removes a

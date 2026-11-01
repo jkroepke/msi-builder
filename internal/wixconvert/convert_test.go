@@ -2513,6 +2513,8 @@ func TestConvertServiceConfig(t *testing.T) {
 		{`PreShutdownDelay="0"`, `PreShutdownDelay="0" is not a number of milliseconds`},
 		{`PreShutdownDelay="[DELAY]"`, `PreShutdownDelay="[DELAY]" is not a number of milliseconds`},
 		{`RequiredPrivilege="SeBackupPrivilege"`, "RequiredPrivilege has no counterpart"},
+		{`ServiceSid="restricted" OnUninstall="yes"`, "OnUninstall have no counterpart"},
+		{`PreShutdownDelay="060000"`, "preshutdownTimeout: 60000ms\n"},
 	} {
 		res, err := wixconvert.Convert(strings.NewReader(fmt.Sprintf(src, tc.attrs)), wixconvert.Options{})
 		if err != nil {

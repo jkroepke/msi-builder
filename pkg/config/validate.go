@@ -910,6 +910,41 @@ func (v *validator) components(cfg *Config, known *refs) {
 		v.movableGrants(cfg, known, p, comp)
 		v.componentEvents(p, comp, userData)
 	}
+
+	v.sharedSidTypes(cfg)
+}
+
+// sharedSidTypes warns about a restricted shareProcess service next to a
+// shareProcess service that is not restricted: Microsoft documents that a
+// restricted service in a shared process needs every service there
+// restricted (reported, SERVICE_SID_INFO). Two such services of a package
+// need not share a process, so this is a warning.
+func (v *validator) sharedSidTypes(cfg *Config) {
+	var restricted, others []string
+
+	for i, comp := range cfg.Components {
+		for j, svc := range comp.Services {
+			if svc == nil || svc.Type != "shareProcess" {
+				continue
+			}
+
+			svcPath := fmt.Sprintf("components[%d].services[%d]", i, j)
+			if svc.SidType == "restricted" {
+				restricted = append(restricted, svcPath)
+			} else {
+				others = append(others, svc.Name)
+			}
+		}
+	}
+
+	if len(others) == 0 {
+		return
+	}
+
+	for _, svcPath := range restricted {
+		v.warnf(svcPath+".sidType", "a restricted service in a shared process needs every service of that process "+
+			"restricted; %s is shareProcess without sidType: restricted", strings.Join(others, ", "))
+	}
 }
 
 // componentID checks a component's id and records it in seen.

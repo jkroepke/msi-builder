@@ -851,6 +851,11 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 600h}]\n    files:", 1),
 			sevError, "components[0].services[0].preshutdownTimeout", "at most 2147483647",
 		},
+		"restricted next to an unrestricted shared service": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, type: shareProcess, sidType: restricted}]\n    files:", 1) +
+				"  - id: Other\n    directory: INSTALLDIR\n    files: [{source: other.exe}]\n    services: [{name: other, type: shareProcess}]\n",
+			sevWarning, "components[0].services[0].sidType", "every service of that process",
+		},
 		"recovery four steps": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {actions: [restart, restart, restart, restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.actions", "one to three",

@@ -227,4 +227,30 @@ func TestServiceSidAndPreshutdown(t *testing.T) {
 			t.Errorf("sidType %s: MsiConfigureServices is not sequenced", sidType)
 		}
 	}
+
+	// One key writes one row; neither writes none and no MsiConfigureServices.
+	for settings, want := range map[string]string{
+		"sidType: restricted":    "[[scsid_rwsvc rwsvc 5 5 3 hello.exe]]",
+		"preshutdownTimeout: 1s": "[[scpre_rwsvc rwsvc 5 7 1000 hello.exe]]",
+		"start: demand":          "",
+	} {
+		database := buildYAML(t, round5Header+`components:
+  - files: [{ source: hello.exe }]
+    services: [{ name: rwsvc, `+settings+` }]
+`)
+
+		var got string
+
+		if table := database.Table("MsiServiceConfig"); table != nil {
+			got = fmt.Sprint(table.Rows)
+		}
+
+		if got != want {
+			t.Errorf("%s: MsiServiceConfig %s, want %s", settings, got, want)
+		}
+
+		if seq := fmt.Sprint(rows(t, database, "InstallExecuteSequence")); strings.Contains(seq, "MsiConfigureServices") != (want != "") {
+			t.Errorf("%s: MsiConfigureServices sequenced: %v", settings, strings.Contains(seq, "MsiConfigureServices"))
+		}
+	}
 }

@@ -71,7 +71,7 @@ func (cc *compConv) service(elm *elem) { //nolint:cyclop // a flat list of indep
 	cc.out.add("services", svc)
 }
 
-func (cc *compConv) serviceChild(svc *omap, kid *elem) { //nolint:cyclop // one branch per child element
+func (cc *compConv) serviceChild(svc *omap, kid *elem) {
 	conv := cc.c
 
 	switch kid.qname() {
@@ -121,15 +121,27 @@ func (c *converter) serviceConfig(svc *omap, elm *elem) {
 		c.preshutdown(svc, elm, delay)
 	}
 
+	c.serviceConfigTodos(svc, elm)
+}
+
+// serviceConfigTodos notes the ServiceConfig attributes without a
+// counterpart.
+func (c *converter) serviceConfigTodos(svc *omap, elm *elem) {
 	if elm.has("RequiredPrivilege") {
 		c.todof(svc, "", elm.line, "ServiceConfig RequiredPrivilege has no counterpart")
+	}
+
+	// msi-builder applies these settings at install and repair.
+	if elm.no("OnInstall") || elm.no("OnReinstall") || elm.yes("OnUninstall") {
+		c.todof(svc, "", elm.line, "ServiceConfig OnInstall, OnReinstall and OnUninstall have no counterpart; "+
+			"msi-builder applies the settings at install and repair")
 	}
 }
 
 // preshutdown converts PreShutdownDelay, a count of milliseconds.
 func (c *converter) preshutdown(svc *omap, elm *elem, delay string) {
 	if ms, err := strconv.ParseInt(delay, 10, 64); err == nil && ms > 0 && ms <= math.MaxInt32 {
-		svc.set("preshutdownTimeout", delay+"ms")
+		svc.set("preshutdownTimeout", strconv.FormatInt(ms, 10)+"ms")
 
 		return
 	}
