@@ -673,9 +673,12 @@ directories:
   system on drive C. Its row sits below `TARGETDIR` with `DefaultDir` `.` and
   takes the `WindowsVolume` property, so it stays on the Windows volume
   when `TARGETDIR` or `ROOTDRIVE` point elsewhere, and a configurable folder
-  below it still moves on the command line (FILE-16). It is per machine
-  (ICE105), and `purge` and `removeFolders` refuse it, as every standard
-  folder.
+  below it still moves on the command line (FILE-16). ICE99 reports an
+  error for the key, because `WindowsVolume` is also a public property; the
+  engine resolved it correctly in FILE-16, so the builder writes it anyway
+  (a private key set by an action would be ICE clean, but adds actions for
+  no change on Windows). It is per machine (ICE105), and `purge` and
+  `removeFolders` refuse it, as every standard folder.
 
 ### 4.5 `features`
 
@@ -869,9 +872,9 @@ them do not survive an upgrade. Use `purge` for a data folder that must.
 `property` replaces `directory` with a property that holds the folder's
 full path when RemoveFiles runs (the `RemoveFile.DirProperty` column takes
 any property), typically one a `search` fills from a path the first install
-wrote to the registry. FILE-16 is to check that the rows remove the matching
-files of such a folder at uninstall, and that an empty property removes
-nothing, also not in the current folder of either msiexec process. The
+wrote to the registry. In FILE-16 the rows removed the matching files of
+such a folder, and an empty property removed nothing, also not in the
+current folder of either msiexec process. The
 builder warns when nothing in the package sets the property; a directory ID
 is an error there, use `directory`. Unlike `removeFolders`, nothing checks
 the folder: the engine deletes what matches wherever the property points,

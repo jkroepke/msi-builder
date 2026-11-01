@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/jkroepke/msi-builder/internal/ice"
 	"github.com/jkroepke/msi-builder/internal/testpe"
 )
 
@@ -224,7 +226,7 @@ func TestMsiexecFolderCases(t *testing.T) { //nolint:paralleltest // msiexec run
 
 // TestICEFolderCases runs the ICE suite on the FILE-16 package: a
 // WindowsVolume row below TARGETDIR, an alias directory and RemoveFile rows
-// on a property.
+// on a property. Only ICE99's error on the WindowsVolume key is accepted.
 //
 //nolint:paralleltest // msi.dll's external UI handler is process-wide
 func TestICEFolderCases(t *testing.T) {
@@ -234,5 +236,30 @@ func TestICEFolderCases(t *testing.T) {
 		"app.exe": exe, "tool.exe": exe, "lib.dll": exe,
 	})
 
-	requireCleanICE(t, path, cub)
+	findings, err := ice.Run(path, cub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ICE99 reports a Directory key that is a public property, which the
+	// WindowsVolume row is; TestMsiexecFolderCases shows the engine
+	// resolves it to the Windows volume.
+	ice99 := false
+
+	for _, finding := range findings {
+		switch {
+		case finding.ICE == "ICE99" && slices.Contains(finding.Keys, "WindowsVolume"):
+			ice99 = true
+
+			t.Log(finding)
+		case finding.Type == ice.Error || finding.Type == ice.Failure:
+			t.Error(finding)
+		case finding.Type == ice.Warning:
+			t.Log(finding)
+		}
+	}
+
+	if !ice99 {
+		t.Log("ICE99 no longer reports the WindowsVolume row; update the YAML schema notes")
+	}
 }
