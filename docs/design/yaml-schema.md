@@ -1606,8 +1606,9 @@ with the new SID is not tested.
 that accepts preshutdown notifications before shutdown goes on; a whole
 number of milliseconds from 1 ms to about 24.8 days. Both become
 `MsiServiceConfig` rows for install and repair, which `MsiConfigureServices`
-applies; whether they hold after an install and a repair is untested until
-SVC-10 runs. Microsoft documents that a restricted service in a
+applies: the values were set at install, and a `/fa` repair restored them
+after they had been changed (SVC-10). Without `preshutdownTimeout` the
+service keeps its own timeout. Microsoft documents that a restricted service in a
 shared process needs every service of that process restricted, so a
 `shareProcess` service with `sidType: restricted` next to another
 `shareProcess` service of the same component (the same executable) that is
