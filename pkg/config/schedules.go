@@ -137,11 +137,12 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 
 	actions = append(actions, movedActions(cfg, sequenceTables[name], paths)...)
 
-	// The scope page of a dual-scope wizard follows CostFinalize, and
-	// FindRelatedProducts and LaunchConditions follow the page.
+	// The scope page of a dual-scope wizard follows AppSearch, and
+	// FindRelatedProducts and LaunchConditions follow the page, all before
+	// costing.
 	if scopePageIn(cfg, sequenceTables[name]) {
 		actions = append(actions,
-			sequence.Action{Name: scopePageNode, After: "CostFinalize"},
+			sequence.Action{Name: scopePageNode, After: actAppSearch},
 			sequence.Action{Name: actFindRelatedProducts, After: scopePageNode},
 			sequence.Action{Name: actLaunchConditions, After: actFindRelatedProducts})
 	}
@@ -252,7 +253,7 @@ func unmovedSiblings(cfg *Config, table string, paths map[string]string) []seque
 // standardPlacement, so that its errors are not reported twice.
 func wellMoved(cfg *Config, action string, place Placement) bool {
 	if !slices.Contains(movableActions, action) || !wellPlaced(place) || idle(cfg, action, place.Sequence) != "" ||
-		scopePageRefuses(cfg, action, place) {
+		scopePageRefuses(cfg, place) {
 		return false
 	}
 

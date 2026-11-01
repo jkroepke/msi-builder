@@ -2469,9 +2469,8 @@ only as an anchor and sets nothing, it is neither. Validate reports these cases 
 together with the cycles and collisions a move causes, counting the
 LaunchConditions the builder puts after a moved AppSearch and the
 unmoved FindRelatedProducts (25) and AppSearch (50); in the `ui` sequence
-of a dual-scope wizard it counts FindRelatedProducts and LaunchConditions
-after the scope page, after CostFinalize, so an AppSearch chained to them
-there is an error. An unmoved
+of a dual-scope wizard it counts the scope page after AppSearch and
+FindRelatedProducts and LaunchConditions after the page. An unmoved
 LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
 100 is treated as running after it even when a long chain of search actions
 would push LaunchConditions further; one moved to exactly 100 collides with
@@ -2770,19 +2769,19 @@ condition, therefore tests `ALLUSERS=1` and `NOT ALLUSERS` as in the execute
 sequence (UI-11).
 The ready page then shows Install with the UAC shield for all users.
 
-The page runs in the UI sequence after `CostFinalize`, and the UI
-sequence's `FindRelatedProducts` and `LaunchConditions` run after it,
-before `MigrateFeatureStates`; the execute sequence keeps them at 25 and
+The page runs in the UI sequence after `AppSearch` and the actions placed
+after it, and the UI sequence's `FindRelatedProducts` and
+`LaunchConditions` run after the page, all before `CostInitialize`, where
+ICE27 wants the search actions; the execute sequence keeps them at 25 and
 100. In a full-UI install only the client's `FindRelatedProducts` counts,
 and it finds only products of the context it runs in: on a page after the
 welcome page, choosing all users to update a per-machine version left both
 versions installed, and a launch condition that tests `ALLUSERS`, such as
 one that refuses a per-user install next to a per-machine one, ended the
 install before the page appeared (UI-11). `standardActions` therefore
-cannot move `FindRelatedProducts` or `LaunchConditions` in the `ui`
-sequence of a dual package with the wizard, nor place `AppSearch` next to
-them there, and an action placed relative to them in `ui` runs after the
-page too. A launch condition that refuses the chosen context shows its
+cannot move `AppSearch`, `FindRelatedProducts` or `LaunchConditions` in the
+`ui` sequence of a dual package with the wizard, and an action placed
+relative to the last two in `ui` runs after the page too. A launch condition that refuses the chosen context shows its
 message right after the page; without the wizard's sequence, as in a
 silent install, the server checks the launch conditions with the context
 the command line chose. The

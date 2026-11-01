@@ -97,7 +97,7 @@ func TestScopePage(t *testing.T) {
 		t.Errorf("BuilderInstallScope = %q, want perMachine", got)
 	}
 
-	unchanged := `(INSTALLDIR ~= InstallScopeUser_INSTALLDIR OR INSTALLDIR ~= InstallScopeMachine_INSTALLDIR)`
+	unchanged := `(NOT INSTALLDIR OR INSTALLDIR ~= InstallScopeUser_INSTALLDIR OR INSTALLDIR ~= InstallScopeMachine_INSTALLDIR)`
 	want := []string{
 		`[ALLUSERS] 1 [BuilderInstallScope="perMachine"]`,
 		`[ALLUSERS] {} [NOT BuilderInstallScope="perMachine"]`,
@@ -150,9 +150,9 @@ func TestScopePageOnlyForDual(t *testing.T) {
 	}
 }
 
-// TestScopePageAlias checks that a public directory named "." moves with
-// the scope to its parent's folder, without an extra backslash, so that
-// the unchanged check on Next can match it.
+// TestScopePageAlias checks that Next sets only the topmost public folder:
+// CostFinalize, which runs after the page, resolves a public directory
+// below it, such as one named ".", in the chosen context.
 func TestScopePageAlias(t *testing.T) {
 	t.Parallel()
 
@@ -172,8 +172,10 @@ ui: { enabled: true }
 	}
 
 	for action, target := range map[string]string{
-		"SetInstallScopeUser_BINDIR":    `[LocalAppDataFolder]Programs\Acme App\`,
-		"SetInstallScopeMachine_BINDIR": `[%ProgramW6432]\Acme App\`,
+		"SetInstallScopeUser_INSTALLDIR":    `[LocalAppDataFolder]Programs\Acme App\`,
+		"SetInstallScopeMachine_INSTALLDIR": `[%ProgramW6432]\Acme App\`,
+		"SetInstallScopeUser_BINDIR":        "",
+		"SetInstallScopeMachine_BINDIR":     "",
 	} {
 		if targets[action] != target {
 			t.Errorf("%s sets %q, want %q", action, targets[action], target)
@@ -182,9 +184,9 @@ ui: { enabled: true }
 }
 
 // TestScopePageFirst checks where the scope page runs: on its own after
-// CostFinalize and before the welcome page, with FindRelatedProducts and
-// LaunchConditions of the UI sequence after it, so that both see the
-// chosen context (UI-11); the execute sequence keeps their numbers. A
+// AppSearch, with FindRelatedProducts and LaunchConditions of the UI
+// sequence after it, so that both see the chosen context (UI-11), all
+// before costing, as ICE27 wants; the execute sequence keeps their numbers. A
 // folder remembered only in the other context starts the page there.
 func TestScopePageFirst(t *testing.T) {
 	t.Parallel()
@@ -205,7 +207,7 @@ func TestScopePageFirst(t *testing.T) {
 	}
 
 	uiSeq := numbers("InstallUISequence")
-	order := []string{"CostFinalize", "InstallScopeDlg", "FindRelatedProducts", "LaunchConditions", "MigrateFeatureStates", "WelcomeDlg"}
+	order := []string{"AppSearch", "SetInstallScopeUser", "InstallScopeDlg", "FindRelatedProducts", "LaunchConditions", "CostInitialize", "WelcomeDlg"}
 
 	for i := 1; i < len(order); i++ {
 		if uiSeq[order[i-1]] == 0 || uiSeq[order[i]] <= uiSeq[order[i-1]] {
@@ -254,7 +256,7 @@ func TestScopePageAnchors(t *testing.T) {
 		}
 	}
 
-	order := []string{"InstallScopeDlg", "FindRelatedProducts", "AfterFind", "LaunchConditions", "AfterLC", "WelcomeDlg"}
+	order := []string{"AppSearch", "InstallScopeDlg", "FindRelatedProducts", "AfterFind", "LaunchConditions", "AfterLC", "CostInitialize"}
 
 	for i := 1; i < len(order); i++ {
 		if uiSeq[order[i-1]] == 0 || uiSeq[order[i]] <= uiSeq[order[i-1]] {

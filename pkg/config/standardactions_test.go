@@ -47,9 +47,10 @@ func TestStandardActionsAccepted(t *testing.T) {
 		"AppSearch before LaunchConditions without launch conditions": "upgrade: {downgrade: allow}\n" + search +
 			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: LaunchConditions}]}\n",
 		// The scope page runs FindRelatedProducts, then LaunchConditions, of
-		// the ui sequence after costing.
-		"ui AppSearch early with the scope page": "upgrade: {downgrade: error}\nui: {enabled: true}\n" + search +
-			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, at: 10}]}\n",
+		// the ui sequence after AppSearch and itself.
+		"ui action before the scope page's LaunchConditions": "upgrade: {downgrade: error}\nui: {enabled: true}\n" +
+			"launchConditions: [{condition: VersionNT, message: x}]\n" +
+			"customActions:\n  - {id: BeforeLC, setProperty: {name: P2, value: x}, schedule: [{sequence: ui, before: LaunchConditions}]}\n",
 		"ui action after the scope page's FindRelatedProducts": "ui: {enabled: true}\n" +
 			"customActions:\n  - {id: AtSix, setProperty: {name: P2, value: x}, schedule: [{sequence: ui, at: 26}]}\n" +
 			"  - {id: AfterFind, setProperty: {name: P3, value: x}, schedule: [{sequence: ui, after: FindRelatedProducts}]}\n",
@@ -137,15 +138,9 @@ func TestStandardActionsRejected(t *testing.T) {
 				moveFind("{sequence: execute, after: Before}"),
 			"customActions[0].schedule[0]", "scheduling cycle",
 		},
-		"ui AppSearch next to the scope page's FindRelatedProducts": {
-			"ui: {enabled: true}\n" + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, after: FindRelatedProducts}]}\n",
-			"standardActions[0].schedule[0]", "so AppSearch cannot be placed next to it",
-		},
-		"ui AppSearch chained to the scope page's FindRelatedProducts": {
-			"ui: {enabled: true}\n" + search +
-				"customActions:\n  - {id: AfterFind, setProperty: {name: P2, value: x}, schedule: [{sequence: ui, after: FindRelatedProducts}]}\n" +
-				"standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, after: AfterFind}]}\n",
-			"standardActions[0].schedule[0]", "must run before CostInitialize (800)",
+		"ui AppSearch move with the scope page": {
+			"ui: {enabled: true}\n" + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, at: 10}]}\n",
+			"standardActions[0].schedule[0].sequence", "scope page of a dual-scope wizard orders AppSearch",
 		},
 		"ui move with the scope page": {
 			"ui: {enabled: true}\n" + moveFind("{sequence: ui, at: 30}"),

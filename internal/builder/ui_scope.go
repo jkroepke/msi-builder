@@ -41,6 +41,10 @@ func (b *build) installScope(wiz *wizard) {
 
 	b.properties[propScope] = initial
 
+	// The page follows AppSearch, which runs in every such package; AppSearch
+	// fails with 2228 without a Signature table (SEARCH-03).
+	b.table("Signature")
+
 	// The engine fixes the client's context, and with it the folders, when
 	// the package opens: ALLUSERS is then 1 per machine and unset per user
 	// (INST-02). The page starts on that context, so a command-line
@@ -110,15 +114,15 @@ func (b *build) installScope(wiz *wizard) {
 	b.scopeFirst()
 }
 
-// scopeFirst shows the scope page on its own before the wizard, after the
-// actions that prepare it, and runs FindRelatedProducts and
-// LaunchConditions of the UI sequence after it. In a full-UI install only
-// the client's FindRelatedProducts counts, and it finds only products of
-// the context it runs in: before the page it misses a per-machine install
-// that the page then switches to, and both versions stay installed;
-// launch conditions that test ALLUSERS see the context the package opened
-// in (UI-11). The page stays before MigrateFeatureStates, which needs the
-// related products.
+// scopeFirst shows the scope page on its own before the wizard, after
+// AppSearch and the actions that prepare the page, and runs
+// FindRelatedProducts and LaunchConditions of the UI sequence after it, all
+// before costing, where ICE27 wants them. In a full-UI install only the
+// client's FindRelatedProducts counts, and it finds only products of the
+// context it runs in: before the page it misses a per-machine install that
+// the page then switches to, and both versions stay installed; launch
+// conditions that test ALLUSERS see the context the package opened in
+// (UI-11).
 func (b *build) scopeFirst() {
 	b.schedule(seqInstallUI, dlgInstallScope, condNotInstalled, "", b.lastScopeAction, 0)
 
@@ -179,7 +183,9 @@ var scopeFolders = map[string]struct{ user, machine, machine32 string }{ //nolin
 // takes a set directory property as it is, so a switch would install per
 // machine into the user's profile or per user into Program Files
 // (INST-02). Next sets each such folder to its path in the chosen context
-// unless it holds another path, typed on the command line or remembered.
+// unless it holds another path, typed on the command line or remembered;
+// CostFinalize, which runs after the page, then resolves the folders below
+// it.
 func (b *build) scopeFolders(next *uiControl) {
 	for _, dir := range b.scopeDirs() {
 		top, rel := b.dirPath(dir)
@@ -198,7 +204,7 @@ func (b *build) scopeFolders(next *uiControl) {
 			b.uiAction("Set"+machine+"_Remembered", machine, "["+rememberedMachine(dir.id)+"]", rememberedMachine(dir.id))
 		}
 
-		unchanged := "(" + dir.id + " ~= " + user + " OR " + dir.id + " ~= " + machine + ")"
+		unchanged := "(NOT " + dir.id + " OR " + dir.id + " ~= " + user + " OR " + dir.id + " ~= " + machine + ")"
 		next.on("["+dir.id+"]", "["+user+"]", "NOT "+condMachine+" AND "+unchanged)
 		next.on("["+dir.id+"]", "["+machine+"]", condMachine+" AND "+unchanged)
 	}
@@ -214,8 +220,8 @@ func scopeProperty(prefix, dir string) string {
 	return prefix + dir
 }
 
-// scopeDirs returns the public directories below a folder that follows the
-// context, in key order.
+// scopeDirs returns the topmost public directories below a folder that
+// follows the context, in key order.
 func (b *build) scopeDirs() []*dirInfo {
 	var dirs []*dirInfo
 
@@ -224,7 +230,7 @@ func (b *build) scopeDirs() []*dirInfo {
 			continue
 		}
 
-		if top, _ := b.dirPath(dir); scopeFolders[top].user != "" {
+		if top, _ := b.dirPath(dir); scopeFolders[top].user != "" && !b.publicAbove(dir) {
 			dirs = append(dirs, dir)
 		}
 	}
@@ -232,6 +238,18 @@ func (b *build) scopeDirs() []*dirInfo {
 	slices.SortFunc(dirs, func(a, b *dirInfo) int { return strings.Compare(a.id, b.id) })
 
 	return dirs
+}
+
+// publicAbove reports whether a public directory lies between dir and its
+// standard folder: CostFinalize resolves dir below the one Next sets.
+func (b *build) publicAbove(dir *dirInfo) bool {
+	for parent := b.dirs[dir.parent]; parent != nil && !parent.standard; parent = b.dirs[parent.parent] {
+		if config.IsPublicProperty(parent.id) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // dirPath returns the standard folder above dir and the path below it,
@@ -261,10 +279,11 @@ func (b *build) dirPath(dir *dirInfo) (string, string) {
 	return dir.id, strings.Join(names, `\`) + `\`
 }
 
-// uiAction sets property to value in the UI sequence after CostFinalize,
-// where the folder properties are known and before the first page. The
-// actions run in the order they are added. A name too long for the
-// CustomAction table gets a generated one.
+// uiAction sets property to value in the UI sequence after AppSearch, which
+// finds the remembered folders, and before the scope page and costing, so
+// that CostFinalize resolves the folders Next sets. The actions run in the
+// order they are added, after the other actions placed after AppSearch. A
+// name too long for the CustomAction table gets a generated one.
 func (b *build) uiAction(name, property, value, cond string) {
 	if len(name) > config.MaxIdentifierLength {
 		name = generatedID("SetScope", name)
@@ -272,7 +291,7 @@ func (b *build) uiAction(name, property, value, cond string) {
 
 	b.addAction(&actionInfo{name: name, typ: caSetProperty, source: property, target: value})
 
-	after := actCostFinalize
+	after := actAppSearch
 	if b.lastScopeAction != "" {
 		after = b.lastScopeAction
 	}
