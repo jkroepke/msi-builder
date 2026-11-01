@@ -32,7 +32,7 @@ func (b *build) checkPerUserRollback() {
 	}
 
 	for actionIndex, custom := range b.cfg.CustomActions {
-		if !canFailInstall(custom) {
+		if !runsPerUserAndCanFail(custom) {
 			continue
 		}
 
@@ -50,6 +50,12 @@ func (b *build) checkPerUserRollback() {
 			}
 		}
 	}
+}
+
+// runsPerUserAndCanFail reports whether a custom action can fail a per-user
+// install: a perMachine action never runs in one (CA-09).
+func runsPerUserAndCanFail(custom *config.CustomAction) bool {
+	return canFailInstall(custom) && custom.Scope != config.ScopePerMachine
 }
 
 // canFailInstall reports whether a custom action is deferred and its result

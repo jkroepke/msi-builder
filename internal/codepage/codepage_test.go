@@ -58,3 +58,107 @@ func TestErrors(t *testing.T) {
 		t.Error("Supported/IsANSI")
 	}
 }
+
+// TestWindowsVectors holds conversions verified with MultiByteToWideChar and
+// WideCharToMultiByte where generic character set tables disagree with
+// Windows. TestWindowsTables compares every mapping on Windows CI.
+func TestWindowsVectors(t *testing.T) {
+	t.Parallel()
+
+	decodes := []struct {
+		cp   int
+		data []byte
+		want string
+	}{
+		{936, []byte{0xA8, 0xBF}, ""},
+		{950, []byte{0x88, 0x66}, ""},
+		{950, []byte{0xF9, 0xFE}, "▓"},
+		{932, []byte{0xF0, 0x40}, ""},
+	}
+
+	for _, tc := range decodes {
+		got, err := codepage.Decode(tc.data, tc.cp)
+		if err != nil || got != tc.want {
+			t.Errorf("Decode(% x, %d) = %+q, %v; want %+q", tc.data, tc.cp, got, err, tc.want)
+		}
+
+		enc, err := codepage.Encode(tc.want, tc.cp)
+		if err != nil || string(enc) != string(tc.data) {
+			t.Errorf("Encode(%+q, %d) = % x, %v; want % x", tc.want, tc.cp, enc, err, tc.data)
+		}
+	}
+
+	// CP932 has U+7E8A twice: in the NEC-selected IBM rows (ED 40) and in
+	// the IBM rows (FA 5C). Windows reads both and writes FA 5C, while
+	// generic Shift-JIS tables write ED 40.
+	for _, data := range [][]byte{{0xED, 0x40}, {0xFA, 0x5C}} {
+		if got, err := codepage.Decode(data, 932); err != nil || got != "\u7E8A" {
+			t.Errorf("Decode(% x, 932) = %+q, %v; want U+7E8A", data, got, err)
+		}
+	}
+
+	if got, err := codepage.Encode("\u7E8A", 932); err != nil || string(got) != "\xFA\x5C" {
+		t.Errorf("Encode(U+7E8A, 932) = % x, %v; want fa 5c", got, err)
+	}
+
+	// Windows has no mapping for these, so the bytes a generic table
+	// produces would read back as other characters.
+	for _, tc := range []struct {
+		cp   int
+		text string
+	}{{936, "ǹ"}, {950, "Ê"}} {
+		if got, err := codepage.Encode(tc.text, tc.cp); err == nil {
+			t.Errorf("Encode(%+q, %d) = % x, want an error", tc.text, tc.cp, got)
+		}
+	}
+}
+
+func TestDecodeMalformed(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		cp   int
+		data []byte
+	}{
+		{932, []byte{'a', 0x81}},      // lead byte without a trail byte
+		{932, []byte{0x81, 0x0A}},     // trail byte out of range
+		{codepage.UTF8, []byte{0xFF}}, // invalid UTF-8
+		{codepage.ASCII, []byte{0xE9}},
+	} {
+		if got, err := codepage.Decode(tc.data, tc.cp); err == nil {
+			t.Errorf("Decode(% x, %d) = %+q, want an error", tc.data, tc.cp, got)
+		}
+	}
+}
+
+// TestTablesRoundTrip checks that every character a table encodes decodes
+// back to itself, in every ANSI code page.
+func TestTablesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	for _, codePage := range []int{874, 932, 936, 949, 950, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258} {
+		mapped := 0
+
+		for code := range rune(0x10000) {
+			if code >= 0xD800 && code <= 0xDFFF {
+				continue
+			}
+
+			raw, err := codepage.Encode(string(code), codePage)
+			if err != nil {
+				continue
+			}
+
+			mapped++
+
+			back, err := codepage.Decode(raw, codePage)
+			if err != nil || back != string(code) {
+				t.Fatalf("code page %d: U+%04X encodes to % x and decodes to %+q, %v", codePage, code, raw, back, err)
+			}
+		}
+
+		if mapped < 128 {
+			t.Errorf("code page %d maps only %d characters", codePage, mapped)
+		}
+	}
+}

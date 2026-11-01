@@ -81,9 +81,14 @@ type fdiState struct {
 	next    uintptr
 	files   []extracted
 	erf     *[3]int32 // erfOper, erfType, fError
+	// read counts the bytes FDI read from the cabinet.
+	read int64
 }
 
 var state *fdiState //nolint:gochecknoglobals // FDI callbacks have no user pointer
+
+// lastRead is the read count of the last fdiExtract.
+var lastRead int64 //nolint:gochecknoglobals // see state
 
 // fdiNotification mirrors FDINOTIFICATION on 64-bit Windows.
 type fdiNotification struct {
@@ -162,6 +167,10 @@ var (
 
 			got := copy(unsafe.Slice(buf, n), file.data[file.pos:])
 			file.pos += got
+
+			if file.out == nil {
+				state.read += int64(got)
+			}
 
 			return uintptr(got)
 		})
@@ -275,7 +284,7 @@ func fdiExtract(t *testing.T, raw []byte) ([]extracted, error) {
 	t.Helper()
 
 	state = &fdiState{cabinet: raw, handles: make(map[uintptr]*memFile), next: 1, erf: new([3]int32)}
-	defer func() { state = nil }()
+	defer func() { lastRead = state.read; state = nil }()
 
 	hfdi, _, _ := pFDICreate.Call(cbAlloc, cbFree, cbOpen, cbRead, cbWrite, cbClose, cbSeek,
 		^uintptr(0) /* cpuUNKNOWN */, uintptr(unsafe.Pointer(state.erf)))
@@ -1210,5 +1219,58 @@ func TestNativeFDIMaxFiles(t *testing.T) { //nolint:paralleltest // the FDI call
 
 	if _, err := cab.Write(append(slices.Clone(files), cab.File{Name: "one-more", Time: when}), cab.Options{}); err == nil {
 		t.Error("cab.Write accepted 65536 files")
+	}
+}
+
+// TestNativeFDIExtractsCopies checks that cabinet.dll extracts cabinets
+// whose copies point back at a shared entry's folder (Entry.Copy, CAB-14),
+// with every copy's own name, date and attributes, and that going back for
+// a copy reads only the shared folder again.
+func TestNativeFDIExtractsCopies(t *testing.T) { //nolint:paralleltest // the FDI callbacks share one package state
+	if testing.Short() {
+		t.Skip("native tests run without -short")
+	}
+
+	for _, opts := range []cab.Options{{Compression: cab.None}, {Compression: cab.MSZIP}, {Compression: cab.LZX}, {Compression: cab.LZX, Window: 15}} {
+		files, ents := copyFiles()
+
+		// An empty file after the last copy is an empty last folder.
+		files = append(files, cab.File{Name: "empty", Time: files[0].Time})
+		ents = append(ents, entries(files[len(files)-1:])...)
+		raw := writeEntries(t, ents, opts)
+
+		got, err := fdiExtract(t, raw)
+		if err != nil {
+			t.Fatalf("compression %d window %d: cabinet.dll: %v", opts.Compression, opts.Window, err)
+		}
+
+		if len(got) != len(files) {
+			t.Fatalf("compression %d: FDI extracted %d files, want %d", opts.Compression, len(got), len(files))
+		}
+
+		for i, want := range files {
+			attr := want.Attributes
+			if attr == 0 {
+				attr = cab.AttrArchive
+			}
+
+			date, clock := cab.DOSTime(want.Time)
+			if got[i].Name != want.Name || !bytes.Equal(got[i].Data, want.Data) || got[i].Date != date || got[i].Time != clock || got[i].Attribs != attr {
+				t.Errorf("compression %d: file %d is %s (%d bytes, %#x %#x, %#x), want %s (%d bytes, %#x %#x, %#x)", opts.Compression, i,
+					got[i].Name, len(got[i].Data), got[i].Date, got[i].Time, got[i].Attribs, want.Name, len(want.Data), date, clock, attr)
+			}
+		}
+
+		// The shared folder is the second (its CFFOLDER at 36 + 8); the
+		// third starts where it ends. Two copies read it again.
+		folder := 36 + 8
+		shared := int64(binary.LittleEndian.Uint32(raw[folder+8:]) - binary.LittleEndian.Uint32(raw[folder:]))
+
+		t.Logf("CAB-14 compression %d window %d: cabinet of %d bytes, shared folder %d bytes, cabinet.dll read %d bytes",
+			opts.Compression, opts.Window, len(raw), shared, lastRead)
+
+		if lastRead > int64(len(raw))+2*shared+64<<10 {
+			t.Errorf("compression %d: cabinet.dll read %d bytes of a %d-byte cabinet whose shared folder has %d", opts.Compression, lastRead, len(raw), shared)
+		}
 	}
 }

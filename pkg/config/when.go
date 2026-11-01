@@ -59,6 +59,31 @@ func (p *Placement) FullCondition(cfg *Config) string {
 	}
 }
 
+// ScheduleCondition returns the Condition of the sequence row that
+// placement p of action c writes: the placement's full condition with the
+// context of the action's scope ANDed on, which keeps a perMachine action
+// out of a per-user install of a dual package (CA-09).
+func (c *CustomAction) ScheduleCondition(cfg *Config, p *Placement) string {
+	cond := p.FullCondition(cfg)
+
+	var context string
+
+	switch c.Scope {
+	case ScopePerMachine:
+		context = "ALLUSERS=1"
+	case ScopePerUser:
+		context = "NOT ALLUSERS"
+	case "", ScopePerUserOrMachine, ScopePerMachineOrUser:
+		return cond
+	}
+
+	if cond == "" {
+		return context
+	}
+
+	return fmt.Sprintf("(%s) AND %s", cond, context)
+}
+
 // upgradeProperties returns the properties FindRelatedProducts sets for a
 // product that RemoveExistingProducts removes: upgrade.property and those of
 // the related rows that are not onlyDetect, ORed in brackets when there are

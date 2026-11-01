@@ -257,7 +257,8 @@ Above 5.0 every platform fails with 1613 on Windows Installer 5.0, the
 current engine, so it is rejected.
 
 `perUser` packages are checked for ICE105: no services, no HKLM registry
-values, no no-impersonate actions and no per-machine directories.
+values, no no-impersonate actions and no per-machine directories. A dual
+package may run a no-impersonate action with `scope: perMachine` (CA-09).
 
 #### Install scope
 
@@ -336,6 +337,36 @@ out of a per-user install, and the builder passes that warning on; it
 reported nothing for them in a `perMachineOrUser` package and nothing for
 the machine variable in either (ENVVAR-03). HKU values were not tested,
 and a standard user's install was tested with an HKLM value only.
+
+A custom action with `scope: perMachine` runs only per machine, and one
+with `scope: perUser` only per user: the builder adds `ALLUSERS=1` or `NOT
+ALLUSERS` to the condition of each of its schedules (and of the data
+action of a `run` action). Only a `perMachine` action may have
+`impersonate: false`, so an action that changes the machine as LocalSystem
+is left out of every per-user install, also one that an administrator
+runs elevated, and a standard user's per-user install needs no elevation
+for it (CA-09). A scoped action runs in the execute sequence only: in the
+UI sequence the scope page sets `ALLUSERS` back to 2, and an administrative
+install has no context. ICE105 reads only the action's type, so in a
+`perUserOrMachine` package it warns about a `perMachine` action without
+impersonation although the condition keeps it out of per-user installs,
+and the builder passes that warning on; it is silent in a
+`perMachineOrUser` package (CA-09). The same holds for the Directory row
+that an action's `directory` adds, so a dual or per-user package refuses a
+folder ICE105 rejects, such as `System64Folder`, `WindowsFolder` or
+`TempFolder`, as an action's working directory, as it does for components.
+
+```yaml
+customActions:
+  - id: RegisterMachine
+    run: { command: '"[#tool.exe]" register --all-users' }
+    execute: deferred
+    impersonate: false
+    scope: perMachine                # left out of a per-user install
+    return: check
+    schedule:
+      - { sequence: execute, after: InstallFiles, when: install }
+```
 
 ### 4.3 `upgrade`
 
@@ -1094,14 +1125,14 @@ windows (on its hidden ones when it has no visible window, as a program in
 the notification area), and the install waits up to `timeout` for those
 to exit, per file: two files with `30s` can wait a minute. After `StopServices` and before `RemoveFiles`, as LocalSystem in a
 per-machine install, the copies still running from that path are ended
-with exit code 1602, in every session. A process matches by its full path,
-compared without case, so a copy of the program in another folder (a
-portable copy, a Kubernetes HostProcess container) keeps running; WiX's
+with exit code 1602, in every session. A process matches when its image
+is the installed file: by the path, compared without case, or else by the
+file's identity (volume and file ID), so a copy started through the 8.3
+path or a junction to the install folder is closed too (CLOSE-02), and so
+is a hard link to the file, while a copy of the program in another folder
+(a portable copy, a Kubernetes HostProcess container) keeps running; WiX's
 `util:CloseApplication` matches the filename only (reported), which the
 2026-10-25 evaluation of the `windows_exporter` example found a problem.
-An install folder given as an 8.3 path, a `subst` drive or a junction does
-not match the image path the process reports, so nothing is closed then
-(fails safe; not tested).
 
 What gets ended, and when:
 
@@ -1970,7 +2001,9 @@ package, a DLL or no Windows program. How long the engine keeps the
 temporary file of an `asyncNoWait` action is not tested.
 
 Options: `execute` (default `immediate`), `impersonate` (default `true`;
-`false` needs a deferred action), `return` (required for `exec`,
+`false` needs a deferred action, and in a dual package `scope: perMachine`),
+`scope` (`perMachine` or `perUser`, dual packages only, see "Install
+scope"), `return` (required for `exec`,
 `execProperty`, `exe` and `run`, default `check` otherwise), `hideTarget`, `once`
 (`firstSequence`, `oncePerProcess`, `clientRepeat`), `progress`.
 

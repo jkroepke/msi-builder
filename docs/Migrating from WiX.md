@@ -174,7 +174,7 @@ msi-builder does the same by default:
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
 | `Environment` | `components[].environment` |
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
-| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line |
+| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
 | `ServiceControl` for another service | `components[].serviceControl` |
@@ -183,7 +183,7 @@ msi-builder does the same by default:
 | `PermissionEx` (SDDL), `Permission` | `permissions.sddl`, `folderPermissions.sddl` |
 | `util:PermissionEx` | `permissions.grant`, `folderPermissions.grant`; on a registry key, `permissions.sddl` |
 | `Property` | `properties` |
-| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search` |
+| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search`; a `DirectorySearch` without `Path` in a `RegistrySearch` with `Type="directory"` adds nothing, because that search already finds only a folder that exists. In a `Type="raw"` search, or one without `Type`, it returns the folder that holds the path in the value without checking that it exists (SEARCH-09). Convert keeps the value and adds a note, which says that for a value that is a path the property is set whenever the value exists, so the raw value is enough when only that matters. A search nested in it looks in that folder, while convert searches in the folder the value names, so convert notes that too |
 | `ProductSearch UpgradeCode` | an `upgrade.related` row with `onlyDetect: true` that sets the property |
 | `Launch` (v3 `Condition` under `Product`) | `launchConditions` |
 | `CustomAction`, `SetProperty`, `Custom` | `customActions` |
@@ -736,6 +736,10 @@ element in a sequence becomes a `schedule` placement of that entry:
 | `BinaryRef` + `ExeCommand` | `exe` with a `binaries` entry |
 | `Error` | `error` |
 | `Execute`, `Impersonate`, `Return`, `HideTarget` | `execute`, `impersonate`, `return`, `hideTarget` |
+| `Impersonate="no"` on a deferred action in a per-user package | dropped with a note: a per-user package cannot run an action without impersonation (ICE105), and CA-09 saw per-user installs of dual-scope packages run such an action as the installing user; `Impersonate="no"` on an immediate action is dropped silently, since an immediate action always runs as the installing user |
+| `Impersonate="no"` on a deferred action in a dual-scope package | `impersonate: false` with `scope: perMachine`: the action runs only in per-machine installs (CA-09); one whose conditions all say `NOT ALLUSERS` becomes an impersonated `scope: perUser` action, since CA-09 saw a per-user install run it as the installing user anyway; one also scheduled outside `InstallExecuteSequence` keeps `impersonate: false` without a scope and gets a note to split it, since a scope needs the execute sequence; one whose condition tests `ALLUSERS` among other terms keeps it and gets `scope: perMachine` with a note, since a per-user test then never holds |
+| A `Custom` condition that only names the context (such as `ALLUSERS=1`, `ALLUSERS`, `NOT ALLUSERS` or `ALLUSERS=""`) in a dual-scope package, on every placement and all in `InstallExecuteSequence` | `scope: perMachine` or `scope: perUser`; otherwise the condition stays |
+| `CustomAction Directory` naming a folder ICE105 rejects (`SystemFolder`, `WindowsFolder`, `TempFolder`, …) in a per-user or dual-scope package | A `run` action runs without a working directory and an `exec` action keeps it, both with a note: msi-builder refuses these folders as an action's directory there |
 | `ProgressText` for the action (in `UI`) | `progress`; a `Template` has no counterpart |
 
 | WiX `Custom` | `schedule` entry |
