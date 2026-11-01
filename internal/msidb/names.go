@@ -170,12 +170,17 @@ func checkStoredRunes(name string) error {
 
 // BinaryStreamName is the decoded name of the stream holding a binary cell:
 // the table name and the row's key values joined with ".", integer keys in
-// decimal.
+// decimal and a NULL key as an empty segment.
 func BinaryStreamName(table string, keys []any) string {
 	parts := []string{table}
 
 	for _, k := range keys {
 		switch key := k.(type) {
+		case nil:
+			// A NULL key is an empty segment: msi.dll reads the stream of
+			// a NULL string or integer key as "T." (reported by a
+			// review's native probes).
+			parts = append(parts, "")
 		case string:
 			parts = append(parts, key)
 		case int:
