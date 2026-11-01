@@ -1219,11 +1219,12 @@ file types is keyed on the first value with data they write: the ProgID's
 description, else its `DefaultIcon`, a verb's text or command or the default
 of an extension it owns, in the order they are written (an `openWithOnly` entry alone is not enough, which is an
 error). In a per-user package that value is under
-`HKCU\Software\Classes`, which should serve as the HKCU key path a profile folder needs (ICE38;
-REG-09 runs the ICE suite on a per-user package, not yet run on Windows).
+`HKCU\Software\Classes`, which should serve as the HKCU key path a profile folder needs (ICE38
+reported nothing for such a package per user, REG-09; a per-user install
+was not run).
 Adding a feature later should write only its rows and removing it remove
-only those, with the uninstall removing the rest (REG-09, not yet run on
-Windows). Give each optional
+only those, with the uninstall removing the rest (observed per machine,
+REG-09). Give each optional
 extension its own ProgID, as above: a ProgID is registered once per
 package, and the rows of one ProgID in two components would presumably be
 removed with the first of them, leaving the other extension pointing at
