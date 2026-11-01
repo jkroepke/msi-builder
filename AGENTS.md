@@ -261,6 +261,9 @@ go test ./... -shuffle=on -race
   run in the native step: the step before it creates the standard user
   `msitest` and exports `MSI_BUILDER_NONADMIN_USER` and
   `MSI_BUILDER_NONADMIN_PASSWORD`.
+- Linux runs `-race` and coverage as two runs (`-covermode=set` without
+  `-race`): `-race` forces atomic coverage counters, which the parallel
+  tests contend on, and the combined run was more than six times as slow.
 - To learn what Windows does before writing a test, a temporary nativetest
   that collects its observations and reports them with one `t.Errorf` runs
   on the `windows-latest` runner: push the branch and start CI with
