@@ -250,8 +250,8 @@ func TestConvertMachineContent(t *testing.T) {
 	t.Parallel()
 
 	for name, data := range map[string]string{
-		"hklm":    `<RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="S" Value="1" Type="string" KeyPath="yes" />`,
-		"service": `<File Id="svc.exe" Source="svc.exe" KeyPath="yes" /><ServiceInstall Id="Svc" Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" />`,
+		"hklm":            `<RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="S" Value="1" Type="string" KeyPath="yes" />`,
+		"service":         `<File Id="svc.exe" Source="svc.exe" KeyPath="yes" /><ServiceInstall Id="Svc" Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" />`,
 		"common app data": `<File Id="data.txt" Source="data.txt" KeyPath="yes" />`,
 	} {
 		folder := "ProgramFiles64Folder"
