@@ -136,6 +136,14 @@ versioning after 1.0.
   outside its branch (`checkReferences`); when the converter needs one
   value of a variable a kept block defines (`literal` calls `needFixed`),
   `Convert` runs again with those blocks forced to their first branch.
+  Defines follow WiX order through `defineEval`: a define takes the value
+  each variable has at that point, one that reads a variable no define has
+  set yet reads `{{ .X }}` (--var stands in for -d), and a header var
+  always exists, so `has` is true in every build: an `<?ifdef X?>` of a
+  variable the file defines, or a default whose variable another define
+  sets, falls back. A hand-written WiX semantics simulator that compares
+  rendered properties for every -d assignment (differential fuzzing) found
+  the order bugs fastest; keep repros of new finds in `preprocess_test.go`.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a
