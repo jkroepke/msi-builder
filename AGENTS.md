@@ -196,7 +196,7 @@ go test ./... -shuffle=on -race
   updates the snapshots in the same pull request: rerun the tests with
   `MSI_BUILDER_UPDATE_SNAPSHOTS=1` and review the diff. The install snapshots need
   an elevated Windows machine; on a mismatch CI uploads the new ones as the
-  `install-snapshots` artifact. The example inputs live in
+  `install-snapshots-<shard>` artifact of the native shard that ran the test. The example inputs live in
   `internal/exampletest`, and a new example needs an entry there, in
   `installExamples` and in `TestScopeOwns`.
 - `-short` skips the slow tests: the native tests that open packages with
@@ -259,7 +259,8 @@ go test ./... -shuffle=on -race
   into three shards on three runners instead: each runs every third
   top-level test of `go test -list`, so a new test needs no CI change.
   Linux runs `-race` and coverage as two runs, because `-race` forces
-  atomic coverage counters, which made the combined run eight times as slow.
+  atomic coverage counters, which made the combined run more than six times
+  as slow.
   A result test's `t.Log` output is in the `go test (native)` log of the
   shard that ran it; do not add a step that reruns
   tests with `-v` only to print them. A test that cannot run in either

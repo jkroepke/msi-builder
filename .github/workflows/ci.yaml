@@ -56,7 +56,7 @@ jobs:
           echo "changed=$((code + generated))" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build & Test (${{ matrix.os }}, ${{ matrix.suite }}${{ matrix.shard && format(' {0}/3', matrix.shard) || '' }})
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.suite }}${{ matrix.shard && format(' {0}/{1}', matrix.shard, matrix.shards) || '' }})
     needs: detect-changes
     if: needs.detect-changes.outputs.changed != '0'
     runs-on: ${{ matrix.os }}
@@ -69,13 +69,14 @@ jobs:
         # (suite unit). Two installs cannot share a machine (the snapshots
         # diff its state), so nativetest is split by test into three shards
         # on three runners instead of running its tests in parallel. A new
-        # shard needs its entry here and NATIVE_SHARDS in go test (native).
+        # shard needs its own entry here, and every native entry's shards
+        # names the number of shards.
         include:
           - { os: ubuntu-26.04, suite: unit }
           - { os: windows-latest, suite: unit }
-          - { os: windows-latest, suite: native, shard: 1 }
-          - { os: windows-latest, suite: native, shard: 2 }
-          - { os: windows-latest, suite: native, shard: 3 }
+          - { os: windows-latest, suite: native, shard: 1, shards: 3 }
+          - { os: windows-latest, suite: native, shard: 2, shards: 3 }
+          - { os: windows-latest, suite: native, shard: 3, shards: 3 }
           # Only a few native tests, see go test (Windows on Arm).
           - { os: windows-11-arm, suite: arm }
     permissions:
@@ -187,8 +188,8 @@ jobs:
       #
       # Linux measures coverage in a second run without -race: -race forces
       # atomic counters, which every parallel test of a package updates
-      # across all of ./..., and the two together took eight times as long
-      # as the race run alone (internal/builder: 72 s to 464 s).
+      # across all of ./..., and the two together made internal/builder more
+      # than six times as slow as the race run alone (72 s to 464 s).
       - name: go test
         if: matrix.suite == 'unit'
         shell: bash
@@ -225,7 +226,7 @@ jobs:
         env:
           MSI_BUILDER_SNAPSHOT_DIR: ${{ runner.temp }}/install-snapshots
           NATIVE_SHARD: ${{ matrix.shard }}
-          NATIVE_SHARDS: '3'
+          NATIVE_SHARDS: ${{ matrix.shards }}
         run: |
           pkg=./internal/builder/nativetest/
           mapfile -t tests < <(go test -list '^Test' "$pkg" | grep -E '^Test')
