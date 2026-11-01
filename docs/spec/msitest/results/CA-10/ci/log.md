@@ -2,7 +2,7 @@
 
 - Runner: GitHub `windows-latest` (Windows Server 2025, x64), elevated,
   2026-11-01
-- CI run 41298591380 (commit f44ad00), job
+- CI run 41298591380 (commit f44ad00, from the PR's checks), job
   `Build & Test (windows-latest, native)`, PR #206
 - Tests in `internal/builder/nativetest/firewall_windows_test.go`:
   `TestNetshAnyProtocolPort`, `TestMsiexecFirewallAnyProtocol`,
@@ -15,11 +15,14 @@ those names.
 
 ## netsh with protocol any and a port
 
+The test runs (command line from the test code, not printed in the log):
+
 ```text
 netsh advfirewall firewall add rule name=MsiBuilderCA10Netsh dir=in action=allow protocol=any localport=12345 program=C:\MsiBuilderCA10\app.exe
-exit status 1
-Ports can only be specified if the protocol is TCP or UDP.
 ```
+
+Log output: `exit status 1`, then "Ports can only be specified if the
+protocol is TCP or UDP." and the usage text.
 
 No rule was added.
 
@@ -60,7 +63,8 @@ Installed with `REMOTE=not-an-address`:
 
 The test added the stop right for Administrators to the service's security
 descriptor (`(A;;CCLCSWRPLORCWDWO;;;BA)` became
-`(A;;CCLCSWRPWPLORCWDWO;;;BA)`; `sc sdset` succeeded) and ran
+`(A;;CCLCSWRPWPLORCWDWO;;;BA)`; the log does not print the grant, but
+the test stops with a failure when `sc sdset` fails, and it went on) and ran
 `Stop-Service mpssvc -Force`:
 
 ```text

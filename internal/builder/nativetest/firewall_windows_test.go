@@ -179,7 +179,7 @@ func TestMsiexecFirewallAnyProtocol(t *testing.T) {
 }
 
 // TestMsiexecFirewallIgnoreFailure installs a rule whose remote address
-// netsh rejects at run time: without ignoreFailure the install fails with
+// netsh rejects at runtime: without ignoreFailure the install fails with
 // 1603 and rolls back, with it the install succeeds without the rule and
 // uninstalls (CA-10).
 //
@@ -283,12 +283,20 @@ func TestMsiexecFirewallWixBlackBox(t *testing.T) {
 			"'{0} protocol={1} localport={2}' -f $_.DisplayName, $f.Protocol, ($f.LocalPort -join ',') }").CombinedOutput()
 	t.Logf("CA-10 WiX rules:\n%s", out)
 
-	// A failure here is an observation, not a test failure: the rule
-	// without Protocol has no IgnoreFailure, and what WiX makes of it is
-	// the question.
-	if code == 0 {
-		msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
+	if code != 0 {
+		t.Fatalf("exit code %d, want 0\n%s", code, readLog(log))
 	}
+
+	// convert writes protocol: tcp for such a rule because of this result.
+	if want := []fwRule{{"TCP", "12346", "Any"}}; !slices.Equal(port, want) {
+		t.Errorf("Port without Protocol: rules %+v, want %+v", port, want)
+	}
+
+	if len(ignored) != 0 {
+		t.Errorf("IgnoreFailure rule with a bad address: rules %+v, want none", ignored)
+	}
+
+	msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
 }
 
 // TestMsiexecFirewallServiceStopped stops the Windows Defender Firewall
@@ -352,6 +360,7 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 	}
 
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
+	parentDir := t.TempDir()
 
 	for _, tc := range []struct {
 		name, upgradeCode string
@@ -361,7 +370,14 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 		{"MsiBuilderCA10StoppedIgnore", "7e3f1a84-5c2d-4b96-a0e8-1d6b4c9f2a35", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+			// The parent's folder, which outlives the subtest, so that the
+			// cleanup after the service restart can still uninstall.
+			dir := filepath.Join(parentDir, tc.name)
+
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+
 			src := fmt.Sprintf(firewallCA10Config, tc.name, tc.upgradeCode, "tcp", "    port: '12345'\n", "", tc.ignore)
 			path := buildConfig(t, dir, "stopped", src, map[string][]byte{"app.exe": app})
 

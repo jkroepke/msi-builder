@@ -1080,7 +1080,8 @@ Windows Defender Firewall service is stopped (MSISPEC section 16, WiX issues
   with `OpenService FAILED 5: Access is denied`. The service's security
   descriptor, `D:(A;;CCLCLORC;;;AU)(A;;CCDCLCSWRPLORCWDWO;;;SY)(A;;CCLCSWRPLORCWDWO;;;BA)(A;;CCLCLO;;;BU)`,
   gives no one the stop right (`WP`). SYSTEM and Administrators hold `WD`
-  (write DAC), so they could grant it with `sc sdset`; that was not tried.
+  (write DAC), so they could grant it with `sc sdset`; that was not tried
+  here (CA-10 tried it on the CI runner, below).
   The GitHub runner refused the stop the same way (CI run 40881913820).
 - A safety-net task to restart the service was registered and deleted; the
   service stayed running and all three profiles stayed on; the rule, the
