@@ -39,6 +39,10 @@ No rule was added.
 
 After the uninstall no rule of the name is left.
 
+A later run (CI run 41304214097, commit e9824f0) added a rule
+`MsiBuilderCA10AnyNoPort` with `protocol: any` and no port: one rule,
+protocol Any, no local port, removed by the uninstall.
+
 ## A failing add with and without ignoreFailure
 
 `remoteAddresses: '[REMOTE]'`, installed with `REMOTE=not-an-address`:
@@ -60,6 +64,10 @@ Installed with `REMOTE=not-an-address`:
   (`Get-NetFirewallPortFilter`: `protocol=TCP localport=12346`). No UDP rule.
 - `MsiBuilderCA10WixIgnore`: no rule.
 
+CI run 41304214097 (commit e9824f0) added a third exception without
+`Port` or `Protocol`, `MsiBuilderCA10WixNoPort`: one rule, protocol Any,
+no local port. The other two results were the same.
+
 ## Firewall service stopped
 
 The test added the stop right for Administrators to the service's security
@@ -78,5 +86,16 @@ The service kept running, so both packages installed their rule (exit 0)
 and uninstalled with exit 0; that says nothing about a stopped service.
 `sc start` reported 1056 (already running), and the original descriptor
 was restored.
+
+A third run (CI run 41300545753, commit 596cae4) asked why with
+`sc queryex mpssvc` after the failed stop:
+
+```text
+STATE              : 4  RUNNING
+                        (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+```
+
+The service does not accept a stop control at all, so no access right
+lets an administrator stop it.
 
 Not tested: an install while the firewall service is stopped.
