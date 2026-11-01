@@ -196,7 +196,7 @@ go test ./... -shuffle=on -race
   updates the snapshots in the same pull request: rerun the tests with
   `MSI_BUILDER_UPDATE_SNAPSHOTS=1` and review the diff. The install snapshots need
   an elevated Windows machine; on a mismatch CI uploads the new ones as the
-  `install-snapshots-<shard>` artifact of the native shard that ran the test. The example inputs live in
+  `install-snapshots` artifact. The example inputs live in
   `internal/exampletest`, and a new example needs an entry there, in
   `installExamples` and in `TestScopeOwns`.
 - `-short` skips the slow tests: the native tests that open packages with
@@ -250,25 +250,20 @@ go test ./... -shuffle=on -race
   custom action fails with 1730 in `InstallInitialize` (`SECREPAIR`,
   `MSI_LUA` credential prompt), after the property decisions are logged,
   so read those from the log rather than from what the repair changed.
-- CI splits Windows into runners: suite `unit` runs every package but
+- CI splits Windows into two runners: suite `unit` runs every package but
   `internal/builder/nativetest` under `-race`, suite `native` runs
   nativetest verbose and without `-race` (msiexec installs one package at a
-  time, so nativetest sets the length of the run). Two installs cannot
-  share a machine, because the install snapshots diff its state, so the
-  nativetest tests stay serial within a process and suite `native` is split
-  into three shards on three runners instead: each runs every third
-  top-level test of `go test -list`, so a new test needs no CI change.
-  Linux runs `-race` and coverage as two runs, because `-race` forces
-  atomic coverage counters, which made the combined run more than six times
-  as slow.
-  A result test's `t.Log` output is in the `go test (native)` log of the
-  shard that ran it; do not add a step that reruns
+  time, so nativetest sets the length of the run). A result test's `t.Log`
+  output is in the `go test (native)` log; do not add a step that reruns
   tests with `-v` only to print them. A test that cannot run in either
   suite (it needs a lot of disk, an environment variable or a full-size
   run the race build shrinks) gets its own step. The `TestNonAdmin` tests
   run in the native step: the step before it creates the standard user
   `msitest` and exports `MSI_BUILDER_NONADMIN_USER` and
   `MSI_BUILDER_NONADMIN_PASSWORD`.
+- Linux runs `-race` and coverage as two runs (`-covermode=set` without
+  `-race`): `-race` forces atomic coverage counters, which the parallel
+  tests contend on, and the combined run was more than six times as slow.
 - To learn what Windows does before writing a test, a temporary nativetest
   that collects its observations and reports them with one `t.Errorf` runs
   on the `windows-latest` runner: push the branch and start CI with

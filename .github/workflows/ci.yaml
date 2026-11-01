@@ -56,7 +56,7 @@ jobs:
           echo "changed=$((code + generated))" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build & Test (${{ matrix.os }}, ${{ matrix.suite }}${{ matrix.shard && format(' {0}/{1}', matrix.shard, matrix.shards) || '' }})
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.suite }})
     needs: detect-changes
     if: needs.detect-changes.outputs.changed != '0'
     runs-on: ${{ matrix.os }}
@@ -64,19 +64,13 @@ jobs:
       fail-fast: false
       matrix:
         # The msiexec tests of nativetest install one package at a time and
-        # set the length of a Windows run, so they get runners of their own
+        # set the length of a Windows run, so they get a runner of their own
         # (suite native) while the other packages run under -race on another
-        # (suite unit). Two installs cannot share a machine (the snapshots
-        # diff its state), so nativetest is split by test into three shards
-        # on three runners instead of running its tests in parallel. A new
-        # shard needs its own entry here, and every native entry's shards
-        # names the number of shards.
+        # (suite unit).
         include:
           - { os: ubuntu-26.04, suite: unit }
           - { os: windows-latest, suite: unit }
-          - { os: windows-latest, suite: native, shard: 1, shards: 3 }
-          - { os: windows-latest, suite: native, shard: 2, shards: 3 }
-          - { os: windows-latest, suite: native, shard: 3, shards: 3 }
+          - { os: windows-latest, suite: native }
           # Only a few native tests, see go test (Windows on Arm).
           - { os: windows-11-arm, suite: arm }
     permissions:
@@ -217,31 +211,12 @@ jobs:
       # tests print with t.Log (MSISPEC-RESULTS logs cite this step); a result
       # test needs no step of its own. The install snapshots that differ from
       # testdata are saved to MSI_BUILDER_SNAPSHOT_DIR and uploaded below.
-      # Each shard runs every NATIVE_SHARDS-th top-level test in the order
-      # go test -list prints them (by file, then by declaration), so a new
-      # test joins a shard without a change here.
       - name: go test (native)
         if: matrix.suite == 'native'
         shell: bash
         env:
           MSI_BUILDER_SNAPSHOT_DIR: ${{ runner.temp }}/install-snapshots
-          NATIVE_SHARD: ${{ matrix.shard }}
-          NATIVE_SHARDS: ${{ matrix.shards }}
-        run: |
-          pkg=./internal/builder/nativetest/
-          mapfile -t tests < <(go test -list '^Test' "$pkg" | grep -E '^Test')
-          if [ "${#tests[@]}" -eq 0 ]; then
-            echo "::error::go test -list found no tests in $pkg"
-            exit 1
-          fi
-          shard=()
-          for i in "${!tests[@]}"; do
-            if [ $((i % NATIVE_SHARDS)) -eq $((NATIVE_SHARD - 1)) ]; then
-              shard+=("${tests[i]}")
-            fi
-          done
-          echo "Shard ${NATIVE_SHARD}/${NATIVE_SHARDS}: ${#shard[@]} of ${#tests[@]} tests"
-          go test "$pkg" -run "^($(IFS='|'; echo "${shard[*]}"))\$" -v -timeout 25m -shuffle=on
+        run: go test ./internal/builder/nativetest/ -v -timeout 25m -shuffle=on
 
       # Windows on Arm installs the run action probe, the remembered install
       # folder package, the shortcut property package and the language
@@ -256,7 +231,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure() && matrix.suite == 'native'
         with:
-          name: install-snapshots-${{ matrix.shard }}
+          name: install-snapshots
           path: ${{ runner.temp }}/install-snapshots/
           if-no-files-found: ignore
 
