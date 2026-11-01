@@ -52,7 +52,9 @@ versioning after 1.0.
   upgrades, custom actions, sequences, the setup wizard (`ui*.go`),
   `_Validation`, summary information, then the streaming write and a
   verification pass (`finish.go`). `internal/builder/nativetest` holds the Windows
-  msi.dll and msiexec tests.
+  msi.dll and msiexec tests. msiexec applies `Environment` rows in key order
+  (ENVVAR-04), so their keys are numbered in config order
+  (`environmentKey`), not hashed.
   A component's own `fileTypes` (and `shortcuts`) name a file of any
   component through `fileTarget`, which falls back to `[DIR]name` across
   features (ICE69). A component with nothing but file types is keyed on
