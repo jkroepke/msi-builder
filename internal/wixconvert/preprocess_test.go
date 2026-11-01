@@ -240,6 +240,10 @@ func TestConvertPreprocessorFallback(t *testing.T) {
     <?define Mode = "x" ?>`,
 			note: "<?ifdef D?> is not evaluated: only its first branch was converted",
 		},
+		"define that extends a default": {
+			body: `<?ifndef V ?><?define V = "1" ?><?endif ?><?define V = "$(var.V)-x" ?><Property Id="P" Value="$(var.V)" />`,
+			note: "<?ifndef V?> is not evaluated: only its first branch was converted",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -354,6 +358,21 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
     <Property Id="P" Value="$(var.A)" />`,
 			want: `A: '{{ if has "D" }}2{{ else }}3{{ end }}'`,
 			vars: []string{"D"},
+		},
+		"define from a default": {
+			body: `<?ifndef Ver ?><?define Ver = "1.0" ?><?endif ?><?ifdef D ?><?define Out = "$(var.Ver)-d" ?><?else ?><?define Out = "$(var.Ver)" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.Out)" />`,
+			want: `Out: '{{ if has "D" }}{{ .Ver }}-d{{ else }}{{ .Ver }}{{ end }}'`,
+			vars: []string{"D", "Ver"},
+		},
+		"property in both branches on one line": {
+			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <?ifdef P ?><Property Id="MODE" Value="p" /><?else ?><Property Id="MODE" Value="n" /><?endif ?>`,
+			want: "MODE: p",
+			vars: []string{"P"},
 		},
 	}
 

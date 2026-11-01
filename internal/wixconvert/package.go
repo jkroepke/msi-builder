@@ -772,7 +772,7 @@ func (c *converter) emitProperties() {
 
 	upgradeProps := c.upgradeProperties()
 
-	for _, elm := range c.properties {
+	for i, elm := range c.properties {
 		propID := elm.attr("Id")
 		if c.skippedProperty(propID) || upgradeOnly(elm, upgradeProps) {
 			continue
@@ -795,8 +795,9 @@ func (c *converter) emitProperties() {
 
 		key := propID
 		if len(elm.opens) > 0 {
-			// The property may repeat in other branches of the block.
-			key += keySep + strconv.Itoa(elm.line)
+			// The property may repeat in other branches of the block,
+			// also on the same line.
+			key += keySep + strconv.Itoa(i)
 		}
 
 		props.setIn(key, elm.opens, value)

@@ -979,16 +979,23 @@ type defineFrame struct {
 // defineEval follows the values of the variables through the
 // instructions.
 type defineEval struct {
-	conv   *converter
-	env    map[string]string
-	frames []*defineFrame
+	conv *converter
+	env  map[string]string
+	// defaults are the values of <?ifndef X?><?define X?> defaults,
+	// which the header writes; later defines read the variable instead,
+	// so that --var reaches them.
+	defaults map[string]string
+	frames   []*defineFrame
 }
+
+// defaultRef is the value a later define reads from a default.
+func defaultRef(name string) string { return "{{ ." + name + " }}" }
 
 // conditionalValues returns the values of the variables that kept blocks
 // set, as templates that test the blocks' conditions. The last define
 // wins, as in WiX.
 func (c *converter) conditionalValues(names map[string]bool) map[string]string {
-	eval := &defineEval{conv: c, env: make(map[string]string)}
+	eval := &defineEval{conv: c, env: make(map[string]string), defaults: make(map[string]string)}
 
 	for _, proc := range c.doc.procs {
 		if !proc.skipped {
@@ -999,8 +1006,13 @@ func (c *converter) conditionalValues(names map[string]bool) map[string]string {
 	values := make(map[string]string)
 
 	for name := range names {
-		if v, ok := eval.env[name]; ok {
-			values[name] = v
+		value, ok := eval.env[name]
+		if def, isDefault := eval.defaults[name]; isDefault && value == defaultRef(name) {
+			value = def
+		}
+
+		if ok {
+			values[name] = value
 		}
 	}
 
@@ -1032,7 +1044,7 @@ func (e *defineEval) step(proc procInst) {
 			top := e.frames[len(e.frames)-1]
 			e.frames = e.frames[:len(e.frames)-1]
 			top.branches = append(top.branches, e.env)
-			e.env = e.conv.mergeBranches(top)
+			e.env = e.conv.mergeBranches(top, e.defaults)
 		}
 	}
 }
@@ -1057,7 +1069,7 @@ func (e *defineEval) define(proc procInst) {
 		ref := varName(value[loc[4]:loc[5]])
 
 		known, ok := e.env[ref]
-		if !ok && ref == self {
+		if ref == self && (!ok || known == defaultRef(self)) {
 			// It extends a value that comes from --var, which the
 			// header var would replace.
 			e.conv.needFixed(self)
@@ -1079,7 +1091,7 @@ func (e *defineEval) define(proc procInst) {
 
 // mergeBranches returns the values after a block: one template per
 // variable that a branch changed.
-func (c *converter) mergeBranches(frame *defineFrame) map[string]string {
+func (c *converter) mergeBranches(frame *defineFrame, defaults map[string]string) map[string]string {
 	env := maps.Clone(frame.before)
 	blk := frame.block
 	changed := make(map[string]bool)
@@ -1099,7 +1111,8 @@ func (c *converter) mergeBranches(frame *defineFrame) map[string]string {
 		// var is: --var replaces it.
 		if len(frame.branches) == 1 && blk.branches[0].target == piIfndef && !hadPrior &&
 			varName(ppDefName(blk.branches[0].inst)) == name {
-			env[name] = frame.branches[0][name]
+			defaults[name] = frame.branches[0][name]
+			env[name] = defaultRef(name)
 
 			continue
 		}
