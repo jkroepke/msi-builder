@@ -315,9 +315,9 @@ func (c *converter) emitMoved(reanchor func(string, []any)) {
 				continue
 			}
 
-			reason := why
-			if reason == "" {
-				reason = c.movedAnchorFails(placement, emitted)
+			silent, reason := c.moveRefused(name, why, placement, emitted)
+			if silent {
+				continue
 			}
 
 			if reason != "" {
@@ -343,6 +343,50 @@ func (c *converter) emitMoved(reanchor func(string, []any)) {
 	}
 
 	c.noteLaunchBeforeFind(kept)
+}
+
+// moveRefused returns why msi-builder cannot take a placement of a moved
+// action, or silent for a move that changes nothing; why is the reason the
+// package does not run the action, if any.
+func (c *converter) moveRefused(name, why string, placement *omap, emitted map[string]bool) (bool, string) {
+	if why != "" {
+		return false, why
+	}
+
+	if silent, reason := c.searchNextToLaunch(name, placement); silent || reason != "" {
+		return silent, reason
+	}
+
+	return false, c.movedAnchorFails(placement, emitted)
+}
+
+// searchNextToLaunch checks an AppSearch move next to LaunchConditions,
+// which the builder puts after a moved AppSearch unless LaunchConditions is
+// moved in the same sequence too: before it is the default order, so the
+// move is dropped silently; after it cannot be taken.
+func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, string) {
+	if name != actAppSearch || c.launchMovedIn(placement.str("sequence")) {
+		return false, ""
+	}
+
+	switch actLaunchConditions {
+	case placement.str(keyBefore):
+		return true, ""
+	case placement.str(keyAfter):
+		return false, "LaunchConditions follows a moved AppSearch"
+	default:
+		return false, ""
+	}
+}
+
+// launchMovedIn reports whether the sequences move LaunchConditions in a
+// sequence.
+func (c *converter) launchMovedIn(seq string) bool {
+	return slices.ContainsFunc(c.moved[actLaunchConditions], func(entry any) bool {
+		placement, ok := entry.(*omap)
+
+		return ok && placement.str("sequence") == seq
+	})
 }
 
 // noteLaunchBeforeFind notes a move that puts LaunchConditions before

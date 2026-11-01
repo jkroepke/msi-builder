@@ -133,7 +133,16 @@ func TestStandardActionsNumbered(t *testing.T) {
 	}{
 		"AppSearch after the LaunchConditions that follow it": {
 			launch + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: LaunchConditions}]}\n",
-			"standardActions[0].schedule[0]", "AppSearch → LaunchConditions → AppSearch",
+			"standardActions[0].schedule[0]", "move LaunchConditions instead",
+		},
+		"AppSearch before the LaunchConditions that follow it": {
+			launch + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: LaunchConditions}]}\n",
+			"standardActions[0].schedule[0]", "move LaunchConditions instead",
+		},
+		"FindRelatedProducts on the number of LaunchConditions": {
+			"upgrade: {downgrade: allow}\n" + launch +
+				"standardActions:\n  - {action: FindRelatedProducts, schedule: [{sequence: execute, at: 100}]}\n",
+			"standardActions[0].schedule[0]", "takes the number of LaunchConditions",
 		},
 		"past CostInitialize through a custom action": {
 			search + "customActions:\n  - {id: Late, setProperty: {name: P, value: x}, schedule: [{sequence: execute, after: CostFinalize}]}\n" +

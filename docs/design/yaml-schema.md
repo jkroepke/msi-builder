@@ -2181,10 +2181,18 @@ warning. Validate reports these cases where the configuration decides them,
 together with the cycles and collisions a move causes, counting the
 LaunchConditions the builder puts after a moved AppSearch and the
 unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
-LaunchConditions counts as 100 there, so a FindRelatedProducts moved to
-100 or later is treated as running after it even when a long chain of
-search actions would push LaunchConditions further. The other
-standard actions keep their numbers.
+LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
+100 is treated as running after it even when a long chain of search actions
+would push LaunchConditions further; one moved to exactly 100 collides with
+it, which validate reports when the package runs no AppSearch and leaves to
+the build otherwise. AppSearch cannot be placed next to an unmoved
+LaunchConditions, which follows it. The other standard actions keep their
+numbers.
+
+A remembered install folder (`installDir.remember`) is restored right after
+AppSearch, before an action placed `after: AppSearch` sets `ALLUSERS`, so a
+dual-scope package that switches to per-machine this way does not restore
+the remembered per-machine folder.
 
 **Restart.** `scheduleReboot` asks for a restart at the end of the
 installation, after Windows features, drivers or system files changed that

@@ -2636,3 +2636,46 @@ func TestConvertMovesMsiBuilderRefuses(t *testing.T) {
 		t.Errorf("a refused move was kept:\n%s", out)
 	}
 }
+
+// AppSearch next to an unmoved LaunchConditions: before it is the default
+// order and is dropped silently, after it is a cycle in msi-builder.
+func TestConvertAppSearchNextToLaunchConditions(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    <Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <AppSearch Before="LaunchConditions" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <AppSearch After="LaunchConditions" />
+    </InstallUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	want := "the sequence moves the standard action AppSearch in ui, which msi-builder cannot take (LaunchConditions follows a moved AppSearch)"
+
+	if !strings.Contains(out, want) {
+		t.Errorf("the YAML lacks %q:\n%s", want, out)
+	}
+
+	if strings.Contains(out, "standardActions") || strings.Contains(out, "AppSearch in execute") {
+		t.Errorf("a move next to LaunchConditions was kept or noted:\n%s", out)
+	}
+}

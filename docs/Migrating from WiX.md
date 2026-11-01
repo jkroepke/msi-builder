@@ -826,10 +826,12 @@ standardActions:
 
 Other standard actions keep their place, and a condition on a standard
 action has no counterpart; convert notes both. A place at the default
-number is dropped. With a note, convert also drops the move of AppSearch
-without searches, of LaunchConditions without launch conditions or a
-downgrade check, and a move to a place msi-builder refuses (at or after
-CostInitialize, or next to a dialog). A move that puts LaunchConditions
+number is dropped, and so is AppSearch before an unmoved LaunchConditions,
+which is the default order. With a note, convert also drops the move of
+AppSearch without searches, of LaunchConditions without launch conditions or
+a downgrade check, and a move to a place msi-builder refuses (at or after
+CostInitialize, next to a dialog, or AppSearch after an unmoved
+LaunchConditions, which msi-builder puts after a moved AppSearch). A move that puts LaunchConditions
 before FindRelatedProducts (FindRelatedProducts at Microsoft's 200, for
 example) gets a note, because the downgrade check then sees no newer
 version and the build refuses it.

@@ -230,6 +230,10 @@ func wellMoved(cfg *Config, action string, place Placement) bool {
 		return false
 	}
 
+	if action == actAppSearch && (place.Before == actLaunchConditions || place.After == actLaunchConditions) && !launchMovedIn(cfg, place.Sequence) {
+		return false
+	}
+
 	return place.At >= 0 && place.At < costInitialize() && earlyAnchors(action, place)
 }
 

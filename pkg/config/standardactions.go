@@ -122,6 +122,12 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 	if launch == 0 {
 		std, _ := sequence.LookupStandard(actLaunchConditions)
 		launch = std.Number(table)
+
+		if find == launch {
+			v.findOnLaunch(cfg, table, find)
+
+			return
+		}
 	}
 
 	path = movePath(cfg, table)
@@ -130,6 +136,15 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 	}
 
 	v.reportLaunchBeforeFind(cfg, path)
+}
+
+// findOnLaunch reports FindRelatedProducts on the number of an unmoved
+// LaunchConditions: a collision when AppSearch does not run, otherwise left
+// to the build, which may put LaunchConditions behind the search actions.
+func (v *validator) findOnLaunch(cfg *Config, table string, find int) {
+	if path := movePath(cfg, table); path != "" && idle(cfg, actAppSearch, scheduleName(table)) != "" {
+		v.errorf(path, "FindRelatedProducts at %d takes the number of LaunchConditions; place it before or after LaunchConditions", find)
+	}
 }
 
 // reportLaunchBeforeFind reports launch conditions before
@@ -145,6 +160,17 @@ func (v *validator) reportLaunchBeforeFind(cfg *Config, path string) {
 	}
 
 	v.warnf(path, "LaunchConditions runs before FindRelatedProducts: a launch condition sees the upgrade properties unset")
+}
+
+// scheduleName returns the schedule name of a sequence table.
+func scheduleName(table string) string {
+	for name, t := range sequenceTables {
+		if t == table {
+			return name
+		}
+	}
+
+	return ""
 }
 
 // movePath returns the YAML path of the move that puts LaunchConditions
@@ -277,10 +303,20 @@ func (v *validator) standardAnchors(cfg *Config, placePath, action string, place
 			v.errorf(placePath, "%s cannot be placed next to itself", action)
 		case !knownAnchor(cfg, anchor, place.Sequence):
 			v.errorf(placePath, "anchor %q is neither a standard action nor a custom action", anchor)
+		case action == actAppSearch && anchor == actLaunchConditions && !launchMovedIn(cfg, place.Sequence):
+			v.errorf(placePath, "AppSearch cannot be placed next to LaunchConditions, which follows a moved AppSearch; move LaunchConditions instead")
 		case standardActions[anchor] && !earlyAnchor(anchor, place.Sequence, i == 0):
 			v.errorf(placePath, "%s must run before CostInitialize, which it does not %s %s", action, []string{"before", "after"}[i], anchor)
 		}
 	}
+}
+
+// launchMovedIn reports whether standardActions moves LaunchConditions in
+// a sequence.
+func launchMovedIn(cfg *Config, schedule string) bool {
+	_, _, moved := cfg.StandardPlacement(sequenceTables[schedule], actLaunchConditions)
+
+	return moved
 }
 
 // costInitialize is the default number of CostInitialize, the same in both
