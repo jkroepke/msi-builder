@@ -133,9 +133,11 @@ type converter struct {
 	actions       map[string]*elem
 	needDirs      map[string]bool
 	renames       map[string]string
-	installDir    *dir
-	uiSet         string
-	platform      string
+	// folded maps a nameless Directory that became a standard folder to it.
+	folded     map[string]string
+	installDir *dir
+	uiSet      string
+	platform   string
 	// scope is the package's install scope, as package.scope names it.
 	scope        string
 	launchAction string
@@ -281,6 +283,7 @@ func newConverter(doc *document) *converter {
 		firewallNames:  make(map[string]int),
 		renames:        make(map[string]string),
 		consumed:       make(map[*elem]bool),
+		folded:         make(map[string]string),
 		doActions:      make(map[string]*elem),
 		otherSequences: make(map[string]*elem),
 		needDirs:       make(map[string]bool),

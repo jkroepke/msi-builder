@@ -405,6 +405,7 @@ func (c *converter) foldAliasDirs() {
 
 		c.dirs[folder.id] = std
 		c.renames[folder.id] = target
+		c.folded[folder.id] = target
 	}
 
 	c.dirOrder = kept
@@ -447,6 +448,20 @@ func (c *converter) keepMovedRoot(folder *dir, setters []*elem) {
 	if parent := c.dirs[folder.parentID]; !folder.std && unnamed(folder.name) && (parent == nil || parent.std) && len(setters) > 0 {
 		c.needDirs[folder.id] = true
 	}
+}
+
+// anchored reports whether an element below elm is sequenced Before or
+// After the action name.
+func (c *converter) anchored(elm *elem, name string) bool {
+	if elm == nil {
+		return false
+	}
+
+	if elm.attr("Before") == name || elm.attr("After") == name {
+		return true
+	}
+
+	return slices.ContainsFunc(elm.kids, func(kid *elem) bool { return c.anchored(kid, name) })
 }
 
 // uiDirRefs adds the dialog controls bound to a property and the
@@ -504,7 +519,10 @@ func unnamed(name string) bool {
 // sets its directory to, such as [WindowsVolume], and leaves the action
 // out; "" for any other value.
 func (c *converter) setterFolder(setter *elem) string {
-	if !setter.is("SetDirectory") || c.condition(setter) != "" {
+	// A setter that runs in one sequence only, or that another action is
+	// sequenced against, keeps its row and its action.
+	if !setter.is("SetDirectory") || c.condition(setter) != "" || setter.attr("Sequence") != "" && setter.attr("Sequence") != "both" ||
+		c.anchored(c.doc.root, setterName(setter)) {
 		return ""
 	}
 

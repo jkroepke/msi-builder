@@ -38,7 +38,6 @@ components:
     files: [{ source: app.exe }]
     removeFiles:
       - { name: 'msibuilder-foldercases-*.tmp', property: CLEANDIR }
-      - { name: 'msibuilder-foldercases-install.tmp', property: CLEANDIR, on: install }
   - id: Tool
     directory: BINDIR
     files: [{ source: tool.exe }]
@@ -58,8 +57,8 @@ components:
 //     follows it when the parent moves, while setting it on the command
 //     line moves its components alone;
 //   - RemoveFile rows whose DirProperty is a property, not a directory,
-//     remove files in the folder that property holds, at install and at
-//     uninstall, and do nothing when the property is empty.
+//     remove files in the folder that property holds at uninstall, and do
+//     nothing when the property is empty.
 func TestMsiexecFolderCases(t *testing.T) { //nolint:paralleltest // msiexec runs one installation at a time
 	if testing.Short() {
 		t.Skip("installing needs msiexec time and elevation")
@@ -165,10 +164,8 @@ func TestMsiexecFolderCases(t *testing.T) { //nolint:paralleltest // msiexec run
 		t.Fatalf("reg add: %v\n%s", err, out)
 	}
 
-	writeFile(t, filepath.Join(data, "msibuilder-foldercases-install.tmp"))
 	writeFile(t, filepath.Join(data, "msibuilder-foldercases-keep.txt"))
 	install("property")
-	gone("install", filepath.Join(data, "msibuilder-foldercases-install.tmp"))
 
 	writeFile(t, filepath.Join(data, "msibuilder-foldercases-a.tmp"))
 	writeFile(t, filepath.Join(data, "msibuilder-foldercases-b.tmp"))
@@ -187,19 +184,18 @@ func TestMsiexecFolderCases(t *testing.T) { //nolint:paralleltest // msiexec run
 		t.Fatal(err)
 	}
 
-	// The install-mode row's name and a name the uninstall pattern
-	// matches, in the current folders of both msiexec processes.
+	// A name the uninstall pattern matches, in the current folders of
+	// both msiexec processes.
 	folders := []string{
 		filepath.Join(os.Getenv("SystemRoot"), "System32"),
 		filepath.Join(os.Getenv("SystemRoot"), "SysWOW64"),
 		cwd,
 		volume,
 	}
-	decoys := make([]string, 0, 2*len(folders))
+	decoys := make([]string, 0, len(folders))
 
 	for _, folder := range folders {
-		decoys = append(decoys, filepath.Join(folder, "msibuilder-foldercases-install.tmp"),
-			filepath.Join(folder, "msibuilder-foldercases-decoy.tmp"))
+		decoys = append(decoys, filepath.Join(folder, "msibuilder-foldercases-decoy.tmp"))
 	}
 
 	t.Cleanup(func() {

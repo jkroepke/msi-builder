@@ -1703,6 +1703,12 @@ func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath strin
 		v.errorf(field, "%q is not a property name", name)
 	case known.dirs[name] != nil || IsStandardFolder(name) || name == targetDir:
 		v.errorf(field, "%s is a directory; use directory: %s", name, name)
+	case entry.On != RemoveOnUninstall && cfg.Package.Scope != ScopePerUser:
+		// A standard user may start a repair of a per-machine product,
+		// which runs elevated and reinstalls the component, with the
+		// property on the command line; nothing checks the folder.
+		v.errorf(entryPath+".on", "on: %s with a property runs on every repair, which a standard user can start elevated with "+
+			"%s set to any folder; remove these files on uninstall, or name a directory of the package", entry.On, name)
 	case !setProperties(cfg)[name]:
 		v.warnf(field, "nothing in the package sets %s, so only the command line can name the folder, and the row "+
 			"does nothing without it; use a property with a search that finds the folder again at uninstall", name)

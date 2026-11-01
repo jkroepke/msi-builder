@@ -879,8 +879,11 @@ components:
 
 A `RemoveFile` whose `Property` names a property that is not a
 directory, typically one a `RegistrySearch` fills, keeps it as
-`property: LOGDIR` in place of `directory`. An empty property removes
-nothing (tested on Windows).
+`property: LOGDIR` in place of `directory`, on uninstall only: outside a
+`perUser` package msi-builder refuses `on: install` and `both` there,
+because a standard user can start an elevated repair with the property set
+to any folder, and `convert` leaves that half out with a note. Nothing
+checks the folder, unlike `removeFolders`.
 
 `purge` deletes the component's folder on uninstall, but not when an
 upgrade replaces the product. The folder must be outside the install

@@ -1098,6 +1098,60 @@ func TestConvertFolderAliasesKept(t *testing.T) {
 	}
 }
 
+// TestConvertFoldedFolderNotes checks the notes around folded directories:
+// a SetDirectory that another action is sequenced after keeps its row (and
+// its todo note), a RemoveFolderEx or RemoveFile on a folder that became a
+// standard folder gets a note, and the install half of a RemoveFile on a
+// property is left out of a per-machine package.
+func TestConvertFoldedFolderNotes(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="VOL1" Value="[WindowsVolume]" />
+    <SetProperty Id="AFTERVOL" Value="1" After="SetVOL1" Sequence="execute" />
+    <SetDirectory Id="VOL2" Value="[WindowsVolume]" />
+    <Directory Id="VOL1"><Directory Id="ONE" Name="one"><Component Id="One"><File Source="hello.exe" /></Component></Directory></Directory>
+    <Directory Id="VOL2">
+      <Component Id="Wipe"><CreateFolder /><util:RemoveFolderEx On="uninstall" Property="VOL2" /></Component>
+    </Directory>
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="PFALIAS">
+        <Component Id="Logs"><CreateFolder /><RemoveFile Id="L" Name="*.log" On="uninstall" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATA" Name="Hello">
+        <Component Id="Data"><CreateFolder />
+          <RemoveFile Id="I" Property="CFGDIR" Name="*.tmp" On="install" />
+          <RemoveFile Id="B" Property="CFGDIR" Name="*.bak" On="both" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="CFGDIR"><RegistrySearch Root="HKLM" Key="SOFTWARE\Example" Name="Cfg" Type="directory" /></Property>
+    <Feature Id="Main"><ComponentRef Id="One" /><ComponentRef Id="Wipe" /><ComponentRef Id="Logs" /><ComponentRef Id="Data" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"the Directory VOL1 has no Name", "RemoveFolderEx on VOL2 was not converted", "RemoveFile on PFALIAS",
+		"the install half of RemoveFile On=\"install\"", "the install half of RemoveFile On=\"both\"", "name: '*.bak'"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "'*.tmp'") {
+		t.Errorf("the install-only row on a property was kept:\n%s", out)
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {

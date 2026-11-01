@@ -869,13 +869,20 @@ them do not survive an upgrade. Use `purge` for a data folder that must.
 `property` replaces `directory` with a property that holds the folder's
 full path when RemoveFiles runs (the `RemoveFile.DirProperty` column takes
 any property), typically one a `search` fills from a path the first install
-wrote to the registry. FILE-16 removed the matching files of such a folder at
-install and at uninstall, and an empty property removed nothing, not in the
-current folder of either msiexec process either. The builder warns when
-nothing in the package sets the property; a directory ID is an error there,
-use `directory`. As with `removeFolders`, the property keeps the security its own settings
-give it (`secure`); a public one set on the command line points the rows at
-any folder, so prefer a private property that only a search sets.
+wrote to the registry. FILE-16 is to check that the rows remove the matching
+files of such a folder at uninstall, and that an empty property removes
+nothing, also not in the current folder of either msiexec process. The
+builder warns when nothing in the package sets the property; a directory ID
+is an error there, use `directory`. Unlike `removeFolders`, nothing checks
+the folder: the engine deletes what matches wherever the property points,
+and a property with a `search` is public and secure, so the command line can
+set it whenever the search finds nothing. For that reason `on: install` and
+`both` are errors with a property outside a `perUser` package: a standard
+user can start a repair of a per-machine product, which runs elevated and
+reinstalls the component (as SEC-03 found for grants). An uninstall-time
+row runs only when the component is removed; whether a standard user can
+start that elevated, by removing a feature in a maintenance install, was
+not tested.
 The builder already removes the folders of shortcuts and of components in
 the user profile on uninstall; a folder entry for one of them warns, since
 it only adds a second row.
