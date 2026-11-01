@@ -93,8 +93,9 @@ func contextSetter(action *elem) string {
 // choosesContext returns the line of the first sign that a package which
 // is not dual chooses its context itself: a component conditioned on the
 // context, or an action that sets ALLUSERS or MSIINSTALLPERUSER; 0 when
-// there is none.
-func (c *converter) choosesContext() int {
+// there is none. With machineOK, a setter that always sets ALLUSERS=1 does
+// not count: in a WiX v3 package without a scope it states per machine.
+func (c *converter) choosesContext(machineOK bool) int {
 	line := 0
 
 	var walk func(*elem)
@@ -107,7 +108,7 @@ func (c *converter) choosesContext() int {
 		switch {
 		case elm.is("Component") && contextCondition(c.componentConditionText(elm)) != "":
 			line = elm.line
-		case contextSetter(elm) != "" && !c.machineSetter(elm):
+		case contextSetter(elm) != "" && (!machineOK || !c.machineSetter(elm)):
 			line = elm.line
 		}
 
@@ -132,7 +133,7 @@ func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) stri
 		return scope
 	}
 
-	line := c.choosesContext()
+	line := c.choosesContext(scope == "")
 	if line == 0 {
 		return scope
 	}
@@ -198,39 +199,42 @@ func (c *converter) setterValue(action *elem) string {
 	return c.value(action, "Value")
 }
 
-// conditionedSetter reports whether a context setter runs only under a
-// condition: its own (SetProperty) or one of a sequence entry that
-// schedules it.
-func (c *converter) conditionedSetter(action *elem) bool {
+// alwaysRuns reports whether a context setter runs in every install: a
+// SetProperty without a condition outside the UI sequence, or a
+// CustomAction that InstallExecuteSequence schedules without a condition.
+// A setter that only a dialog button, the UI sequence or a condition runs
+// lets the install choose the context.
+func (c *converter) alwaysRuns(action *elem) bool {
 	if action.is("SetProperty") {
-		return c.condition(action) != ""
+		return c.condition(action) == "" && action.attr("Sequence") != "ui"
 	}
 
-	conditioned := false
-	id := action.attr("Id")
+	runs := false
+	actionID := action.attr("Id")
 
-	var walk func(*elem)
+	var walk func(*elem, bool)
 
-	walk = func(elm *elem) {
-		if elm.is("Custom") && elm.attr("Action") == id && c.condition(elm) != "" {
-			conditioned = true
+	walk = func(elm *elem, execute bool) {
+		execute = execute || elm.is("InstallExecuteSequence")
+		if execute && elm.is("Custom") && elm.attr("Action") == actionID && c.condition(elm) == "" {
+			runs = true
 		}
 
 		for _, kid := range elm.kids {
-			walk(kid)
+			walk(kid, execute)
 		}
 	}
 
-	walk(c.doc.root)
+	walk(c.doc.root, false)
 
-	return conditioned
+	return runs
 }
 
 // machineSetter reports whether an action always sets ALLUSERS=1, as WiX v3
 // packages without InstallScope do to install per machine: that does not
 // choose a context, it states the per-machine one.
 func (c *converter) machineSetter(action *elem) bool {
-	return contextSetter(action) == propAllUsers && c.setterValue(action) == "1" && !c.conditionedSetter(action)
+	return contextSetter(action) == propAllUsers && c.setterValue(action) == "1" && c.alwaysRuns(action)
 }
 
 // skipMachineSetter leaves out an unconditioned ALLUSERS=1 setter of a

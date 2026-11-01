@@ -297,9 +297,13 @@ upgrade:
   package that already has `ALLUSERS=2`, and moves actions placed after a
   dropped setter to its place. A per-machine package keeps its scope and
   its conditions, since `ALLUSERS=1` always holds there. So does a WiX v3
-  package without `InstallScope` whose action always sets `ALLUSERS=1`,
-  even when its components test the context; `convert` drops that setter
-  with a note. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line
+  package without `InstallScope` whose action always sets `ALLUSERS=1`
+  (a `SetProperty` without a condition outside the UI sequence, or an
+  action `InstallExecuteSequence` schedules without one), even when its
+  components test the context; `convert` drops that setter with a note.
+  A setter that only a dialog button, the UI sequence or a condition runs
+  lets the install choose the context, as does any setter in a per-user
+  package. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line
   still pick the context (INST-07).
 - WiX sets `WIX_UPGRADE_DETECTED` during an upgrade, msi-builder sets
   `OLDERVERSIONBEINGUPGRADED`. If your conditions use the WiX name, keep it
