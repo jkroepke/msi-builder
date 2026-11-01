@@ -213,8 +213,7 @@ func TestUnmarshalKeylessBinary(t *testing.T) {
 	}
 }
 
-// A binary column among the leading keys cannot name its own stream (nor
-// another binary column's, which the same check skips). A key flag after a non-key column is not a
+// A binary column among the leading keys cannot name its own stream. A key flag after a non-key column is not a
 // key, so the leading key names the stream as usual.
 func TestUnmarshalBinaryKeyCells(t *testing.T) {
 	t.Parallel()
