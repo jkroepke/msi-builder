@@ -96,6 +96,18 @@ customActions:
     schedule:
       - { sequence: execute, after: InstallFiles }
 
+  # A line longer than the 64 KiB line buffer is logged in pieces. The
+  # first piece would end inside the two bytes of ä; the DLL keeps the
+  # incomplete character for the next piece, which decodes as UTF-8 then.
+  - id: ProbeLongUtf8
+    run:
+      command: '"[System64Folder]WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "[\[]Console]::OutputEncoding = New-Object Text.UTF8Encoding $false; [\[]Console]::Out.Write((''a'' * 65535) + \"äsplit-tail`n\")"'
+    execute: deferred
+    impersonate: false
+    return: check
+    schedule:
+      - { sequence: execute, after: InstallFiles, condition: NOT REMOVE~="ALL" }
+
   # A process the command leaves behind with the output open: the DLL
   # reads on for five seconds after the command exited, then ends it with
   # the job and goes on with the command's exit code.

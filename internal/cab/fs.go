@@ -44,7 +44,8 @@ func Open(raw []byte) (*FS, error) {
 }
 
 // NewFS wraps already extracted files. Names are cleaned; two entries that
-// clean to the same path are an error.
+// clean to the same path are an error, and so is a file whose path is the
+// directory of another ("a" and "a/b"), whatever their order.
 func NewFS(files []File) (*FS, error) {
 	fsys := &FS{files: make(map[string]*File, len(files)), dirs: make(map[string][]string)}
 	fsys.dirs["."] = nil
@@ -59,6 +60,10 @@ func NewFS(files []File) (*FS, error) {
 
 		if _, dup := fsys.files[name]; dup {
 			return nil, fmt.Errorf("cab: %q appears twice", name)
+		}
+
+		if err := fsys.checkCollision(name); err != nil {
+			return nil, err
 		}
 
 		fsys.files[name] = file
@@ -149,6 +154,22 @@ func (f *FS) Stat(name string) (fs.FileInfo, error) {
 	}
 
 	return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+}
+
+// checkCollision reports a file at name that would clash with a directory:
+// one that other files already lie in, or a file among its parents.
+func (f *FS) checkCollision(name string) error {
+	if _, dir := f.dirs[name]; dir {
+		return fmt.Errorf("cab: %q is both a file and a directory", name)
+	}
+
+	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+		if _, file := f.files[parent]; file {
+			return fmt.Errorf("cab: %q is both a file and a directory", parent)
+		}
+	}
+
+	return nil
 }
 
 // link records name under its parent directories.

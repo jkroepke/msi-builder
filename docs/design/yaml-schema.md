@@ -1182,14 +1182,14 @@ windows (on its hidden ones when it has no visible window, as a program in
 the notification area), and the install waits up to `timeout` for those
 to exit, per file: two files with `30s` can wait a minute. After `StopServices` and before `RemoveFiles`, as LocalSystem in a
 per-machine install, the copies still running from that path are ended
-with exit code 1602, in every session. A process matches by its full path,
-compared without case, so a copy of the program in another folder (a
-portable copy, a Kubernetes HostProcess container) keeps running; WiX's
+with exit code 1602, in every session. A process matches when its image
+is the installed file: by the path, compared without case, or else by the
+file's identity (volume and file ID), so a copy started through the 8.3
+path or a junction to the install folder is closed too (CLOSE-02), and so
+is a hard link to the file, while a copy of the program in another folder
+(a portable copy, a Kubernetes HostProcess container) keeps running; WiX's
 `util:CloseApplication` matches the filename only (reported), which the
 2026-10-25 evaluation of the `windows_exporter` example found a problem.
-An install folder given as an 8.3 path, a `subst` drive or a junction does
-not match the image path the process reports, so nothing is closed then
-(fails safe; not tested).
 
 What gets ended, and when:
 
