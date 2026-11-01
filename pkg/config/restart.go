@@ -9,7 +9,7 @@ import (
 // BuilderRestartResources property, formatted by the custom action.
 const maxRestartValue = 1024
 
-// restartFile and restartService are restartResources keys.
+// restartFile, restartProgram and restartService are restartResources keys.
 const (
 	restartFile    = "file"
 	restartProgram = "program"
@@ -51,8 +51,8 @@ func (v *validator) componentRestartResources(cfg *Config, compPath string, comp
 	switch {
 	case prop == nil:
 	case strings.EqualFold(prop.Value, "Disable"):
-		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is Disable, so the installer starts no Restart "+
-			"Manager session and nothing is registered")
+		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is Disable, so the installer is expected to start no "+
+			"Restart Manager session and nothing is registered")
 	case strings.EqualFold(prop.Value, "DisableShutdown"):
 		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is DisableShutdown, so Restart Manager shuts "+
 			"nothing down")

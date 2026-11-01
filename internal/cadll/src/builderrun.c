@@ -3850,10 +3850,10 @@ __declspec(dllexport) UINT WINAPI BuilderClose(MSIHANDLE install)
 // service by its name, and a program as every running process whose image
 // is that file (matched like close: by path, else by volume and file ID),
 // identified by its process ID and start time, at most CLOSE_MAX of them
-// (more are logged). Restart Manager is then expected to list what holds
+// (a full pass is logged). Restart Manager is then expected to list what holds
 // them in the engine's files-in-use handling, which shuts them down in a
-// silent install (CLOSE-04). Without a session (MSIRESTARTMANAGERCONTROL
-// is Disable, or the engine started none) the action only logs. It never
+// silent install (CLOSE-04). Without a session key (expected with
+// MSIRESTARTMANAGERCONTROL Disable, unverified) the action only logs. It never
 // fails the install. Log lines read `BuilderRestart: ...`.
 
 static const WCHAR tmplRestart[] = u"BuilderRestart: [1]";
@@ -3867,7 +3867,7 @@ static const WCHAR msgRegisterFailed[] = u"cannot register";
 static const WCHAR msgRestartFile[] = u"file ";
 static const WCHAR msgRestartService[] = u"service ";
 static const WCHAR msgRestartProgram[] = u"program ";
-static const WCHAR msgRestartMore[] = u"has more running copies than one pass registers; registered the first ones";
+static const WCHAR msgRestartMore[] = u"registered the first 64 running copies; there may be more";
 
 // FILETIME and RM_UNIQUE_PROCESS as restartmanager.h lays them out: the
 // process ID and the start time, 12 bytes on every platform.

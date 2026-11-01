@@ -91,7 +91,7 @@ components:
   - id: manual.pdf
     files:
       - source: docs/manual.pdf
-  # TODO(line 102): <util:RestartResource> ProcessName hello-tray.exe matches every program of that name; restartResources program takes its full path so that copies elsewhere are left alone; Restart Manager already shuts down programs that run from a file of the package
+  # TODO(line 102): <util:RestartResource> ProcessName hello-tray.exe matches every program of that name; restartResources program takes its full path so that copies elsewhere are left alone; Restart Manager is expected to shut down programs that run from a file the installation replaces or removes
   # TODO(line 129): <util:XmlFile> is not supported: ship the complete file, or edit it with a run action (no rollback)
   - id: HelloExe
     guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a10

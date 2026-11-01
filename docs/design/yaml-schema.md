@@ -1293,7 +1293,7 @@ and what is shut down is what CLOSE-04 checks. A service of a per-user
 package is an error, an entry listed twice in one component too, a `file`
 that ends in a backslash (a folder, which Restart Manager does not take)
 gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` (nothing is
-registered) or `DisableShutdown` (nothing is shut down) gives a warning
+expected to be registered) or `DisableShutdown` (nothing is shut down) gives a warning
 too.
 
 **Component shortcuts.** A component can list `shortcuts` of its own, for

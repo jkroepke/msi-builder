@@ -27,7 +27,7 @@ func (cc *compConv) restartResource(elm *elem) {
 	case elm.has("ProcessName"):
 		conv.todof(cc.out, "", elm.line, "<util:RestartResource> ProcessName %s matches every program of that name; "+
 			"restartResources program takes its full path so that copies elsewhere are left alone; Restart Manager "+
-			"already shuts down programs that run from a file of the package", conv.value(elm, "ProcessName"))
+			"is expected to shut down programs that run from a file the installation replaces or removes", conv.value(elm, "ProcessName"))
 
 		return
 	default:
