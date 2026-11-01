@@ -195,10 +195,10 @@ var scopeFolders = map[string]struct{ user, machine, machine32 string }{ //nolin
 // the context the package opened in and passes them to the server, which
 // takes a set directory property as it is, so a switch would install per
 // machine into the user's profile or per user into Program Files
-// (INST-02). Next sets each such folder to its path in the chosen context
-// unless it holds another path, typed on the command line or remembered;
-// CostFinalize, which runs after the page, then resolves the folders below
-// it.
+// (INST-02). Next records each such folder's path in the chosen context,
+// and an action right before CostFinalize sets the folder to it unless it
+// holds another path, typed on the command line, remembered or set by an
+// action of the package; CostFinalize then resolves the folders below it.
 func (b *build) scopeFolders(next *uiControl) {
 	for _, dir := range b.scopeDirs() {
 		top, rel := b.dirPath(dir)
@@ -278,7 +278,8 @@ func (b *build) scopeDirs() []*dirInfo {
 }
 
 // publicAbove reports whether a public directory lies between dir and its
-// standard folder: CostFinalize resolves dir below the one Next sets.
+// standard folder: CostFinalize resolves dir below the one the scope page
+// sets.
 func (b *build) publicAbove(dir *dirInfo) bool {
 	for parent := b.dirs[dir.parent]; parent != nil && !parent.standard; parent = b.dirs[parent.parent] {
 		if config.IsPublicProperty(parent.id) {
@@ -318,7 +319,7 @@ func (b *build) dirPath(dir *dirInfo) (string, string) {
 
 // uiAction sets property to value in the UI sequence after AppSearch, which
 // finds the remembered folders, and before the scope page and costing, so
-// that CostFinalize resolves the folders Next sets. The actions run in the
+// that the page's folder paths are ready for Next. The actions run in the
 // order they are added, after the other actions placed after AppSearch. A
 // name too long for the CustomAction table gets a generated one.
 func (b *build) uiAction(name, property, value, cond string) {
