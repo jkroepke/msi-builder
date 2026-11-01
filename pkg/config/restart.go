@@ -12,6 +12,7 @@ const maxRestartValue = 1024
 // restartFile and restartService are restartResources keys.
 const (
 	restartFile    = "file"
+	restartProgram = "program"
 	restartService = "service"
 )
 
@@ -45,9 +46,16 @@ func (v *validator) componentRestartResources(cfg *Config, compPath string, comp
 		return
 	}
 
-	if prop := cfg.Properties["MSIRESTARTMANAGERCONTROL"]; prop != nil && strings.EqualFold(prop.Value, "Disable") {
+	prop := cfg.Properties["MSIRESTARTMANAGERCONTROL"]
+
+	switch {
+	case prop == nil:
+	case strings.EqualFold(prop.Value, "Disable"):
 		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is Disable, so the installer starts no Restart "+
 			"Manager session and nothing is registered")
+	case strings.EqualFold(prop.Value, "DisableShutdown"):
+		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is DisableShutdown, so Restart Manager shuts "+
+			"nothing down")
 	}
 }
 
@@ -56,7 +64,7 @@ func (v *validator) componentRestartResources(cfg *Config, compPath string, comp
 func (r *RestartResource) kind() (string, string, bool) {
 	key, value, count := "", "", 0
 
-	for _, kv := range [][2]string{{restartFile, r.File}, {"program", r.Program}, {restartService, r.Service}} {
+	for _, kv := range [][2]string{{restartFile, r.File}, {restartProgram, r.Program}, {restartService, r.Service}} {
 		if kv[1] != "" {
 			key, value = kv[0], kv[1]
 			count++
@@ -72,9 +80,9 @@ func (v *validator) restartValue(field, key, value string, perUser bool) {
 	case strings.ContainsAny(value, "\r\n\x1f"):
 		v.errorf(field, "must not contain a line break or U+001F")
 	case len(value) > maxRestartValue:
-		v.errorf(field, "is %d characters, at most %d", len(value), maxRestartValue)
+		v.errorf(field, "is %d bytes, at most %d", len(value), maxRestartValue)
 	case key == restartService && len(value) > maxServiceName:
-		v.errorf(field, "is %d characters, a service name holds %d", len(value), maxServiceName)
+		v.errorf(field, "is %d bytes, a service name holds %d", len(value), maxServiceName)
 	case key == restartService && perUser:
 		v.errorf(field, "%s cannot shut down services, which needs elevation", v.perUserPackage())
 	case key == restartFile && (strings.HasSuffix(value, `\`) || strings.HasSuffix(value, "/")):

@@ -3581,8 +3581,9 @@ static DWORD findRunning(MSIHANDLE install, const WCHAR *tmpl, const WCHAR *path
         }
         HANDLE query = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
         if (!query) {
-            // Another user's program, from the immediate action, or one
-            // that exited in between: the deferred action ends the first.
+            // Another user's program, from an immediate action, or one
+            // that exited in between: close's deferred action ends the
+            // first, restartResources leaves it unregistered.
             // Only a process with the file's name is worth a line.
             if (wieqi(entry.szExeFile, name)) {
                 logft(install, tmpl, msgCannotOpen, entry.szExeFile, GetLastError());

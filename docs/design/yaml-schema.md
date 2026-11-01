@@ -1232,7 +1232,8 @@ before the installer looks for files in use; what still holds a package
 file then goes to Restart Manager, which in a silent install is expected
 to shut it down, also a program with `terminate: false` and an unrelated
 process that only has the file open (an accepted risk, see "Restart
-Manager" below; CLOSE-03 checks the first two). Not
+Manager" below; CLOSE-03 records what happens to the program with
+`terminate: false`). Not
 adopted from WiX: closing a program by name wherever it runs, end-session
 messages (`WM_QUERYENDSESSION`), registering programs for a restart after
 the install, and a reboot prompt for programs that refuse to exit.
@@ -1282,15 +1283,18 @@ repaired or removed, by an immediate action on the embedded DLL before
 `InstallValidate` (after `close`'s first action), which joins the
 installer's session (specification section 17.11). `program` matches the
 running processes by their image path like `close`, so a copy of the
-program in another folder is not registered. Restart Manager is expected
+program in another folder is not registered; the action runs as the
+installing user, so it registers only processes that user may open, and
+another user's copy or a service process is only logged. Restart Manager is expected
 to shut down what it finds the same way as for the package's own files,
 and to restart only programs that registered for a restart (it restarted
 none in the close-apps evaluation); that the action can join the session
 and what is shut down is what CLOSE-04 checks. A service of a per-user
 package is an error, an entry listed twice in one component too, a `file`
 that ends in a backslash (a folder, which Restart Manager does not take)
-gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` makes the entries
-do nothing (a warning).
+gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` (nothing is
+registered) or `DisableShutdown` (nothing is shut down) gives a warning
+too.
 
 **Component shortcuts.** A component can list `shortcuts` of its own, for
 shortcuts that do not point at a file listed with them. Each names exactly

@@ -353,10 +353,11 @@ This also happens on a repair that does not replace the file. A copy of `hello.e
 the program; Windows Installer then treats the file as in use.
 
 Windows Installer also has a helper of its own, Restart Manager, and
-msi-builder leaves it on. In a silent install it shuts down every process
-that holds a file being replaced or removed, without asking. That includes
-a program with `terminate: false`, and also an unrelated program that only
-has the file open, such as an editor or a log viewer. msi-builder accepts
+msi-builder leaves it on. In a silent install it shuts down the processes
+that hold a file being replaced or removed, without asking. In a test on
+2026-10-25 that included an unrelated program that only had the file
+open, and it is expected to include a program with `terminate: false`
+too. msi-builder accepts
 that risk, because it lets an upgrade replace files without a reboot. A
 package that cannot accept it turns Restart Manager off:
 

@@ -101,6 +101,9 @@ func TestMsiexecRestartResources(t *testing.T) {
 		disable bool
 	}{
 		{"install", append([]string{"/i", path}, props...), false},
+		// Whether the command line can turn Restart Manager off is open
+		// (spec 17.11): a failure of this step answers it, it is not a
+		// regression of the action.
 		{"repair-disabled", append([]string{"/fomus", path, "MSIRESTARTMANAGERCONTROL=Disable"}, props...), true},
 	} {
 		holder := startHelper(t, holderExe, "hold", filepath.Join(dir, step.name+".holder"), held)
@@ -244,8 +247,13 @@ func TestMsiexecClosesAppsWithRestartManager(t *testing.T) {
 		log := filepath.Join(dir, step.name+".log")
 		code := msiexecCode(t, log, step.args...)
 		t.Logf("%s: msiexec exit code %d\n%s", step.name, code, restartLines(log))
+		// terminate: false only keeps close from ending it; Restart
+		// Manager may still shut it down. Record what happened.
+		t.Logf("%s: keep.exe (terminate: false) exit code %d (-1: still running)", step.name, keep.exited(5*time.Second))
 
-		if code != 0 {
+		// 3010: a program still held a file (keep.exe, if Restart Manager
+		// could not shut it down) and the removal waits for a reboot.
+		if code != 0 && code != 3010 {
 			t.Fatalf("%s failed with %d\n%s", step.name, code, readLog(log))
 		}
 
@@ -260,10 +268,6 @@ func TestMsiexecClosesAppsWithRestartManager(t *testing.T) {
 		if got := con.exited(15 * time.Second); got == -1 {
 			t.Errorf("%s: cli.exe is still running", step.name)
 		}
-
-		// terminate: false only keeps close from ending it; Restart
-		// Manager may still shut it down. Record what happened.
-		t.Logf("%s: keep.exe (terminate: false) exit code %d (-1: still running)", step.name, keep.exited(5*time.Second))
 
 		if got := elsewhere.exited(time.Second); got != -1 {
 			t.Errorf("%s: the copy of cli.exe in another folder exited with %d", step.name, got)
