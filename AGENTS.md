@@ -61,8 +61,8 @@ versioning after 1.0.
   A dual scope's page (`ui_scope.go`) is shown on its own before the
   welcome page, and the UI sequence's FindRelatedProducts and
   LaunchConditions run after it (`scopeFirst`, `launchConditionsAction`):
-  in a full-UI install the server skips FindRelatedProducts ("already done
-  on client side"), so the client's must see the chosen context (UI-11).
+  in a full-UI install the server skips FindRelatedProducts because the
+  client already ran it, so the client's must see the chosen context (UI-11).
   Its Next sets `ALLUSERS` to 1 or nothing, never 2, so conditions after it
   read the context as the server does.
 - [`internal/msidb`](internal/msidb): the database: column types, typed rows,
