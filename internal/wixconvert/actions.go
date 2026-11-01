@@ -50,7 +50,7 @@ var removeOldAfter = map[string]bool{ //nolint:gochecknoglobals // lookup table
 // showNote notes a dialog that a sequence shows. A scope dialog's todo
 // covers it: the scope page takes its place.
 func (c *converter) showNote(entry *elem) {
-	if !c.isScopeDialog(entry.attr("Dialog")) {
+	if !c.isScopeDialog(entry.attr("Dialog")) || c.scopePref() == nil {
 		c.todof(nil, "", entry.line, "<Show Dialog=%q> schedules a dialog; use the ui keys", entry.attr("Dialog"))
 	}
 }

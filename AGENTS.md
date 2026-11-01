@@ -158,12 +158,15 @@ versioning after 1.0.
   per-machine packages per-user in review, so they stay perMachine.
   A hand-built dialog whose radio button group property decides what its
   Next publishes to `ALLUSERS`/`MSIINSTALLPERUSER` is a scope dialog
-  (`scopepage.go`): in a dual package with the wizard, the conditions of
-  the UI actions that set that property become `ui.scopePage` (with its
-  default when the page would start elsewhere), and those setters and the
-  property are left out (`scopeSources` moves placements on them) unless
-  something else names the property (`readsElsewhere`); setters that
-  choose both options keep a todo.
+  (`scopepage.go`): in a dual package with the wizard, when only the dialog
+  reads that property (`keepsProperty`: no search, no other reader, no
+  setter condition naming it), the conditions of the UI actions that set
+  it before the dialog become `ui.scopePage` (with its default when the
+  page would start elsewhere) and those setters and the property are left
+  out (`scopeSources` moves placements on them); otherwise they stay and
+  `ui.scopePage` tests the property (`mapProperty`). `beforeDialog` follows
+  a setter's anchors to the dialog or `AppSearch`, since the page reads
+  its preselection right after `AppSearch`; any other place keeps a todo.
   A ProgId without `Extension` children takes its verbs and `openWithOnly`
   extensions from the `RegistryValue`s of its component that write
   `<ProgId>\shell\<verb>\command` (running `[#file]`) and

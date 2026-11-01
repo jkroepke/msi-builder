@@ -67,7 +67,7 @@ func TestConvertScopeDialogSetter(t *testing.T) {
 		"  scopePage:\n",
 		"    perMachine: ALLUSERS = 1 OR PREVMACHINE\n",
 		"the hand-built dialog ScopeDlg picks the install context with SCOPE",
-		"Convert left out SCOPE and PreferMachine.",
+		"Convert left out SCOPE and PreferMachine, so msiexec SCOPE=... no longer preselects an option.",
 		"setProperty: {name: GREETING, value: hi}",
 		"{sequence: ui, after: AppSearch}",
 	)
@@ -82,13 +82,13 @@ func TestConvertScopeDialogDefault(t *testing.T) {
 
 	yaml := convertValid(t, scopeDialogSource("perUserOrMachine", "machine", ""))
 
-	wantAll(t, yaml, "    perMachine: \"1\"\n", "Convert left out SCOPE.")
+	wantAll(t, yaml, "    perMachine: \"1\"\n", "Convert left out SCOPE, so msiexec")
 	wantNone(t, yaml, "perUser:", "  SCOPE:")
 
 	// The same default in a perMachineOrUser package is the page's own.
 	yaml = convertValid(t, scopeDialogSource("perMachineOrUser", "machine", ""))
-	wantNone(t, yaml, "scopePage:", "TODO: the scope dialog")
-	wantAll(t, yaml, "  SCOPE: machine\n")
+	wantNone(t, yaml, "scopePage:", "TODO: the scope dialog", "  SCOPE:")
+	wantAll(t, yaml, "Convert left out SCOPE: only the dialog ScopeDlg read it")
 }
 
 // TestConvertScopeDialogPreferUser checks a setter that preselects the
@@ -108,39 +108,82 @@ func TestConvertScopeDialogPreferUser(t *testing.T) {
 	wantAll(t, yaml,
 		"    perMachine: NOT ((NOT PREVMACHINE) OR (MSIINSTALLPERUSER = 1))\n",
 		"    perUser: (NOT PREVMACHINE) OR (MSIINSTALLPERUSER = 1)\n",
-		"Convert left out SCOPE and PreferUser, PreferUserAgain.",
+		"Convert left out SCOPE and PreferUser, PreferUserAgain, so msiexec",
 	)
 	wantNone(t, yaml, "id: PreferUser")
 }
 
-// TestConvertScopeDialogUnmapped checks setters that choose both contexts:
-// they stay, with a todo that ui.scopePage needs conditions.
-func TestConvertScopeDialogUnmapped(t *testing.T) {
+// TestConvertScopeDialogKept checks the cases where the dialog's property
+// stays: setters that choose both options, a launch condition that reads
+// it, a setter whose condition reads it, a search that sets it, and
+// conditions too long for ui.scopePage. The page then tests the property
+// itself, which its default, search and setters fill in before the page.
+func TestConvertScopeDialogKept(t *testing.T) {
 	t.Parallel()
 
-	yaml := convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
-    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="PREVMACHINE" />
-    <SetProperty Id="SCOPE" Action="PreferUser" Value="user" After="PreferMachine" Sequence="ui" Condition="MSIINSTALLPERUSER = 1" />`))
+	long := "PREVMACHINE AND " + strings.Repeat("A", 230) + " = 1"
 
-	wantAll(t, yaml,
-		`the scope dialog ScopeDlg preselects what SCOPE says, which convert could not map because actions set SCOPE to both "machine" and "user"`,
-		"id: PreferMachine", "id: PreferUser", "  SCOPE: user\n",
-	)
-	wantNone(t, yaml, "scopePage:")
+	for name, rest := range map[string]string{
+		"both": `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="PREVMACHINE" />
+    <SetProperty Id="SCOPE" Action="PreferUser" Value="user" After="PreferMachine" Sequence="ui" Condition="MSIINSTALLPERUSER = 1" />`,
+		"read": `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="PREVMACHINE" />
+    <Launch Condition="Installed OR SCOPE = &quot;machine&quot; OR NOT PREVMACHINE" Message="Installed for everyone already." />`,
+		"guard": `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="SCOPE = &quot;user&quot; AND PREVMACHINE" />`,
+		"search": `
+    <Property Id="LASTSCOPE"><RegistrySearch Id="Last" Root="HKCU" Key="Software\Example\Hello" Name="Scope" Type="raw" /></Property>
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="PREVMACHINE" />
+    <SetProperty Id="SCOPE" Action="PreferLast" Value="[LASTSCOPE]" After="PreferMachine" Sequence="ui" Condition="LASTSCOPE" />`,
+		"long": `
+    <SetProperty Id="SCOPE" Action="PreferUser" Value="user" After="AppSearch" Sequence="ui" Condition="` + long + `" />`,
+	} {
+		value := "user"
+		if name == "long" {
+			value = "machine"
+		}
+
+		yaml := convertValid(t, scopeDialogSource("perUserOrMachine", value, rest))
+
+		wantAll(t, yaml,
+			"    perMachine: SCOPE = \"machine\"\n", "    perUser: SCOPE = \"user\"\n",
+			"SCOPE and the actions that set it stay; they run before the scope page.",
+			"  SCOPE: "+value+"\n",
+		)
+		wantNone(t, yaml, "Convert left out")
+	}
 }
 
-// TestConvertScopeDialogPropertyRead checks a dialog property that a
-// launch condition reads as well: ui.scopePage takes the setter's
-// condition, and the setter and the property stay for that reader.
-func TestConvertScopeDialogPropertyRead(t *testing.T) {
+// TestConvertScopeDialogSearchedProperty checks a dialog property with its
+// own search: the page tests the property, which keeps its search.
+func TestConvertScopeDialogSearchedProperty(t *testing.T) {
+	t.Parallel()
+
+	src := strings.Replace(scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="PREVMACHINE" />`),
+		`<Property Id="SCOPE" Value="user" Secure="yes" />`,
+		`<Property Id="SCOPE" Value="user" Secure="yes"><RegistrySearch Id="S" Root="HKCU" Key="Software\Example\Hello" Name="Scope" Type="raw" /></Property>`, 1)
+
+	yaml := convertValid(t, src)
+	wantAll(t, yaml, "    perMachine: SCOPE = \"machine\"\n", "id: PreferMachine", "name: Scope\n")
+}
+
+// TestConvertScopeDialogSetterPlace checks setters by their place: one
+// after the dialog does not change what it preselects, and one whose place
+// convert cannot follow to the dialog or AppSearch leaves a todo.
+func TestConvertScopeDialogSetterPlace(t *testing.T) {
 	t.Parallel()
 
 	yaml := convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
-    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="AppSearch" Sequence="ui" Condition="PREVMACHINE" />
-    <Launch Condition="Installed OR SCOPE = &quot;machine&quot; OR NOT PREVMACHINE" Message="Installed for everyone already." />`))
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="ScopeDlg" Sequence="ui" Condition="PREVMACHINE" />`))
+	wantNone(t, yaml, "perMachine: PREVMACHINE", "TODO: the scope dialog", "id: PreferMachine")
+	wantAll(t, yaml, "Convert left out SCOPE and PreferMachine: only the dialog ScopeDlg read it")
 
-	wantAll(t, yaml, "    perMachine: PREVMACHINE\n", "id: PreferMachine", "  SCOPE: user\n")
-	wantNone(t, yaml, "Convert left out")
+	yaml = convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="CostFinalize" Sequence="ui" Condition="PREVMACHINE" />`))
+	wantAll(t, yaml, "the place of the action PreferMachine, which sets SCOPE, does not lead to the dialog or AppSearch")
+	wantNone(t, yaml, "scopePage:")
 }
 
 // TestConvertScopeDialogPerUser checks a scope dialog in a package that

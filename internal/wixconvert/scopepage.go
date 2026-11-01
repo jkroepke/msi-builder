@@ -23,6 +23,8 @@ type scopeDialog struct {
 // they replace, and whether those setters are left out.
 type scopePreference struct {
 	dialog *scopeDialog
+	// before holds the setters that run before the dialog.
+	before map[string]bool
 	// problem says why the preselection could not be mapped.
 	problem             string
 	perMachine, perUser string
@@ -31,8 +33,9 @@ type scopePreference struct {
 	setters []commandSource
 	from    []string
 	// drop is set when nothing but the dialog reads its property, so that
-	// the setters and the property are left out.
-	drop bool
+	// the setters and the property are left out; direct when the page
+	// reads the property itself.
+	drop, direct bool
 }
 
 // propertyIs matches a condition that compares a property with a quoted
@@ -145,39 +148,74 @@ func (c *converter) scopePref() *scopePreference {
 }
 
 // mapScopePref works out the ui.scopePage conditions that preselect what
-// the scope dialog's property does: its default, and the actions that set
-// it in the UI sequence before the dialog.
+// the scope dialog's property does. When only the dialog reads the
+// property, the conditions of the actions that set it before the dialog
+// stand in for them (mapConditions) and they are left out; otherwise they
+// stay and the page reads the property itself (mapProperty).
 func (c *converter) mapScopePref(pref *scopePreference) {
-	dlg := pref.dialog
+	c.scopeSetters(pref)
 
-	side := func(value string) string {
-		switch value {
-		case dlg.machine:
-			return scopeMachine
-		case dlg.user:
-			return scopeUser
-		default:
-			return ""
+	if pref.problem != "" {
+		return
+	}
+
+	if !c.keepsProperty(pref) && c.mapConditions(pref) {
+		pref.drop = true
+
+		return
+	}
+
+	c.mapProperty(pref)
+}
+
+// mapProperty preselects each option when the dialog's property holds its
+// value: its default, its search and the actions that set it all run
+// before the page, after AppSearch or right after it.
+func (c *converter) mapProperty(pref *scopePreference) {
+	dlg := pref.dialog
+	pref.direct = true
+	pref.perMachine = dlg.prop + " = " + strconv.Quote(dlg.machine)
+	pref.perUser = dlg.prop + " = " + strconv.Quote(dlg.user)
+
+	if len(pref.perMachine) > maxScopeCondition || len(pref.perUser) > maxScopeCondition {
+		pref.problem = "the conditions that test " + dlg.prop + " are longer than 255 characters"
+	}
+}
+
+// keepsProperty reports whether the dialog's property must stay: something
+// else names it, a search sets it, or an action that sets it reads it.
+func (c *converter) keepsProperty(pref *scopePreference) bool {
+	prop := pref.dialog.prop
+	word := propertyWord(prop)
+
+	for _, elm := range c.properties {
+		if elm.attr("Id") == prop && len(elm.kids) > 0 {
+			return true
 		}
 	}
 
-	base := side(c.propertyValue(dlg.prop))
+	for _, src := range pref.setters {
+		if word.MatchString(c.value(src.e, "Value")) || slices.ContainsFunc(c.uiConditionsOf(src), word.MatchString) {
+			return true
+		}
+	}
+
+	return c.readsElsewhere(pref)
+}
+
+// mapConditions sets the conditions from the property's default and the
+// conditions of the actions that set it before the dialog. It reports
+// false when they do not map: a default or a value that is neither
+// option, actions that choose both, or a condition that gets too long.
+func (c *converter) mapConditions(pref *scopePreference) bool {
+	base := pref.dialog.side(c.propertyValue(pref.dialog.prop))
 	if base == "" {
-		pref.problem = "its property " + dlg.prop + " starts with neither " + strconv.Quote(dlg.machine) + " nor " + strconv.Quote(dlg.user)
-
-		return
+		return false
 	}
 
-	set, conds, ok := c.scopeSetters(pref, side)
+	set, conds, ok := c.setterChoice(pref)
 	if !ok {
-		return
-	}
-
-	cond := joinOr(conds)
-	if len(cond) > maxScopeCondition {
-		pref.problem = "the conditions of the actions that set " + dlg.prop + " are longer than 255 characters"
-
-		return
+		return false
 	}
 
 	initial := scopeUser
@@ -185,8 +223,53 @@ func (c *converter) mapScopePref(pref *scopePreference) {
 		initial = scopeMachine
 	}
 
-	pref.decide(set, base, initial, cond)
-	pref.drop = (pref.perMachine != "" || pref.perUser != "") && !c.readsElsewhere(pref)
+	pref.decide(set, base, initial, joinOr(conds))
+
+	if len(pref.perMachine) > maxScopeCondition || len(pref.perUser) > maxScopeCondition {
+		pref.perMachine, pref.perUser = "", ""
+
+		return false
+	}
+
+	return true
+}
+
+// side returns the context a value of the dialog's property picks, or "".
+func (dlg *scopeDialog) side(value string) string {
+	switch value {
+	case dlg.machine:
+		return scopeMachine
+	case dlg.user:
+		return scopeUser
+	default:
+		return ""
+	}
+}
+
+// setterChoice returns the context the setters before the dialog choose
+// and their conditions, or false when one sets another value or they
+// choose both.
+func (c *converter) setterChoice(pref *scopePreference) (string, []string, bool) {
+	set := ""
+
+	var conds []string
+
+	for _, src := range pref.setters {
+		if !pref.before[src.id] {
+			continue
+		}
+
+		chosen := pref.dialog.side(strings.TrimSpace(c.value(src.e, "Value")))
+		if chosen == "" || set != "" && chosen != set {
+			return "", nil, false
+		}
+
+		set = chosen
+
+		conds = append(conds, c.uiConditionsOf(src)...)
+	}
+
+	return set, conds, true
 }
 
 // decide sets the conditions from the context the setters choose under
@@ -223,15 +306,14 @@ func (pref *scopePreference) setAlways(side string) {
 	}
 }
 
-// scopeSetters collects the actions that set the dialog's property in the
-// UI sequence: the context they all choose and their conditions. An action
-// that sets another value, or setters that choose both contexts, leave the
-// preselection unmapped.
-func (c *converter) scopeSetters(pref *scopePreference, side func(string) string) (string, []string, bool) {
+// scopeSetters collects the actions that set the dialog's property and
+// records those that run in the UI sequence before the dialog. One whose
+// place convert cannot tell leaves the preselection unmapped: the page
+// runs after AppSearch and the actions placed after it.
+func (c *converter) scopeSetters(pref *scopePreference) {
 	dlg := pref.dialog
-	set := ""
-
-	var conds []string
+	anchors := c.uiAnchors()
+	pref.before = make(map[string]bool)
 
 	for _, src := range c.commandSources() {
 		if src.property != dlg.prop {
@@ -239,30 +321,111 @@ func (c *converter) scopeSetters(pref *scopePreference, side func(string) string
 		}
 
 		pref.setters = append(pref.setters, src)
-		value := strings.TrimSpace(c.value(src.e, "Value"))
 
-		uiConds, inUI := c.uiConditions(src)
-		if !inUI {
+		if _, inUI := c.uiConditions(src); !inUI {
 			continue
 		}
 
-		chosen := side(value)
-		if chosen == "" || set != "" && chosen != set {
-			pref.problem = "the action " + src.id + " sets " + dlg.prop + " to " + strconv.Quote(value)
-			if chosen != "" {
-				pref.problem = "actions set " + dlg.prop + " to both " + strconv.Quote(dlg.machine) + " and " + strconv.Quote(dlg.user)
-			}
+		switch beforeDialog(anchors, src.id, dlg.e.attr("Id")) {
+		case placeBefore:
+			pref.before[src.id] = true
+			pref.from = append(pref.from, src.id)
+		case placeAfter:
+			// The dialog has shown its choice by then.
+		default:
+			pref.problem = "the place of the action " + src.id + ", which sets " + dlg.prop +
+				", does not lead to the dialog or AppSearch; the scope page reads its preselection right after AppSearch"
 
-			return "", nil, false
+			return
 		}
+	}
+}
 
-		set = chosen
+// uiConditionsOf returns the conditions under which an action runs in the
+// UI sequence.
+func (c *converter) uiConditionsOf(src commandSource) []string {
+	conds, _ := c.uiConditions(src)
 
-		pref.from = append(pref.from, src.id)
-		conds = append(conds, uiConds...)
+	return conds
+}
+
+// uiAnchor is the place of an entry of the UI sequence: before or after
+// another one.
+type uiAnchor struct{ key, target string }
+
+// uiAnchors returns the place of each action and dialog of the UI
+// sequence that is placed relative to another one.
+func (c *converter) uiAnchors() map[string]uiAnchor {
+	anchors := make(map[string]uiAnchor)
+	place := func(name string, elm *elem) {
+		switch {
+		case elm.attr("Before") != "":
+			anchors[name] = uiAnchor{keyBefore, elm.attr("Before")}
+		case elm.attr("After") != "":
+			anchors[name] = uiAnchor{keyAfter, elm.attr("After")}
+		}
 	}
 
-	return set, conds, true
+	for _, setter := range c.setters {
+		if setter.is("SetProperty") && slices.Contains(setterSequenceNames(setter), seqUI) {
+			place(setterName(setter), setter)
+		}
+	}
+
+	for _, entry := range c.uiEntries() {
+		switch {
+		case entry.is("Custom"):
+			place(entry.attr("Action"), entry)
+		case entry.is("Show"):
+			place(entry.attr("Dialog"), entry)
+		}
+	}
+
+	return anchors
+}
+
+// uiEntries returns the entries of the InstallUISequence elements.
+func (c *converter) uiEntries() []*elem {
+	var entries []*elem
+
+	for _, seq := range c.sequences {
+		if sequenceNames[seq.name] == seqUI {
+			entries = append(entries, seq.kids...)
+		}
+	}
+
+	return entries
+}
+
+// The places of a setter relative to the scope dialog.
+const (
+	placeUnknown = iota
+	placeBefore
+	placeAfter
+)
+
+// beforeDialog follows an action's anchors in the UI sequence to the
+// dialog or to AppSearch: an action next to AppSearch, or before the
+// dialog, runs before the scope page as before the dialog.
+func beforeDialog(anchors map[string]uiAnchor, action, dialog string) int {
+	for range len(anchors) + 1 {
+		anchor, ok := anchors[action]
+
+		switch {
+		case !ok:
+			return placeUnknown
+		case anchor.target == dialog && anchor.key == keyBefore:
+			return placeBefore
+		case anchor.target == dialog:
+			return placeAfter
+		case anchor.target == "AppSearch":
+			return placeBefore
+		}
+
+		action = anchor.target
+	}
+
+	return placeUnknown
 }
 
 // uiConditions returns the conditions under which an action runs in the UI
@@ -327,7 +490,7 @@ func joinOr(conds []string) string {
 // property's own definition and its setters names the dialog's property.
 func (c *converter) readsElsewhere(pref *scopePreference) bool {
 	prop := pref.dialog.prop
-	word := regexp.MustCompile(`(^|[^\w.])` + regexp.QuoteMeta(prop) + `([^\w.]|$)`)
+	word := propertyWord(prop)
 	skip := map[*elem]bool{pref.dialog.e: true}
 
 	for _, src := range pref.setters {
@@ -346,6 +509,11 @@ func (c *converter) readsElsewhere(pref *scopePreference) bool {
 	}
 
 	return walk(c.doc.root)
+}
+
+// propertyWord matches a property's name as a whole word.
+func propertyWord(prop string) *regexp.Regexp {
+	return regexp.MustCompile(`(^|[^\w.])` + regexp.QuoteMeta(prop) + `([^\w.]|$)`)
 }
 
 // names reports whether the text or an attribute of elm matches word.
@@ -418,6 +586,11 @@ func (c *converter) uiScopePage(wizard *omap) {
 	}
 
 	if pref.perMachine == "" && pref.perUser == "" {
+		if pref.drop {
+			wizard.comment("enabled", "Convert left out "+dlg.prop+pref.droppedSetters()+": only the dialog "+dlg.e.attr("Id")+
+				" read it, and the scope page, which takes its place, starts on the same option.")
+		}
+
 		return
 	}
 
@@ -426,20 +599,7 @@ func (c *converter) uiScopePage(wizard *omap) {
 	page.set("perMachine", pref.perMachine)
 	page.set("perUser", pref.perUser)
 
-	what := "From the default of " + dlg.prop + ", the option the dialog " + dlg.e.attr("Id") + " preselects"
-	if len(pref.from) > 0 {
-		what += ", and " + strings.Join(pref.from, ", ") + ", which set it"
-	}
-
-	what += "."
-	if pref.drop {
-		what += " Convert left out " + dlg.prop
-		if len(pref.from) > 0 {
-			what += " and " + strings.Join(pref.from, ", ")
-		}
-
-		what += "."
-	}
+	what := pref.comment()
 
 	for _, key := range []string{"perMachine", "perUser"} {
 		if page.str(key) != "" {
@@ -448,4 +608,37 @@ func (c *converter) uiScopePage(wizard *omap) {
 			break
 		}
 	}
+}
+
+// droppedSetters names the setters left out with the dialog's property.
+func (pref *scopePreference) droppedSetters() string {
+	if len(pref.setters) == 0 {
+		return ""
+	}
+
+	ids := make([]string, 0, len(pref.setters))
+	for _, src := range pref.setters {
+		ids = append(ids, src.id)
+	}
+
+	return " and " + strings.Join(ids, ", ")
+}
+
+// comment says where the ui.scopePage conditions come from.
+func (pref *scopePreference) comment() string {
+	what := "From the default of " + pref.dialog.prop + ", the option the dialog " + pref.dialog.e.attr("Id") + " preselects"
+	if len(pref.from) > 0 {
+		what += ", and " + strings.Join(pref.from, ", ") + ", which set it before the dialog"
+	}
+
+	what += "."
+
+	switch {
+	case pref.direct:
+		what += " " + pref.dialog.prop + " and the actions that set it stay; they run before the scope page."
+	case pref.drop:
+		what += " Convert left out " + pref.dialog.prop + pref.droppedSetters() + ", so msiexec " + pref.dialog.prop + "=... no longer preselects an option."
+	}
+
+	return what
 }
