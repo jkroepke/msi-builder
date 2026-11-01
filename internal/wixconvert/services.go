@@ -405,7 +405,7 @@ func (cc *compConv) removeFile(elm *elem) {
 	row := newMap()
 	row.order("id", "name", "directory", "property", "on")
 
-	if elm.is("RemoveFile") {
+	if elm.is(elemRemoveFile) {
 		row.set("name", conv.value(elm, "Name"))
 	}
 
@@ -421,7 +421,7 @@ func (cc *compConv) removeFile(elm *elem) {
 		row.set("on", when)
 	}
 
-	if elm.is("RemoveFolder") {
+	if elm.is(elemRemoveFolder) {
 		cc.removeFolder = append(cc.removeFolder, row)
 
 		return

@@ -190,8 +190,8 @@ func (c *converter) markNeededDirs() {
 		"Shortcut":        {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
 		"SetDirectory":    {"Id"},
-		"RemoveFile":      {attrDirectory, attrProperty},
-		"RemoveFolder":    {attrDirectory, attrProperty},
+		elemRemoveFile:    {attrDirectory, attrProperty},
+		elemRemoveFolder:  {attrDirectory, attrProperty},
 		"Property":        {"Id"},
 		"DirectorySearch": {"Id"},
 		"RemoveFolderEx":  {attrProperty},
@@ -329,7 +329,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		nodes[folder] = entry
 
 		if folder.parent == nil || folder.parent.std {
-			rootID := dirTarget
+			rootID := folderTargetDir
 			if folder.parent != nil {
 				rootID = c.stdID(folder.parent.id)
 			}
@@ -371,9 +371,6 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		c.out.add("directories", r)
 	}
 }
-
-// dirTarget is the root directory.
-const dirTarget = "TARGETDIR"
 
 // foldAliasDirs handles the Directories without a name of their own,
 // which name their parent folder (DefaultDir "."). Below a named folder
@@ -501,7 +498,7 @@ func (c *converter) aliasTarget(folder *dir, setters []*elem) string {
 		folder.name = config.AliasName
 
 		return ""
-	case len(setters) == 0 && parent != nil && parent.id != dirTarget:
+	case len(setters) == 0 && parent != nil && parent.id != folderTargetDir:
 		return parent.id
 	case len(setters) == 1:
 		return c.setterFolder(setters[0])
@@ -530,7 +527,7 @@ func (c *converter) setterFolder(setter *elem) string {
 	inner, ok := strings.CutPrefix(value, "[")
 	inner, closed := strings.CutSuffix(inner, "]")
 
-	if !ok || !closed || !config.IsStandardFolder(inner) || inner == dirTarget {
+	if !ok || !closed || !config.IsStandardFolder(inner) || inner == folderTargetDir {
 		return ""
 	}
 
@@ -546,7 +543,7 @@ const folderProgramFiles = "ProgramFilesFolder"
 
 func (c *converter) defaultInstallParent(id string) bool {
 	switch id {
-	case "ProgramFiles6432Folder":
+	case folderProgramFiles6432:
 		return true
 	case "ProgramFiles64Folder":
 		return c.platform != platformX86
@@ -593,7 +590,7 @@ func (c *converter) dirValue(id string, tree map[*dir]bool) string {
 		names = append(dirNames(cur.name), names...)
 	}
 
-	return joinPath(dirTarget, names)
+	return joinPath(folderTargetDir, names)
 }
 
 // relative returns a path below the install dir, with "./" when its first

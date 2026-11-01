@@ -121,7 +121,14 @@ versioning after 1.0.
   the same include/exclude matcher as the build; among the globs whose source
   folder holds a file on disk (`Options.Exists`), when any does, it goes to
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
-  WiX 5 package on CI). The fixtures are our own sample app: never copy
+  WiX 5 package on CI). Without `--msi`, `wixcodes.go` computes the codes WiX
+  generates from the key path (MSISPEC 8.10: UUIDv5 over the UTF-16LE path of
+  the key file or registry value), for `--arch` (`Options.Arch`; neither the
+  folders nor a WiX 3 Package Platform count) and `--bcgg`, and the `guids` of a `Files` glob
+  from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
+  for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
+  keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
+  from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
   Nameless and `.` Directories are settled before the directories link
   (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
