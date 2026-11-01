@@ -53,6 +53,7 @@ const firewallCA10Wix = `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns
         <Component Id="App">
           <File Id="app.exe" Source="app.exe">
             <fw:FirewallException Id="NoProtocol" Name="MsiBuilderCA10WixPort" Port="12346" Scope="any" />
+            <fw:FirewallException Id="NoPort" Name="MsiBuilderCA10WixNoPort" Scope="any" />
             <fw:FirewallException Id="Ignored" Name="MsiBuilderCA10WixIgnore" Port="12347" Protocol="tcp" IgnoreFailure="yes">
               <fw:RemoteAddress Value="[REMOTE]" />
             </fw:FirewallException>
@@ -139,8 +140,9 @@ func TestNetshAnyProtocolPort(t *testing.T) {
 }
 
 // TestMsiexecFirewallAnyProtocol installs a rule with protocol any and a
-// port, which becomes a TCP and a UDP rule of the same name, and removes
-// both on uninstall (CA-10).
+// port, which becomes a TCP and a UDP rule of the same name, and one
+// without a port, which is one rule for any protocol, and removes them on
+// uninstall (CA-10).
 //
 //nolint:paralleltest // msiexec runs one installation at a time
 func TestMsiexecFirewallAnyProtocol(t *testing.T) {
@@ -148,33 +150,51 @@ func TestMsiexecFirewallAnyProtocol(t *testing.T) {
 		t.Skip("installing needs msiexec time and elevation")
 	}
 
-	const name = "MsiBuilderCA10Any"
-
-	dir := t.TempDir()
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
-	src := fmt.Sprintf(firewallCA10Config, name, "6c1e9a52-3d7b-4e08-9f26-b4a8d0c5e713", "any", "    port: '12345,12350-12352'\n", "", false)
-	path := buildConfig(t, dir, "any", src, map[string][]byte{"app.exe": app})
 
-	t.Cleanup(func() {
-		_ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn").Run()
+	for _, tc := range []struct {
+		name, upgradeCode, port string
+		want                    []string
+	}{
+		{"MsiBuilderCA10Any", "6c1e9a52-3d7b-4e08-9f26-b4a8d0c5e713", "    port: '12345,12350-12352'\n", []string{"TCP", "UDP"}},
+		{"MsiBuilderCA10AnyNoPort", "3e8a1f64-c2b7-4d95-a1e3-7f0b6d4c9a28", "", []string{"Any"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := fmt.Sprintf(firewallCA10Config, tc.name, tc.upgradeCode, "any", tc.port, "", false)
+			path := buildConfig(t, dir, "any", src, map[string][]byte{"app.exe": app})
 
-		fwDelete(name)
-	})
+			t.Cleanup(func() {
+				_ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn").Run()
 
-	msiexecQuiet(t, filepath.Join(dir, "install.log"), "/i", path)
+				fwDelete(tc.name)
+			})
 
-	got := fwShow(t, name)
-	t.Logf("CA-10 any with a port: %+v", got)
+			msiexecQuiet(t, filepath.Join(dir, "install.log"), "/i", path)
 
-	want := []fwRule{{"TCP", "12345,12350-12352", "Any"}, {"UDP", "12345,12350-12352", "Any"}}
-	if !slices.Equal(got, want) {
-		t.Errorf("rules = %+v, want %+v", got, want)
-	}
+			got := fwShow(t, tc.name)
+			t.Logf("CA-10 %s: %+v", tc.name, got)
 
-	msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
+			protocols := make([]string, 0, len(got))
 
-	if got := fwShow(t, name); len(got) != 0 {
-		t.Errorf("uninstall left %+v", got)
+			for _, rule := range got {
+				protocols = append(protocols, rule.Protocol)
+
+				if tc.port != "" && rule.LocalPort != "12345,12350-12352" {
+					t.Errorf("LocalPort %q, want 12345,12350-12352", rule.LocalPort)
+				}
+			}
+
+			if !slices.Equal(protocols, tc.want) {
+				t.Errorf("protocols %v, want %v", protocols, tc.want)
+			}
+
+			msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
+
+			if got := fwShow(t, tc.name); len(got) != 0 {
+				t.Errorf("uninstall left %+v", got)
+			}
+		})
 	}
 }
 
@@ -237,7 +257,8 @@ func TestMsiexecFirewallIgnoreFailure(t *testing.T) {
 }
 
 // TestMsiexecFirewallWixBlackBox builds a WiX 5 package with a port rule
-// without Protocol and a failing rule with IgnoreFailure, installs it and
+// without Protocol, a rule with neither, and a failing rule with
+// IgnoreFailure, installs it and
 // reads the rules back (CA-10). WiX runs as a black box; the test skips
 // without wix.exe unless MSI_BUILDER_WIX_REQUIRED is set.
 //
@@ -268,14 +289,17 @@ func TestMsiexecFirewallWixBlackBox(t *testing.T) {
 		_ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn").Run()
 
 		fwDelete("MsiBuilderCA10WixPort")
+		fwDelete("MsiBuilderCA10WixNoPort")
 		fwDelete("MsiBuilderCA10WixIgnore")
 	})
 
 	log := filepath.Join(dir, "install.log")
 	code := msiexecCode(t, log, "/i", path, "REMOTE=not-an-address")
-	port, ignored := fwShow(t, "MsiBuilderCA10WixPort"), fwShow(t, "MsiBuilderCA10WixIgnore")
+	port, noPort := fwShow(t, "MsiBuilderCA10WixPort"), fwShow(t, "MsiBuilderCA10WixNoPort")
+	ignored := fwShow(t, "MsiBuilderCA10WixIgnore")
 
-	t.Logf("CA-10 WiX, remote address not-an-address: exit %d; Port without Protocol: %+v; IgnoreFailure: %+v", code, port, ignored)
+	t.Logf("CA-10 WiX, remote address not-an-address: exit %d; Port without Protocol: %+v; neither: %+v; IgnoreFailure: %+v",
+		code, port, noPort, ignored)
 
 	// A powershell view of the same rules, for the protocol numbers.
 	out, _ := exec.CommandContext(t.Context(), "powershell", "-NoProfile", "-Command",
@@ -290,6 +314,11 @@ func TestMsiexecFirewallWixBlackBox(t *testing.T) {
 	// convert writes protocol: tcp for such a rule because of this result.
 	if want := []fwRule{{"TCP", "12346", "Any"}}; !slices.Equal(port, want) {
 		t.Errorf("Port without Protocol: rules %+v, want %+v", port, want)
+	}
+
+	// And protocol: any for one without a port.
+	if len(noPort) != 1 || noPort[0].Protocol != "Any" {
+		t.Errorf("neither Port nor Protocol: rules %+v, want one rule for any protocol", noPort)
 	}
 
 	if len(ignored) != 0 {
