@@ -657,15 +657,18 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 // readBinaryCells loads the stream of every non-NULL binary cell, which is
 // named by the row's key.
 func readBinaryCells(tbl *Table, rows [][]any, stored [][]uint32, keys int, binaryStream func(string) ([]byte, error), database *Database) {
+	// A binary stream is named by the key, so a table without one, or with
+	// a binary column among its leading keys, whose cells are not read
+	// yet, cannot name its rows' streams; checkSchema reported the table.
+	// A key flag after a non-key column is not a key (Table.Keys).
+	named := keys > 0 && !slices.ContainsFunc(tbl.Columns[:keys], func(c Column) bool { return c.Type.Kind == KindBinary })
+
 	for colIdx, col := range tbl.Columns {
 		if col.Type.Kind != KindBinary {
 			continue
 		}
 
-		// A binary stream is named by the key, so a table without one, or
-		// whose key flags mark this column, cannot name its rows' streams;
-		// checkSchema reported the table.
-		if keys == 0 || col.Type.Key {
+		if !named {
 			if slices.ContainsFunc(stored, func(cells []uint32) bool { return cells[colIdx] != 0 }) {
 				addProblem(database, fmt.Sprintf("table %s: the binary cells of column %s are not read, the key cannot name their streams", tbl.Name, col.Name))
 			}

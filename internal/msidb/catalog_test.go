@@ -1,6 +1,7 @@
 package msidb //nolint:testpackage // the tests patch the encoded catalog
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"slices"
@@ -212,45 +213,68 @@ func TestUnmarshalKeylessBinary(t *testing.T) {
 	}
 }
 
-// A binary column with the key flag cannot name its own stream either,
-// whether it is a leading key or a key flag after a non-key column.
+// A binary column among the leading keys cannot name its own stream (nor
+// another binary column's, which the same check skips). A key flag after a non-key column is not a
+// key, so the leading key names the stream as usual.
 func TestUnmarshalBinaryKeyCells(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		edits map[int]catalogEdit
-		name  string
-		want  string
+		edits   map[int]catalogEdit
+		columns []Column
+		row     []any
+		want    []string
+		read    bool
+		name    string
 	}{
-		{name: "leading", edits: map[int]catalogEdit{2: {key: 1}}, want: "table T: binary column D cannot be a key"},
-		{name: "after a non-key column", edits: map[int]catalogEdit{3: {key: 1}}, want: "table T: key column D must come before the other columns"},
+		{
+			name: "leading", edits: map[int]catalogEdit{2: {key: 1}},
+			columns: []Column{Col("K", "s16", true), Col("D", "V0", false)}, row: []any{"a", []byte("first")},
+			want: []string{"table T: binary column D cannot be a key", "table T: the binary cells of column D are not read, the key cannot name their streams"},
+		},
+		{
+			name: "after a non-key column", edits: map[int]catalogEdit{3: {key: 1}}, read: true,
+			columns: []Column{Col("K", "s16", true), Col("V", "S16", false), Col("D", "V0", false)}, row: []any{"a", "x", []byte("first")},
+			want: []string{"table T: key column D must come before the other columns"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tbl := &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("V", "S16", false), Col("D", "V0", false)}}
-			tbl.Add("a", "x", []byte("first"))
-
-			if tc.name == "leading" {
-				tbl = &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("D", "V0", false)}}
-				tbl.Add("a", []byte("first"))
-			}
+			tbl := &Table{Name: "T", Columns: tc.columns}
+			tbl.Add(tc.row...)
 
 			database, err := Unmarshal(patchedCatalog(t, tbl, tc.edits))
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			want := []string{tc.want, "table T: the binary cells of column D are not read, the key cannot name their streams"}
-			if !slices.Equal(database.Problems, want) || database.Table("T").Rows[0][len(tbl.Columns)-1] != nil {
-				t.Errorf("problems %q, rows %v; want %q", database.Problems, database.Table("T").Rows, want)
+			if !slices.Equal(database.Problems, tc.want) {
+				t.Errorf("problems %q, want %q", database.Problems, tc.want)
 			}
 
-			if len(database.Streams) != 1 || database.Streams[0].Name != "T.a" {
-				t.Errorf("streams %v, want T.a kept", database.Streams)
+			cell := database.Table("T").Rows[0][len(tc.columns)-1]
+
+			switch {
+			case tc.read && !bytes.Equal(asBytes(cell), []byte("first")):
+				t.Errorf("binary cell %v, want the stream T.a", cell)
+			case !tc.read && cell != nil:
+				t.Errorf("binary cell %v, want it left unread", cell)
+			}
+
+			if kept := len(database.Streams) == 1 && database.Streams[0].Name == "T.a"; kept == tc.read && tc.row[len(tc.row)-1] != nil {
+				t.Errorf("streams %v; the stream T.a should be kept only when it was not read", database.Streams)
 			}
 		})
 	}
+}
+
+func asBytes(cell any) []byte {
+	if data, ok := cell.([]byte); ok {
+		return data
+	}
+
+	return nil
 }
 
 // The patch itself leaves a consistent database: without edits the package
