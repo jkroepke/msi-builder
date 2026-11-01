@@ -417,8 +417,8 @@ action of a `run` action). Only a `perMachine` action may have
 is left out of every per-user install, also one that an administrator
 runs elevated, and a standard user's per-user install needs no elevation
 for it (CA-09). A scoped action runs in the execute sequence only: in the
-UI sequence the scope page sets `ALLUSERS` back to 2, and an administrative
-install has no context. ICE105 reads only the action's type, so in a
+UI sequence the context is only known after the scope page, and an
+administrative install has no context. ICE105 reads only the action's type, so in a
 `perUserOrMachine` package it warns about a `perMachine` action without
 impersonation although the condition keeps it out of per-user installs,
 and the builder passes that warning on; it is silent in a
@@ -2681,8 +2681,13 @@ and "Install for all users of this computer", preselected with the context
 the package opened in (the scope's default, or the command line's
 `MSIINSTALLPERUSER`). With `installDir.remember`, a folder remembered only
 in the other context preselects that context, so that the page starts where
-the previous version is installed. Next sets `ALLUSERS=2` and
-`MSIINSTALLPERUSER` and continues to the welcome page; the page has no Back.
+the previous version is installed. Next sets `ALLUSERS` to 1 and
+`MSIINSTALLPERUSER` to nothing for all users, and `ALLUSERS` to nothing and
+`MSIINSTALLPERUSER` to 1 for the current user, the values the engine leaves
+in the server for each context (INST-07), and continues to the welcome page;
+the page has no Back. A condition after the page, such as a launch
+condition, therefore tests `ALLUSERS=1` and `NOT ALLUSERS` as in the execute
+sequence (UI-11).
 The ready page then shows Install with the UAC shield for all users.
 
 The page runs in the UI sequence after `CostFinalize`, and the UI

@@ -46,7 +46,7 @@ MSI (s): Doing action: LaunchConditions
 MSI (s): Doing action: RemoveExistingProducts
 ```
 
-The server's `FindRelatedProducts` logged no related product in any case,
+The server's `FindRelatedProducts` logged no related product in any case (the probe's excerpt left out its `Skipping FindRelatedProducts action: already done on client side` line, which the CI run of `TestFullUIScopeUpdate` shows for a client that ran it),
 although the server installed per machine, so `RemoveExistingProducts`
 removed nothing and both versions stayed registered per machine. Skipping
 the client's action does not make the server's find anything: after the UI
