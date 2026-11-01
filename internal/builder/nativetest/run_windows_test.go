@@ -126,6 +126,7 @@ func TestMsiexecRunActions(t *testing.T) {
 				"BuilderRun: cr-one",
 				"BuilderRun: cr-two",
 				"BuilderRun: cr-three",
+				"BuilderRun: äsplit-tail",
 				"BuilderRun: background-spawned",
 				"BuilderRun: a process the command started keeps the output open",
 			} {

@@ -1189,6 +1189,27 @@ with `MSIRESTARTMANAGERCONTROL=Disable`. The test starts the helpers itself
   install, another user's session, a 32-bit or Arm64 package, a major
   upgrade, Windows Server 2016.
 
+## Custom action DLL review fixes (SEC-06, CLOSE-02, FILE-14)
+
+Run on 2026-10-31 in the `Build & Test (windows-latest, native)` job
+(Windows Server 2025 x64, elevated) of PR #192, run 41241097934 (commit
+64c4046), by `TestMsiexecGrantThroughJunction`, `TestMsiexecClosesAliases`
+and `TestMsiexecRemoveFoldersKeepsLeft` in `internal/builder/nativetest`.
+The CA-03 probe's `ProbeLongUtf8` passed in the same job and on the
+`windows-11-arm` runner (Arm64 package natively): the piece after the
+64 KiB cut was logged as `BuilderRun: äsplit-tail`.
+
+| Case | Result |
+| --- | --- |
+| SEC-06: folder grant for Guests on `...\MsiBuilderGrantLink\link\child`, `link` a junction to `bait` | exit 1603, the grant refused with the path it leads to; `bait\child`'s DACL kept its ACEs (only the `AI` flag dropped, as in SEC-02's rollbacks), no Guests ACE |
+| CLOSE-02: `cli.exe` with `close: true`, copies started through a junction in `ProgramData` and through `C:\PROGRA~1\MSIBUI~1\cli.exe` | uninstall exit 0, both copies ended with 1602. `QueryFullProcessImageNameW` reported the resolved `C:\Program Files\...` path for the junction start and `C:\PROGRA~1\MSIBUI~1\cli.exe` for the short-name start, so only the latter needed the file ID |
+| FILE-14: `removeFolders` on `DATA_DIR`, an action that recreates `DATA_DIR` after the move and fails | exit 1603; the log said `cannot be restored, it stays in C:\BuilderRemoveFolders.<token>\1` and where the original path is kept; `HKU\S-1-5-18\Software\msi-builder\RemoveFoldersLeft\<token>` held `1` = `C:\ProgramData\MsiBuilderRemoveLeft\data\` and `ProductCode`; the moved file was in the backup folder |
+
+- Not covered: a failed commit delete and a stale record (same helper, not
+  forced), a `subst` drive, a junction inside a granted folder, the output
+  drain after the grace period (needs five seconds of logging), a 32-bit
+  package, Windows Server 2016.
+
 ## Feature conditions (INST-05)
 
 Run on 2026-10-30 on the `Build & Test (windows-latest, native)` job
