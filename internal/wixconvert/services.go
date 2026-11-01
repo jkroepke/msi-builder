@@ -2,6 +2,7 @@ package wixconvert
 
 import (
 	"cmp"
+	"fmt"
 	"math"
 	"regexp"
 	"slices"
@@ -711,7 +712,9 @@ func (cc *compConv) removeFolders(elm *elem, prop, when, cond string) {
 		return
 	}
 
-	if inst != nil && conv.dirRef(inst.id) == conv.dirRef(prop) {
+	// A property search of the file's own already finds the folder, and
+	// msi-builder refuses remember next to it.
+	if inst != nil && conv.dirRef(inst.id) == conv.dirRef(prop) && !conv.searchedProperty(inst.id) {
 		install := conv.out.child("installDir")
 		if install.get("remember") == nil {
 			install.set("remember", true)
@@ -751,6 +754,27 @@ func (cc *compConv) remembers(prop string) bool {
 			if search.is("RegistrySearch") && cc.writesFolder(search) {
 				return true
 			}
+		}
+	}
+
+	return false
+}
+
+// searchElems are the elements of a Property that search for its value.
+var searchElems = map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"RegistrySearch": true, "RegistrySearchRef": true, "ComponentSearch": true, "DirectorySearch": true,
+	"DirectorySearchRef": true, "FileSearch": true, "FileSearchRef": true, "IniFileSearch": true, "ProductSearch": true,
+}
+
+// searchedProperty reports whether a Property element searches for prop.
+func (c *converter) searchedProperty(prop string) bool {
+	for _, p := range c.properties {
+		if p.attr("Id") != prop && c.dirRef(p.attr("Id")) != c.dirRef(prop) {
+			continue
+		}
+
+		if slices.ContainsFunc(p.kids, func(kid *elem) bool { return kid.ns == nsCore && searchElems[kid.name] }) {
+			return true
 		}
 	}
 
@@ -839,6 +863,24 @@ func (cc *compConv) eventSource(elm *elem) {
 	cc.out.add("eventLog", source)
 }
 
+// uniqueFirewallName returns name with the exception's Id, or a number,
+// added in parentheses, so that no other rule has it.
+func (c *converter) uniqueFirewallName(name string, elm *elem) string {
+	suffix := elm.attr("Id")
+	if suffix == "" {
+		suffix = "2"
+	}
+
+	unique := name + " (" + suffix + ")"
+	for n := 2; ; n++ {
+		if _, taken := c.firewallNames[unique]; !taken {
+			return unique
+		}
+
+		unique = fmt.Sprintf("%s (%s %d)", name, suffix, n)
+	}
+}
+
 // firewall converts a firewall exception into a firewall rule that follows
 // the component. program is the file the rule is nested in, if any.
 func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:cyclop // a flat list of independent WiX attributes
@@ -850,8 +892,12 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 	rule.set("component", c.compID(comp))
 
 	if first, dup := c.firewallNames[rule.str("name")]; dup {
+		shared := rule.str("name")
+		name := c.uniqueFirewallName(shared, elm)
+		rule.set("name", name)
+		c.firewallNames[name] = elm.line
 		c.todof(rule, "name", elm.line, "the firewall exception on line %d has the same name; msi-builder needs a name "+
-			"per rule, rename one or merge them", first)
+			"per rule, so convert added %q to this one; rename it or merge the rules", first, strings.TrimPrefix(name, shared+" "))
 	} else {
 		c.firewallNames[rule.str("name")] = elm.line
 	}
@@ -1469,11 +1515,15 @@ func grantAccount(domain, user string) string {
 // permission converts a permission element into the permissions key of target.
 func (c *converter) permission(target *omap, key string, elm *elem, kind string) {
 	perms := target.mapAt(key)
-	if perms == nil {
+	fresh := perms == nil
+
+	if fresh {
 		perms = newMap()
 		perms.order("sddl", "grant", "condition")
 		target.set(key, perms)
 	}
+
+	c.permissionCondition(target, key, perms, elm, fresh)
 
 	switch elm.qname() {
 	case "PermissionEx":
@@ -1492,6 +1542,31 @@ func (c *converter) permission(target *omap, key string, elm *elem, kind string)
 
 		g := newMap().set("account", account).set("rights", c.rights(target, key, elm, kind))
 		perms.add("grant", g)
+	}
+}
+
+// permissionCondition keeps the condition of a PermissionEx (its Condition
+// attribute, or in WiX v3 its Condition child) as the condition of the
+// permissions block, which covers both sddl and grant. One block holds one
+// condition, so a permission element whose condition differs from the
+// block's first one becomes a todo.
+func (c *converter) permissionCondition(target *omap, key string, perms *omap, elm *elem, fresh bool) {
+	cond := ""
+	if elm.is("PermissionEx") {
+		cond = strings.TrimSpace(c.componentConditionText(elm))
+	}
+
+	if fresh {
+		if cond != "" {
+			perms.set("condition", cond)
+		}
+
+		return
+	}
+
+	if prev := perms.str("condition"); normalizeCondition(prev) != normalizeCondition(cond) {
+		c.todof(target, key, elm.line, "this permission element applies under %q, but %s applies under %q: "+
+			"one permissions block has one condition", cond, key, prev)
 	}
 }
 

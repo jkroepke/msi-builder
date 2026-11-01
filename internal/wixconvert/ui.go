@@ -316,6 +316,13 @@ func (c *converter) uiLaunch(wizard *omap) {
 	if launch.get("file") == nil {
 		// ui.launch needs a file; the TODO says what the checkbox did.
 		wizard.del("launch")
+
+		return
+	}
+
+	if file := launch.str("file"); !slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == file }) {
+		c.todof(launch, "file", 0, "the finish page launches the file %s, which this file does not define (it comes from "+
+			"another source file or a harvest); add that file to a component or remove ui.launch", file)
 	}
 }
 

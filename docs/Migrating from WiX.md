@@ -367,7 +367,12 @@ upgrade:
   its own actions, becomes a dual scope. `convert` makes a per-user
   package `perUserOrMachine` when a component's condition names the
   context or an action sets one of the two properties; choose
-  `perMachineOrUser` if the install should default to all users. It turns
+  `perMachineOrUser` if the install should default to all users.
+  One with an `ALLUSERS=1` property row already installs per machine by
+  default, so it becomes `perMachineOrUser`. A condition that joins
+  context conditions with `AND` or `OR`, or negates one with `NOT (...)`,
+  counts too: `NOT (ALLUSERS <> 1 AND MSIINSTALLPERUSER = 1)` is per
+  machine. It turns
   the conditions into `components[].scope` and drops the setters with a
   note, also in a package that already has `ALLUSERS=2`, and moves actions
   placed after a dropped setter to its place. A per-machine package keeps
@@ -444,7 +449,9 @@ components:
   `msiexec /i hello.msi INSTALLFOLDER=D:\Hello` works without
   `ConfigurableDirectory`.
 - `ProgramFiles6432Folder` is not needed: `installDir` picks the Program
-  Files folder of `package.platform`.
+  Files folder of `package.platform`. `msi-builder convert` writes other
+  references to a 6432 folder, such as a custom action's `Directory`, as
+  the folder of the platform.
 - A `SetDirectory` that points a folder somewhere else at install time
   becomes a `setDirectory` custom action. Often a standard folder does the
   same: `[%SYSTEMROOT]\Temp\Hello` is `WindowsFolder/Temp/Hello`.
@@ -457,7 +464,9 @@ components:
   a second ID for its parent folder. Write it in `directories` with
   `name: .`. Setting it on the command line moves only its own components,
   and it follows the parent otherwise (tested on Windows). One directly in a
-  standard folder is that folder: use the standard folder's ID.
+  standard folder is that folder: use the standard folder's ID. One
+  directly in `TARGETDIR` that nothing sets is `TARGETDIR` itself, so
+  `msi-builder convert` writes `TARGETDIR` for it.
 - A WiX `RegistrySearch` that restores the install folder from the last
   install is `installDir.remember: true`. It writes its own value,
   `InstallDir` under `HKLM\Software\<manufacturer>\<product name>`, so the
@@ -467,7 +476,9 @@ components:
   property, such as `properties.INSTALLFOLDER.search` (see
   [Properties and searches](#properties-and-searches)). Use one of the two,
   not both. With `remember`, drop an `InstallDir` value that your WiX
-  package wrote under that same key from `registry`.
+  package wrote under that same key from `registry`. `msi-builder convert`
+  keeps the WiX search when the file has one, and writes `remember` for a
+  `util:RemoveFolderEx` on the install folder only when it has none.
 
 ## Components, files and features
 
@@ -783,6 +794,10 @@ firewall:
   gives SYSTEM full access to every object it locks through
   `Permission`, which a WiX package reads back as
   `D:P(A;OICI;FA;;;WD)(A;OICI;FA;;;SY)` for `User="Everyone"`.
+  The condition of a `PermissionEx` (its `Condition` attribute, or its
+  `Condition` child in WiX v3) becomes the block's `condition`, which
+  covers `sddl` and `grant`; a block has one, so convert notes a second
+  permission with another condition.
   Registry values take only `sddl`, so a `util:PermissionEx` on a registry
   key becomes an SDDL string too.
 - `Scope="any"` is the default; `remoteAddresses` limits the rule and
@@ -794,6 +809,9 @@ firewall:
   tcp` when it has a `Port`, which is the rule WiX installs.
   `IgnoreFailure="yes"` becomes `ignoreFailure: true`. To open a port for
   TCP and UDP, write `protocol: any` with the `port`.
+- Each rule needs its own `name`. Of two exceptions with one name,
+  `convert` adds the second one's `Id` in parentheses to its name and
+  notes it; rename it or merge the rules.
 
 ## Properties and searches
 
@@ -965,7 +983,17 @@ number of another of the three actions that keeps its place, such as
 FindRelatedProducts at 50). A move that puts LaunchConditions
 before FindRelatedProducts (FindRelatedProducts at Microsoft's 200, for
 example) gets a note, because the downgrade check then sees no newer
-version and the build refuses it.
+version and the build refuses it. No launch condition of the WiX package
+saw a newer version in that order either, so convert sets
+`upgrade.downgrade: ignore`, which installs next to a newer version as
+the WiX package did; in a package without launch conditions of its own,
+where LaunchConditions holds only the downgrade check, it leaves the move
+of LaunchConditions out instead.
+
+An action placed next to a custom action that convert leaves out (a
+script, a call into a WiX extension, or an action of another source
+file) moves to that action's place, with a note, so that the output
+builds.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where
