@@ -330,9 +330,11 @@ go test ./... -shuffle=on -race
   on the `windows-latest` runner: push the branch and start CI with
   `workflow_dispatch` on it, then read the job log. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
-  A repair while another process holds an installed file open lost the
-  hosted runner every time (PROP-04, no job log at all), so probe Restart
-  Manager elsewhere.
+  `/norestart` becomes `REBOOT=ReallySuppress` only on `/i`: a `/fa` repair
+  that schedules a file replacement restarts the machine (PROP-04: the
+  hosted runner was lost with no job log, four times), so pass
+  `REBOOT=ReallySuppress` to every msiexec call, as `msiexecCode` and
+  `msiexecQuiet` do.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with
