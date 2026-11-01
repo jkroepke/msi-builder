@@ -54,6 +54,26 @@ func msiFileVersion(t *testing.T, path string) (string, string, bool) {
 	}
 }
 
+// msiVersion returns the file version of the msi.dll in System32, read by
+// this package.
+func msiVersion(t *testing.T) string {
+	t.Helper()
+
+	file, err := os.Open(filepath.Join(os.Getenv("SystemRoot"), "System32", "msi.dll"))
+	if err != nil {
+		return err.Error()
+	}
+
+	defer file.Close()
+
+	info, err := Parse(file)
+	if err != nil {
+		return err.Error()
+	}
+
+	return info.FileVersion
+}
+
 // TestMsiGetFileVersionAgrees parses well-formed and corrupt images with
 // this package and with MsiGetFileVersionW, which fills File.Version and
 // File.Language for Windows toolchains, and checks that both report the
@@ -185,6 +205,16 @@ func TestMsiGetFileVersionAgrees(t *testing.T) {
 		"resource directory size wraps": patch(testResourceDir+4, 0xFFFFF000),
 	}
 
+	// Windows versions differ on a partial last Translation entry: msi.dll
+	// 5.0.26100.1742 counted one whose language word starts inside the
+	// value (length 5 gave 1031,1033), the windows-latest runner did not
+	// (1033). Parse follows the runner; the other answer is accepted and
+	// logged with the msi.dll version.
+	// Each maps the other Windows answer to the one Parse gives.
+	alternative := map[string][2]string{"Translation length 5": {"1031,1033", "1033"}}
+
+	t.Logf("msi.dll %s", msiVersion(t))
+
 	dir := t.TempDir()
 
 	for name, build := range cases {
@@ -211,6 +241,12 @@ func TestMsiGetFileVersionAgrees(t *testing.T) {
 
 			if gotOK != wantOK {
 				t.Fatalf("Parse reports a version: %v, MsiGetFileVersionW: %v (%+v)", gotOK, wantOK, info)
+			}
+
+			if alt, ok := alternative[name]; ok && wantLang == alt[0] {
+				t.Logf("Windows gave the alternative %q; Parse must give %q", alt[0], alt[1])
+
+				wantLang = alt[1]
 			}
 
 			if gotOK && (info.FileVersion != wantVer || info.Language() != wantLang) {
