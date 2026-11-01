@@ -179,12 +179,18 @@ jobs:
       # but nativetest under -race. The builder code the native tests run is
       # checked for races here; only internal/ice's Windows code, which the
       # native tests call one at a time, runs without -race.
+      #
+      # Linux measures coverage in a second run without -race: -race forces
+      # atomic counters, which every parallel test of a package updates
+      # across all of ./..., and the two together made internal/builder more
+      # than six times as slow as the race run alone (72 s to 464 s).
       - name: go test
         if: matrix.suite == 'unit'
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            go test ./... -short -timeout 25m -shuffle=on -race -covermode=atomic -coverprofile=coverage.out -coverpkg=./...
+            go test ./... -short -timeout 25m -shuffle=on -race
+            go test ./... -short -timeout 25m -shuffle=on -covermode=set -coverprofile=coverage.out -coverpkg=./...
           else
             mapfile -t pkgs < <(go list ./... | grep -v '/internal/builder/nativetest$')
             go test "${pkgs[@]}" -timeout 25m -shuffle=on -race
