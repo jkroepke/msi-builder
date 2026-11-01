@@ -85,8 +85,8 @@ func TestFullUIScopePage(t *testing.T) { //nolint:paralleltest // msiexec runs o
 
 			cleanup := func() {
 				_ = exec.CommandContext(context.Background(), "msiexec", "/x", res.ProductCode, "/qn", "/norestart", "REBOOT=ReallySuppress").Run() //nolint:gosec // test-controlled arguments
-				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKCU\`+key, "/f").Run()                                       //nolint:gosec // test-controlled arguments
-				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKLM\`+key, "/f", "/reg:64").Run()                            //nolint:gosec // test-controlled arguments
+				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKCU\`+key, "/f").Run()                                         //nolint:gosec // test-controlled arguments
+				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKLM\`+key, "/f", "/reg:64").Run()                              //nolint:gosec // test-controlled arguments
 				_ = os.RemoveAll(folders["custom"])
 			}
 			cleanup()

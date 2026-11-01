@@ -63,8 +63,11 @@ versioning after 1.0.
   A dual scope's page (`ui_scope.go`) is shown on its own after AppSearch,
   and the UI sequence's FindRelatedProducts and LaunchConditions run after
   it, all before CostInitialize, which ICE27 requires (`scopeFirst`,
-  `launchConditionsAction`); Next sets only the topmost public folders, and
-  CostFinalize resolves the rest:
+  `launchConditionsAction`); Next only records the topmost public folders
+  (`InstallScopeDir_<dir>`), setters scheduled last before CostFinalize
+  (`costAction`, `beforeCosting`, appended in `sequences`) set them, so an
+  action after the page that restores a folder into an empty property
+  still runs (UI-12), and CostFinalize resolves the rest:
   in a full-UI install the server skips FindRelatedProducts because the
   client already ran it, so the client's must see the chosen context (UI-11).
   Its Next sets `ALLUSERS` to 1 or nothing, never 2, so conditions after it

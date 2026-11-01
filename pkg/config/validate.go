@@ -2948,19 +2948,19 @@ func (v *validator) scopePage(cfg *Config) {
 		v.errorf("ui.scopePage", "the scope page needs a wizard and a dual package.scope (perUserOrMachine or perMachineOrUser)")
 	}
 
-	for _, c := range []struct{ field, cond string }{{"ui.scopePage.perMachine", page.PerMachine}, {"ui.scopePage.perUser", page.PerUser}} {
-		if c.cond == "" {
+	for _, entry := range []struct{ field, cond string }{{"ui.scopePage.perMachine", page.PerMachine}, {"ui.scopePage.perUser", page.PerUser}} {
+		if entry.cond == "" {
 			continue
 		}
 
-		if err := condition.Check(c.cond); err != nil {
-			v.errorf(c.field, "%v", err)
+		if err := condition.Check(entry.cond); err != nil {
+			v.errorf(entry.field, "%v", err)
 
 			continue
 		}
 
-		if len(c.cond) > maxSequenceCondition {
-			v.errorf(c.field, "the condition is longer than %d characters, the size of the sequence table's Condition column", maxSequenceCondition)
+		if len(entry.cond) > maxSequenceCondition {
+			v.errorf(entry.field, "the condition is longer than %d characters, the size of the sequence table's Condition column", maxSequenceCondition)
 		}
 	}
 }

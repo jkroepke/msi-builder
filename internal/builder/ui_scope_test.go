@@ -115,14 +115,18 @@ func TestScopePage(t *testing.T) {
 	// Next leaves INSTALLDIR alone: the folder is set right before
 	// CostFinalize, so that an action after the page that restores a
 	// folder into an empty INSTALLDIR still runs.
-	last := map[string][2]any{}
+	numbers, conds := map[string]int{}, map[string]string{}
+
 	for _, row := range rows(t, res.Database, "InstallUISequence") {
-		last[fmt.Sprint(row[0])] = [2]any{row[1], row[2]}
+		if n, ok := row[2].(int); ok {
+			numbers[fmt.Sprint(row[0])], conds[fmt.Sprint(row[0])] = n, fmt.Sprint(row[1])
+		}
 	}
 
-	setter, cost := last["SetInstallScopeDir_INSTALLDIR"], last["CostFinalize"]
-	if setter[1] != cost[1].(int)-1 || setter[0] != "InstallScopeDir_INSTALLDIR AND "+unchanged {
-		t.Errorf("SetInstallScopeDir_INSTALLDIR is %v, CostFinalize %v; want it right before CostFinalize under the chosen folder", setter, cost)
+	setter := "SetInstallScopeDir_INSTALLDIR"
+	if numbers[setter] != numbers["CostFinalize"]-1 || conds[setter] != "InstallScopeDir_INSTALLDIR AND "+unchanged {
+		t.Errorf("%s at %d under %q, CostFinalize at %d; want it right before CostFinalize under the chosen folder",
+			setter, numbers[setter], conds[setter], numbers["CostFinalize"])
 	}
 
 	// The x86 package's folder under ProgramFilesFolder: per user below
@@ -300,5 +304,45 @@ ui: { enabled: true }
 		if !strings.Contains(events, want) {
 			t.Errorf("Next events lack %s:\n%s", want, events)
 		}
+	}
+}
+
+// TestScopePagePreselect checks ui.scopePage: its conditions set the
+// page's property after the context and remembered-folder setters, perUser
+// before perMachine, and before the page.
+func TestScopePagePreselect(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perUserOrMachine", "x64", "installDir: { remember: true }\n"+
+		"ui: { enabled: true, scopePage: { perMachine: PREVMACHINE, perUser: NOT PREVMACHINE } }\n")
+
+	seq := map[string]int{}
+	conds := map[string]string{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			seq[fmt.Sprint(row[0])] = n
+			conds[fmt.Sprint(row[0])] = fmt.Sprint(row[1])
+		}
+	}
+
+	order := []string{"SetInstallScopeUser", "SetInstallScopePrevious", "SetInstallScopePreferUser", "SetInstallScopePreferMachine", "InstallScopeDlg"}
+	for i := 1; i < len(order); i++ {
+		if seq[order[i-1]] == 0 || seq[order[i]] <= seq[order[i-1]] {
+			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], seq[order[i-1]], order[i], seq[order[i]])
+		}
+	}
+
+	if conds["SetInstallScopePreferMachine"] != "PREVMACHINE" || conds["SetInstallScopePreferUser"] != "NOT PREVMACHINE" {
+		t.Errorf("conditions %q and %q", conds["SetInstallScopePreferMachine"], conds["SetInstallScopePreferUser"])
+	}
+
+	targets := map[string]string{}
+	for _, row := range rows(t, res.Database, "CustomAction") {
+		targets[fmt.Sprint(row[0])] = fmt.Sprint(row[2]) + "=" + fmt.Sprint(row[3])
+	}
+
+	if targets["SetInstallScopePreferMachine"] != "BuilderInstallScope=perMachine" || targets["SetInstallScopePreferUser"] != "BuilderInstallScope=perUser" {
+		t.Errorf("targets %q and %q", targets["SetInstallScopePreferMachine"], targets["SetInstallScopePreferUser"])
 	}
 }
