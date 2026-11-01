@@ -236,3 +236,29 @@ func TestScopePageFirst(t *testing.T) {
 			uiSeq["SetInstallScopePrevious"], uiSeq["SetInstallScopeUser"], uiSeq["InstallScopeDlg"])
 	}
 }
+
+// An action of the UI sequence placed relative to FindRelatedProducts or
+// LaunchConditions follows the page even when the package needs neither.
+func TestScopePageAnchors(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perMachineOrUser", "x64", "upgrade: false\nui: { enabled: true }\ncustomActions:\n"+
+		"  - { id: AfterLC, setProperty: { name: BAR, value: \"1\" }, schedule: [{ sequence: ui, after: LaunchConditions }] }\n"+
+		"  - { id: AfterFind, setProperty: { name: FOO, value: \"1\" }, schedule: [{ sequence: ui, after: FindRelatedProducts }] }\n")
+
+	uiSeq := map[string]int{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			uiSeq[fmt.Sprint(row[0])] = n
+		}
+	}
+
+	order := []string{"InstallScopeDlg", "FindRelatedProducts", "AfterFind", "LaunchConditions", "AfterLC", "WelcomeDlg"}
+
+	for i := 1; i < len(order); i++ {
+		if uiSeq[order[i-1]] == 0 || uiSeq[order[i]] <= uiSeq[order[i-1]] {
+			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], uiSeq[order[i-1]], order[i], uiSeq[order[i]])
+		}
+	}
+}

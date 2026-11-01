@@ -1,11 +1,12 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
 # Converted from dualscope.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
-# TODO(line 60): the standard action RemoveExistingProducts in InstallExecuteSequence runs only when NOT UPGRADINGPRODUCTCODE; msi-builder schedules the standard actions itself, without conditions
+# TODO(line 63): the standard action RemoveExistingProducts in InstallExecuteSequence runs only when NOT UPGRADINGPRODUCTCODE; msi-builder schedules the standard actions itself, without conditions
 # TODO(line 27): the action OverridePerMachineFolder, which sets WixPerMachineFolder for WixUI_Advanced, was left out: msi-builder sets the install folder of each scope itself
 # TODO(line 31): the action OverrideAgain, which sets WixPerMachineFolder for WixUI_Advanced, was left out: msi-builder sets the install folder of each scope itself
 # TODO(line 47): the action SetAllUsersFromPrevious, which sets ALLUSERS, was left out: a perUserOrMachine package sets ALLUSERS and MSIINSTALLPERUSER itself, and the scope page or the command line picks the context; components[].scope keeps components in one context (INST-07)
 # TODO: the sequence moves the standard action FindRelatedProducts in ui, which msi-builder cannot take (the wizard's scope page runs it after the context is chosen); convert left the move out
+# TODO(line 53): the sequence moves the standard action AppSearch in ui, which msi-builder cannot take (the wizard's scope page runs FindRelatedProducts after costing); convert left the move out
 vars:
   MainLevel: "1"
 ---

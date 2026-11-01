@@ -2775,10 +2775,12 @@ versions installed, and a launch condition that tests `ALLUSERS`, such as
 one that refuses a per-user install next to a per-machine one, ended the
 install before the page appeared (UI-11). `standardActions` therefore
 cannot move `FindRelatedProducts` or `LaunchConditions` in the `ui`
-sequence of a dual package with the wizard, and an action placed relative
-to them in `ui` runs after the page too. The server evaluates the launch
-conditions again with the chosen context, so a launch condition that
-refuses the chosen context shows its message after Install. The
+sequence of a dual package with the wizard, nor place `AppSearch` next to
+them there, and an action placed relative to them in `ui` runs after the
+page too. A launch condition that refuses the chosen context shows its
+message right after the page; without the wizard's sequence, as in a
+silent install, the server checks the launch conditions with the context
+the command line chose. The
 client keeps the folders it resolved for the context it opened in, so Next
 also sets every public folder under Program Files or Common Files (such as
 the install folder) to its path in the chosen context, unless it holds

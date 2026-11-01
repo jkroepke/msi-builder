@@ -269,13 +269,33 @@ func (v *validator) standardActions(cfg *Config) {
 }
 
 // scopePageMove refuses a ui move of FindRelatedProducts or
-// LaunchConditions in a dual-scope package with the wizard: the scope page
-// runs them after the context is chosen (UI-11).
+// LaunchConditions in a dual-scope package with the wizard, and a ui
+// AppSearch next to them: the scope page runs them after the context is
+// chosen, after costing (UI-11).
 func (v *validator) scopePageMove(cfg *Config, placePath, action string, place Placement) {
-	if place.Sequence == "ui" && cfg.Package.Scope.Dual() && cfg.UI.Enabled && action != "AppSearch" {
+	if place.Sequence != "ui" || !scopePage(cfg) {
+		return
+	}
+
+	if action != actAppSearch {
 		v.errorf(placePath+".sequence", "the scope page of a dual-scope wizard runs %s of the ui sequence after it, "+
 			"where it sees the chosen context; move it in the execute sequence only", action)
+
+		return
 	}
+
+	// AppSearch stays before costing, away from them.
+	if anchor := place.Before + place.After; anchor != action && slices.Contains(movableActions, anchor) {
+		v.errorf(placePath, "the scope page of a dual-scope wizard runs %s of the ui sequence after costing, "+
+			"so %s cannot be placed next to it there", anchor, action)
+	}
+}
+
+// scopePage reports whether the package has the wizard's scope page, which
+// runs FindRelatedProducts and LaunchConditions of the ui sequence after
+// costing.
+func scopePage(cfg *Config) bool {
+	return cfg.Package.Scope.Dual() && cfg.UI.Enabled
 }
 
 // standardPlacement checks one placement of a moved standard action.

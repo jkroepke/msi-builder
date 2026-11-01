@@ -222,6 +222,10 @@ func (b *build) anchorActions() {
 	for _, table := range sequenceTables {
 		for _, action := range b.schedules[table] {
 			anchor := action.Before + action.After
+			if b.scopeAnchor(table, anchor) {
+				continue
+			}
+
 			if s, ok := sequence.LookupStandard(anchor); ok && s.Number(table) != 0 {
 				b.standardAt(table, anchor)
 

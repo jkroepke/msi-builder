@@ -126,6 +126,10 @@ func TestStandardActionsRejected(t *testing.T) {
 				moveFind("{sequence: execute, after: Before}"),
 			"customActions[0].schedule[0]", "scheduling cycle",
 		},
+		"ui AppSearch next to the scope page's FindRelatedProducts": {
+			"ui: {enabled: true}\n" + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, after: FindRelatedProducts}]}\n",
+			"standardActions[0].schedule[0]", "so AppSearch cannot be placed next to it",
+		},
 		"ui move with the scope page": {
 			"ui: {enabled: true}\n" + moveFind("{sequence: ui, at: 30}"),
 			"standardActions[0].schedule[0].sequence", "scope page of a dual-scope wizard",

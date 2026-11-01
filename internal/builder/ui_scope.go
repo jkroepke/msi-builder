@@ -132,6 +132,25 @@ func (b *build) scopeFirst() {
 	}
 }
 
+// scopeAnchor adds FindRelatedProducts or LaunchConditions that an action
+// of the UI sequence is anchored to, but that no table needs, after the
+// scope page, where actions placed relative to them see the chosen context.
+func (b *build) scopeAnchor(table, anchor string) bool {
+	if table != seqInstallUI || !b.scopePage || anchor != actFindRelatedProducts && anchor != actLaunchConditions {
+		return false
+	}
+
+	switch {
+	case b.scheduled(table, anchor):
+	case anchor == actFindRelatedProducts && b.scheduled(table, actLaunchConditions):
+		b.schedule(table, anchor, standardCondition(anchor), actLaunchConditions, "", 0)
+	default:
+		b.schedule(table, anchor, standardCondition(anchor), "", b.afterScopePage(), 0)
+	}
+
+	return true
+}
+
 // afterScopePage returns the action that LaunchConditions follows in the
 // UI sequence of a package with the scope page: FindRelatedProducts, or
 // the page.
