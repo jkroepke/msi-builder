@@ -21,17 +21,143 @@ type StandardAction struct {
 // movableActions are the standard actions that standardActions may move.
 // They only read the system and set properties, and each must still run
 // before CostInitialize.
-var movableActions = []string{"FindRelatedProducts", actAppSearch, actLaunchConditions} //nolint:gochecknoglobals // lookup table
+var movableActions = []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} //nolint:gochecknoglobals // lookup table
 
 const (
-	actAppSearch        = "AppSearch"
-	actLaunchConditions = "LaunchConditions"
+	actFindRelatedProducts = "FindRelatedProducts"
+	actAppSearch           = "AppSearch"
+	actLaunchConditions    = "LaunchConditions"
 )
 
 // hasLaunchConditions reports whether the package gets LaunchCondition
 // rows: its own, or the downgrade check of upgrade.downgrade: error.
 func hasLaunchConditions(cfg *Config) bool {
 	return len(cfg.LaunchConditions) > 0 || upgrades(cfg) && cfg.Upgrade.Downgrade == downgradeError
+}
+
+// idle returns why the package does not run a movable standard action in a
+// sequence, or "" when it does: FindRelatedProducts needs the upgrade
+// section, AppSearch a property search or a remembered install dir, and
+// LaunchConditions a launch condition. An action that a placement in the
+// sequence is anchored to runs anyway, as the builder adds it.
+func idle(cfg *Config, action, schedule string) string {
+	if anchoredIn(cfg, action, schedule) {
+		return ""
+	}
+
+	switch {
+	case action == actFindRelatedProducts && !upgrades(cfg):
+		return "it needs the upgrade section"
+	case action == actAppSearch && !searches(cfg):
+		return "it searches for nothing"
+	case action == actLaunchConditions && !hasLaunchConditions(cfg):
+		return "it has no launch conditions"
+	default:
+		return ""
+	}
+}
+
+// searches reports whether the builder runs AppSearch for the package.
+func searches(cfg *Config) bool {
+	if cfg.InstallDir.Remember {
+		return true
+	}
+
+	for _, prop := range cfg.Properties {
+		if prop != nil && len(prop.Search) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// anchoredIn reports whether a custom action or another moved standard
+// action is placed next to action in a sequence.
+func anchoredIn(cfg *Config, action, schedule string) bool {
+	next := func(place Placement) bool {
+		return place.Sequence == schedule && (place.Before == action || place.After == action)
+	}
+
+	for _, custom := range cfg.CustomActions {
+		if custom != nil && slices.ContainsFunc(custom.Schedule, next) {
+			return true
+		}
+	}
+
+	for _, moved := range cfg.StandardActions {
+		if moved != nil && moved.Action != action && slices.ContainsFunc(moved.Schedule, next) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// launchBeforeFind reports launch conditions that a move puts before
+// FindRelatedProducts in a numbered sequence, as the build does. When
+// LaunchConditions keeps its place (100, or later behind a long chain of
+// search actions) and is not numbered here, a FindRelatedProducts at 100
+// or later counts as after it.
+func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []sequence.Numbered) {
+	if !hasLaunchConditions(cfg) {
+		return
+	}
+
+	// After an unmoved LaunchConditions, whose number validate leaves to
+	// the build.
+	place, path, moved := cfg.StandardPlacement(table, actFindRelatedProducts)
+	if _, _, launchMoved := cfg.StandardPlacement(table, actLaunchConditions); moved && place.After == actLaunchConditions && !launchMoved {
+		v.reportLaunchBeforeFind(cfg, path)
+
+		return
+	}
+
+	find := sequence.Find(numbered, actFindRelatedProducts)
+	if find == 0 {
+		return
+	}
+
+	launch := sequence.Find(numbered, actLaunchConditions)
+	if launch == 0 {
+		std, _ := sequence.LookupStandard(actLaunchConditions)
+		launch = std.Number(table)
+	}
+
+	path = movePath(cfg, table)
+	if launch > find || path == "" {
+		return
+	}
+
+	v.reportLaunchBeforeFind(cfg, path)
+}
+
+// reportLaunchBeforeFind reports launch conditions before
+// FindRelatedProducts: an error with the downgrade check of
+// upgrade.downgrade: error, a warning otherwise. The numbers are left out,
+// because the builder adds actions validate does not number.
+func (v *validator) reportLaunchBeforeFind(cfg *Config, path string) {
+	if upgrades(cfg) && cfg.Upgrade.Downgrade == downgradeError {
+		v.errorf(path, "LaunchConditions runs before FindRelatedProducts, so the downgrade check of upgrade.downgrade: "+
+			"error never sees a newer version; keep FindRelatedProducts before it or move LaunchConditions too")
+
+		return
+	}
+
+	v.warnf(path, "LaunchConditions runs before FindRelatedProducts: a launch condition sees the upgrade properties unset")
+}
+
+// movePath returns the YAML path of the move that puts LaunchConditions
+// before FindRelatedProducts: that of LaunchConditions, of
+// FindRelatedProducts, or of AppSearch, which LaunchConditions follows.
+func movePath(cfg *Config, table string) string {
+	for _, name := range []string{actLaunchConditions, actFindRelatedProducts, actAppSearch} {
+		if _, path, ok := cfg.StandardPlacement(table, name); ok {
+			return path
+		}
+	}
+
+	return ""
 }
 
 // movedNumbers reports the moved standard actions that a numbered sequence
@@ -101,6 +227,10 @@ func (v *validator) standardActions(cfg *Config) {
 			sequences[place.Sequence] = true
 
 			v.standardPlacement(cfg, placePath, moved.Action, place)
+
+			if why := idle(cfg, moved.Action, place.Sequence); why != "" {
+				v.errorf(placePath, "%s does not run in this package (%s), so there is nothing to move", moved.Action, why)
+			}
 		}
 	}
 }

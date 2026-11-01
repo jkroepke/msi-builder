@@ -2577,8 +2577,8 @@ func TestConvertMovesThatDoNothing(t *testing.T) {
 
 	out := string(res.YAML)
 	for _, want := range []string{
-		"the sequence moves the standard action AppSearch, which the converted package does not run (it has no property searches); convert left the move out",
-		"FindRelatedProducts runs after LaunchConditions here",
+		"the sequence moves the standard action AppSearch in execute, which msi-builder cannot take (it has no property searches); convert left the move out",
+		"LaunchConditions runs before FindRelatedProducts here",
 		"      - {sequence: execute, at: 200}\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -2588,5 +2588,51 @@ func TestConvertMovesThatDoNothing(t *testing.T) {
 
 	if strings.Contains(out, "action: AppSearch") || strings.Contains(out, "action: LaunchConditions") {
 		t.Errorf("a move that does nothing was kept:\n%s", out)
+	}
+}
+
+// TestConvertMovesMsiBuilderRefuses leaves out moves to places the build
+// refuses, keeps a LaunchConditions move that the downgrade check needs,
+// and notes launch conditions moved before FindRelatedProducts.
+func TestConvertMovesMsiBuilderRefuses(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <InstallExecuteSequence>
+      <FindRelatedProducts After="CostFinalize" />
+      <LaunchConditions Sequence="20" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <FindRelatedProducts Before="WelcomeDlg" />
+    </InstallUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"the sequence moves the standard action FindRelatedProducts in execute, which msi-builder cannot take (it would run after CostFinalize, not before CostInitialize)",
+		"the sequence moves the standard action FindRelatedProducts in ui, which msi-builder cannot take (WelcomeDlg is not a converted custom action)",
+		"standardActions:\n  - action: LaunchConditions\n    schedule:\n",
+		"LaunchConditions runs before FindRelatedProducts here",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "action: FindRelatedProducts") {
+		t.Errorf("a refused move was kept:\n%s", out)
 	}
 }

@@ -46,6 +46,7 @@ func (v *validator) schedules(cfg *Config) {
 		var serr *sequence.Error
 		if !errors.As(err, &serr) {
 			v.movedNumbers(cfg, table, numbered)
+			v.launchBeforeFind(cfg, table, numbered)
 
 			continue
 		}
@@ -129,9 +130,24 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 	// number.
 	for _, moved := range cfg.StandardActions {
 		table := sequenceTables[name]
-		if place, path, ok := cfg.StandardPlacement(table, moved.Action); ok && wellMoved(moved.Action, place) && paths[moved.Action] == "" {
+		if place, path, ok := cfg.StandardPlacement(table, moved.Action); ok && wellMoved(cfg, moved.Action, place) && paths[moved.Action] == "" {
 			paths[moved.Action] = path
 			actions = append(actions, sequence.Action{Name: moved.Action, Before: place.Before, After: place.After, Sequence: place.At})
+		}
+	}
+
+	// Next to a move, the unmoved actions it can meet keep the numbers the
+	// builder gives them.
+	if movesIn(cfg, sequenceTables[name]) {
+		for _, sibling := range []struct {
+			action string
+			runs   bool
+		}{{actFindRelatedProducts, upgrades(cfg)}, {actAppSearch, searches(cfg)}} {
+			action := sibling.action
+			if _, _, moved := cfg.StandardPlacement(sequenceTables[name], action); sibling.runs && !moved && paths[action] == "" {
+				std, _ := sequence.LookupStandard(action)
+				actions = append(actions, sequence.Action{Name: action, Sequence: std.Number(sequenceTables[name])})
+			}
 		}
 	}
 
@@ -171,16 +187,32 @@ func wellPlaced(place Placement) bool {
 	return count == 1 && place.At >= minSequenceNumber && place.At <= maxSequenceNumber && (place.At >= 0 || termination)
 }
 
+// movesIn reports whether standardActions moves an action in a table.
+func movesIn(cfg *Config, table string) bool {
+	for _, name := range movableActions {
+		if _, _, ok := cfg.StandardPlacement(table, name); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
 // wellMoved reports whether a moved standard action's placement passed
 // standardPlacement, so that its errors are not reported twice.
-func wellMoved(action string, place Placement) bool {
-	if !slices.Contains(movableActions, action) || !wellPlaced(place) || place.At < 0 || place.At >= costInitialize() ||
-		place.Before == action || place.After == action {
+func wellMoved(cfg *Config, action string, place Placement) bool {
+	if !slices.Contains(movableActions, action) || !wellPlaced(place) || idle(cfg, action, place.Sequence) != "" {
 		return false
 	}
 
+	return place.At >= 0 && place.At < costInitialize() && earlyAnchors(action, place)
+}
+
+// earlyAnchors reports whether a moved action's anchor is not the action
+// itself and, for a standard action, runs before CostInitialize.
+func earlyAnchors(action string, place Placement) bool {
 	for i, anchor := range []string{place.Before, place.After} {
-		if standardActions[anchor] && !earlyAnchor(anchor, place.Sequence, i == 0) {
+		if anchor == action || standardActions[anchor] && !earlyAnchor(anchor, place.Sequence, i == 0) {
 			return false
 		}
 	}

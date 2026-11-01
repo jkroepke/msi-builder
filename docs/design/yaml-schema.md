@@ -2177,9 +2177,13 @@ needs `upgrade`, AppSearch a property search, LaunchConditions a launch
 condition), and when LaunchConditions ends up before FindRelatedProducts
 while `upgrade.downgrade` is `error`, whose launch condition tests what
 FindRelatedProducts sets; with other launch conditions that order is a
-warning. Validate reports the cycles and the numbers at or after
-CostInitialize that these moves cause, including the LaunchConditions the
-builder puts after a moved AppSearch, and a termination number. The other
+warning. Validate reports these cases where the configuration decides them,
+together with the cycles and collisions a move causes, counting the
+LaunchConditions the builder puts after a moved AppSearch and the
+unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
+LaunchConditions counts as 100 there, so a FindRelatedProducts moved to
+100 or later is treated as running after it even when a long chain of
+search actions would push LaunchConditions further. The other
 standard actions keep their numbers.
 
 **Restart.** `scheduleReboot` asks for a restart at the end of the

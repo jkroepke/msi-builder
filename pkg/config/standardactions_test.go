@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jkroepke/msi-builder/pkg/config"
@@ -15,6 +16,9 @@ const setAllUsers = `customActions:
       - {sequence: ui, after: AppSearch, condition: PREV}
 `
 
+// search is a property search, which makes the package run AppSearch.
+const search = "properties: {P: {search: {registry: {root: HKLM, key: X, name: V}}}}\n"
+
 // moveFind returns a standardActions section that moves
 // FindRelatedProducts to the given placements.
 func moveFind(placements string) string {
@@ -27,8 +31,11 @@ func TestStandardActionsAccepted(t *testing.T) {
 	for name, doc := range map[string]string{
 		"after a custom action": setAllUsers + moveFind("{sequence: execute, after: SetAllUsers}, {sequence: ui, after: SetAllUsers}"),
 		"after AppSearch":       moveFind("{sequence: execute, after: AppSearch}"),
-		"before CostInitialize": moveFind("{sequence: ui, before: CostInitialize}"),
-		"at a number":           "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, at: 1}]}\n",
+		"before CostInitialize": search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, before: CostInitialize}]}\n",
+		// BowPad: AppSearch first, FindRelatedProducts before it and the
+		// launch conditions after it.
+		"at a number": search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, at: 2}]}\n" +
+			"  - {action: FindRelatedProducts, schedule: [{sequence: execute, before: AppSearch}]}\n",
 		"launch conditions after a custom action": setAllUsers +
 			"standardActions:\n  - {action: LaunchConditions, schedule: [{sequence: execute, after: SetAllUsers}]}\n",
 	} {
@@ -125,20 +132,56 @@ func TestStandardActionsNumbered(t *testing.T) {
 		doc, path, msg string
 	}{
 		"AppSearch after the LaunchConditions that follow it": {
-			launch + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: LaunchConditions}]}\n",
+			launch + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: LaunchConditions}]}\n",
 			"standardActions[0].schedule[0]", "AppSearch → LaunchConditions → AppSearch",
 		},
 		"past CostInitialize through a custom action": {
-			"customActions:\n  - {id: Late, setProperty: {name: P, value: x}, schedule: [{sequence: execute, after: CostFinalize}]}\n" +
+			search + "customActions:\n  - {id: Late, setProperty: {name: P, value: x}, schedule: [{sequence: execute, after: CostFinalize}]}\n" +
 				"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: Late}]}\n",
 			"standardActions[0].schedule[0]", "must run before CostInitialize (800)",
 		},
+		// The downgrade check of upgrade.downgrade: error is a launch
+		// condition, so every case below has one.
+		"FindRelatedProducts after the default LaunchConditions": {
+			moveFind("{sequence: execute, at: 150}"),
+			"standardActions[0].schedule[0]", "downgrade check",
+		},
+		"FindRelatedProducts after LaunchConditions": {
+			moveFind("{sequence: execute, after: LaunchConditions}"),
+			"standardActions[0].schedule[0]", "downgrade check",
+		},
+		"AppSearch and its LaunchConditions before FindRelatedProducts": {
+			search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, at: 10}]}\n",
+			"standardActions[0].schedule[0]", "LaunchConditions runs before FindRelatedProducts",
+		},
+		"LaunchConditions before FindRelatedProducts": {
+			"standardActions:\n  - {action: LaunchConditions, schedule: [{sequence: execute, at: 20}]}\n",
+			"standardActions[0].schedule[0]", "downgrade check",
+		},
+		"same number as an unmoved FindRelatedProducts": {
+			search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, at: 25}]}\n",
+			"standardActions[0].schedule[0]", "both have number 25",
+		},
+		"FindRelatedProducts without upgrade": {
+			"upgrade: false\n" + moveFind("{sequence: execute, at: 10}"),
+			"standardActions[0].schedule[0]", "needs the upgrade section",
+		},
+		"AppSearch without searches": {
+			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, at: 10}]}\n",
+			"standardActions[0].schedule[0]", "searches for nothing",
+		},
 		"termination number": {
-			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, at: -1}]}\n",
+			search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, at: -1}]}\n",
 			"standardActions[0].schedule[0].at", "termination action",
 		},
 	} {
-		ds := validate(t, base+appComponent+test.doc)
+		// A test that brings its own upgrade section replaces base's.
+		doc := base
+		if strings.HasPrefix(test.doc, "upgrade:") {
+			doc = strings.Replace(base, "upgrade: {}\n", "", 1)
+		}
+
+		ds := validate(t, doc+appComponent+test.doc)
 		if !find(ds, config.SeverityError, test.path, test.msg) || errorCount(ds) != 1 {
 			t.Errorf("%s: want one error at %s with %q: %v", name, test.path, test.msg, ds)
 		}
