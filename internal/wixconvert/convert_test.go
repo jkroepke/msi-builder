@@ -323,15 +323,47 @@ func TestConvertBuiltCodes(t *testing.T) {
 		t.Errorf("unmatched components in lines %v, want [17 20 27]", lines)
 	}
 
-	// Without the package, the late removal names every component, also
-	// the shortcut component.
+	// Without the package but with --arch, convert computes the code of
+	// every component, also of the shortcut components, and the late
+	// removal needs no note.
+	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{Arch: "x64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n := strings.Count(string(res.YAML), "guid: '{"); n != 7 {
+		t.Errorf("%d computed codes, want 7:\n%s", n, res.YAML)
+	}
+
+	if slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool { return strings.HasPrefix(n.Message, "WiX generated the Guid") }) {
+		t.Errorf("notes %v name a component without a code", res.Notes)
+	}
+
+	// The 64-bit folder makes package.platform x64, but does not tell the
+	// -arch WiX built with, so the HKCU key paths, whose bitness follows
+	// it, stay open.
 	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of a.txt, Main, notes.txt, readme.txt, Menu and 2 more components; " +
-		"msi-builder generates other codes"}
+	open := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of Menu, the component in line 27, which convert cannot compute"}
+	if !slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool {
+		return n.Line == open.Line && strings.HasPrefix(n.Message, open.Message)
+	}) {
+		t.Errorf("notes %v lack %v", res.Notes, open)
+	}
+
+	// Below a 6432 folder, the files need the platform too.
+	src := strings.Replace(codesSource, "ProgramFiles64Folder", "ProgramFiles6432Folder", 1)
+
+	res, err = wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of a.txt, Main, notes.txt, readme.txt, Menu and 2 more components, " +
+		"which convert cannot compute"}
 
 	if !slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool {
 		return n.Line == want.Line && strings.HasPrefix(n.Message, want.Message)
@@ -476,8 +508,8 @@ func TestConvertBuiltCodesFiles(t *testing.T) {
 }
 
 // globNotes returns the lines of the Files glob notes and fails on any
-// other note about codes but the late removal of the files in lines 8 and
-// 10.
+// other note about codes but the late removal of the file in line 8: convert
+// computes the code of the one in line 10.
 func globNotes(t *testing.T, notes []wixconvert.Note, built bool) []int {
 	t.Helper()
 
@@ -489,7 +521,7 @@ func globNotes(t *testing.T, notes []wixconvert.Note, built bool) []int {
 			strings.HasPrefix(note.Message, "hello.msi has no component for a file of this Files glob"):
 			lines = append(lines, note.Line)
 		case strings.Contains(note.Message, "no matching component"), strings.HasPrefix(note.Message, "WiX generated the Guid"):
-			if built || !strings.Contains(note.Message, "the component in line 8, helper.exe;") {
+			if built || !strings.Contains(note.Message, "the component in line 8, which convert cannot compute") {
 				t.Errorf("unexpected note %v", note)
 			}
 		}
@@ -1847,9 +1879,10 @@ func TestConvertLocalActionRefAndIcon(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"the ProgId Example.Doc takes its icon from doc.ico", `HKCR\Example.Doc\DefaultIcon = [#doc.ico],0`,
+		"progId: Example.Doc\n", "description: Hello document\n", "iconFile: doc.ico\n",
 		"progId: Example.Own\n", "iconIndex: 0\n", "iconIndex: 2\n", "iconIndex: 1\n",
-		"the ProgId Example.Elsewhere takes its icon from other.dll (a file this source does not define), not from the file it opens",
+		"the ProgId Example.Elsewhere takes its icon from other.dll (a file this source does not define), not from the file it opens; " +
+			"name the file with iconFile (index 0)",
 		"the ProgId Example.Table takes its icon from the <Icon> App.ico, which only advertised ProgIds use",
 	} {
 		if !strings.Contains(out, want) {
@@ -2276,8 +2309,8 @@ func TestConvertSharedProgIDAndExistenceSearch(t *testing.T) {
 	out := string(res.YAML)
 	for _, want := range []string{
 		"extension: hla\n", "extension: hlb\n", "the ProgId Example.Shared is declared again",
-		"so the condition and features of the component that declared it again no longer apply",
-		`was in a component with the condition ASSOC="1"`,
+		// The conditioned component keeps its file type and names the file.
+		"    condition: ASSOC=\"1\"\n    fileTypes:\n", "        file: app\n",
 		"type: directory\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -2480,6 +2513,121 @@ func TestConvertRawRegistryFolderSearch(t *testing.T) {
 
 		if err := config.Validate(cfg).Err(); err != nil {
 			t.Errorf("the converted file does not validate: %v\n%s", err, out)
+		}
+	}
+}
+
+// TestConvertProgIDPlacement keeps an optional ProgId in a component with a
+// folder source on the file it opens, with a note, and notes a second
+// declaration merged into a conditioned component.
+func TestConvertProgIDPlacement(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="cmpA" Condition="ASSOC=&quot;1&quot;">
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Example\A" Value="1" KeyPath="yes" />
+          <ProgId Id="Example.Shared" Description="Shared">
+            <Extension Id="hla"><Verb Id="open" TargetFile="app" Argument="&quot;%1&quot;" /></Extension>
+          </ProgId>
+        </Component>
+        <Component>
+          <File Id="app" Source="hello.exe" />
+          <ProgId Id="Example.Shared" Description="Shared">
+            <Extension Id="hlb"><Verb Id="open" TargetFile="app" Argument="&quot;%1&quot;" /></Extension>
+          </ProgId>
+        </Component>
+        <Component Id="docs">
+          <Files Include="docs\**" />
+          <ProgId Id="Example.Docs" Description="Docs">
+            <Extension Id="hld"><Verb Id="open" TargetFile="app" Argument="&quot;%1&quot;" /></Extension>
+          </ProgId>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" Title="Hello"><ComponentRef Id="app" /><ComponentRef Id="cmpA" /></Feature>
+    <Feature Id="Docs" Title="Docs"><ComponentRef Id="docs" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"whose condition and features replace those of the component that declared it again",
+		"the ProgId Example.Docs was in a component with a folder source",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted file does not validate: %v\n%s", err, out)
+	}
+}
+
+// TestConvertServiceConfig checks the MsiServiceConfig settings of a
+// ServiceConfig: the SID type and the preshutdown delay in milliseconds
+// become sidType and preshutdownTimeout; values without a counterpart,
+// RequiredPrivilege and events other than install and reinstall a todo.
+func TestConvertServiceConfig(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component>
+          <File Source="hello.exe" />
+          <ServiceInstall Name="Hello" Start="auto" Type="ownProcess" ErrorControl="normal">
+            <ServiceConfig %s />
+          </ServiceInstall>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>`
+
+	for _, tc := range []struct{ attrs, want string }{
+		{`ServiceSid="restricted" PreShutdownDelay="180000" OnInstall="yes" OnReinstall="yes"`, "sidType: restricted\n        preshutdownTimeout: 180000ms\n"},
+		{`ServiceSid="none" OnInstall="yes" OnReinstall="yes"`, "sidType: none\n"},
+		{`ServiceSid="other" OnInstall="yes" OnReinstall="yes"`, `ServiceSid="other" has no counterpart`},
+		{`PreShutdownDelay="0" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="0" is not a number of milliseconds`},
+		{`PreShutdownDelay="[DELAY]" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="[DELAY]" is not a number of milliseconds`},
+		{`RequiredPrivilege="SeBackupPrivilege" OnInstall="yes" OnReinstall="yes"`, "RequiredPrivilege has no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes" OnReinstall="yes" OnUninstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "sidType: restricted\n"},
+		{`PreShutdownDelay="060000" OnInstall="yes" OnReinstall="yes"`, "preshutdownTimeout: 60000ms\n"},
+	} {
+		res, err := wixconvert.Convert(strings.NewReader(fmt.Sprintf(src, tc.attrs)), wixconvert.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if out := string(res.YAML); !strings.Contains(out, tc.want) {
+			t.Errorf("%s: the YAML lacks %q:\n%s", tc.attrs, tc.want, out)
+		}
+
+		cfg, err := config.Parse(res.YAML, config.Options{})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.attrs, err)
+		}
+
+		if err := config.Validate(cfg).Err(); err != nil {
+			t.Errorf("%s: the converted file does not validate: %v", tc.attrs, err)
 		}
 	}
 }

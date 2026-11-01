@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jkroepke/msi-builder/pkg/config"
@@ -127,5 +128,194 @@ components:
 	row := rowWhere(t, database, "Registry", func(r []any) bool { return r[2] == `Software\Classes\.acmedoc` })
 	if row == nil || fmt.Sprint(row[1]) != "1" {
 		t.Errorf("per-user extension row %v", row)
+	}
+}
+
+// TestComponentFileTypes writes a component's own file types into that
+// component, which is keyed on the first value with data they write, so
+// that each extension can have a feature of its own. A file in another
+// feature is named by its folder and long name (ICE69), one in the same
+// feature by [#key]; iconFile names another file in DefaultIcon.
+func TestComponentFileTypes(t *testing.T) {
+	t.Parallel()
+
+	cfg := shortcutConfig(t, `
+  - id: App
+    files:
+      - source: app.exe
+      - source: app.ico
+  - id: AssocDoc
+    fileTypes:
+      - progId: Acme.Document
+        file: app.exe
+        description: Acme document
+        iconFile: app.ico
+        extensions: [{ extension: acmedoc }]
+  - id: AssocPlain
+    fileTypes:
+      - progId: Acme.Plain
+        file: app.exe
+        iconFile: app.ico
+        iconIndex: 2
+        verbs: []
+        extensions: [{ extension: acmeplain }]
+  - fileTypes:
+      - progId: Acme.Same
+        file: app.exe
+        verbs: []
+        extensions: [{ extension: acmesame, openWithOnly: true }, { extension: acmesame2 }]
+features:
+  - id: Main
+    components: [App]
+    features:
+      - { id: Doc, components: [AssocDoc] }
+      - { id: Plain, default: off, components: [AssocPlain] }
+  - { id: Same, components: [App, Acme.Same] }
+`)
+	res := mustBuild(t, cfg)
+	database := res.Database
+
+	if len(res.Diagnostics) != 0 {
+		t.Errorf("diagnostics: %v", res.Diagnostics)
+	}
+
+	got := make(map[string]string)
+	ids := make(map[string]string)
+
+	for _, row := range rows(t, database, "Registry") {
+		key := fmt.Sprintf("%v|%v|%v", row[5], row[2], row[3])
+		got[key] = fmt.Sprint(row[4])
+		ids[key] = fmt.Sprint(row[0])
+	}
+
+	want := map[string]string{
+		`AssocDoc|Acme.Document|<nil>`:                     "Acme document",
+		`AssocDoc|Acme.Document\DefaultIcon|<nil>`:         `"[INSTALLDIR]app.ico",0`,
+		`AssocDoc|Acme.Document\shell\open\command|<nil>`:  `"[INSTALLDIR]app.exe" "%1"`,
+		`AssocDoc|.acmedoc|<nil>`:                          "Acme.Document",
+		`AssocDoc|.acmedoc\OpenWithProgids|Acme.Document`:  "<nil>",
+		`AssocPlain|Acme.Plain\DefaultIcon|<nil>`:          `"[INSTALLDIR]app.ico",2`,
+		`AssocPlain|.acmeplain|<nil>`:                      "Acme.Plain",
+		`AssocPlain|.acmeplain\OpenWithProgids|Acme.Plain`: "<nil>",
+		`Acme.Same|.acmesame\OpenWithProgids|Acme.Same`:    "<nil>",
+		`Acme.Same|.acmesame2|<nil>`:                       "Acme.Same",
+		`Acme.Same|.acmesame2\OpenWithProgids|Acme.Same`:   "<nil>",
+	}
+
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("%s = %q, want %q", key, got[key], value)
+		}
+	}
+
+	if len(got) != len(want) {
+		t.Errorf("got %d rows, want %d: %v", len(got), len(want), got)
+	}
+
+	// Each component is keyed on its first value with data; an
+	// openWithOnly entry is skipped.
+	for comp, key := range map[string]string{
+		"AssocDoc":   `AssocDoc|Acme.Document|<nil>`,
+		"AssocPlain": `AssocPlain|Acme.Plain\DefaultIcon|<nil>`,
+		"Acme.Same":  `Acme.Same|.acmesame2|<nil>`,
+	} {
+		row := rowWhere(t, database, "Component", func(r []any) bool { return r[0] == comp })
+		if row == nil {
+			t.Errorf("no component %s", comp)
+
+			continue
+		}
+
+		if attrs, ok := row[3].(int); !ok || fmt.Sprint(row[5]) != ids[key] || attrs&4 == 0 {
+			t.Errorf("component %v, want key path %s (%s) with the registry attribute", row, ids[key], key)
+		}
+	}
+}
+
+// TestComponentFileTypesSameFeature names the file by [#key] when every
+// feature of the component also installs the file's component, and keeps
+// the component codes of two file-type components apart.
+func TestComponentFileTypesSameFeature(t *testing.T) {
+	t.Parallel()
+
+	res := mustBuild(t, shortcutConfig(t, `
+  - id: App
+    files: [{ source: app.exe }]
+  - id: AssocA
+    fileTypes: [{ progId: Acme.A, file: app.exe, iconFile: app.exe, extensions: [{ extension: acmea }] }]
+  - id: AssocB
+    fileTypes: [{ progId: Acme.B, file: app.exe, extensions: [{ extension: acmeb }] }]
+features:
+  - { id: Main, components: [App, AssocA, AssocB] }
+`))
+	database := res.Database
+
+	row := rowWhere(t, database, "Registry", func(r []any) bool { return r[2] == `Acme.A\shell\open\command` })
+	if row == nil || row[4] != `"[#app.exe]" "%1"` {
+		t.Errorf("command row %v, want [#app.exe]", row)
+	}
+
+	icon := rowWhere(t, database, "Registry", func(r []any) bool { return r[2] == `Acme.A\DefaultIcon` })
+	if icon == nil || icon[4] != `"[#app.exe]",0` {
+		t.Errorf("icon row %v", icon)
+	}
+
+	a := rowWhere(t, database, "Component", func(r []any) bool { return r[0] == "AssocA" })
+	b := rowWhere(t, database, "Component", func(r []any) bool { return r[0] == "AssocB" })
+
+	if a == nil || b == nil || a[1] == nil || a[1] == b[1] {
+		t.Errorf("component codes %v and %v, want two different ones", a, b)
+	}
+}
+
+// TestComponentFileTypesPerUser keys a component with nothing but file
+// types on its HKCU\Software\Classes value in a per-user package, which
+// the profile folder needs (ICE38), without an extra HKCU value.
+func TestComponentFileTypesPerUser(t *testing.T) {
+	t.Parallel()
+
+	res := mustBuild(t, scopedShortcutConfig(t, "perUser", `
+  - id: App
+    files: [{ source: app.exe }]
+  - id: Assoc
+    fileTypes: [{ progId: Acme.Doc, file: app.exe, extensions: [{ extension: acmedoc }] }]
+`))
+	database := res.Database
+
+	comp := rowWhere(t, database, "Component", func(r []any) bool { return r[0] == "Assoc" })
+	if comp == nil {
+		t.Fatal("no Assoc component")
+	}
+
+	key := rowWhere(t, database, "Registry", func(r []any) bool { return r[0] == comp[5] })
+	if key == nil || fmt.Sprint(key[1]) != "1" || key[2] != `Software\Classes\Acme.Doc\shell\open\command` {
+		t.Errorf("Assoc key path %v, want the HKCU open command", key)
+	}
+
+	for _, row := range rows(t, database, "Registry") {
+		if row[5] == "Assoc" && !strings.HasPrefix(fmt.Sprint(row[2]), `Software\Classes\`) {
+			t.Errorf("Assoc writes %v outside Software\\Classes", row)
+		}
+	}
+}
+
+// TestComponentFileTypesEscapedName escapes a long name with brackets in
+// the folder-and-name form, which is formatted text.
+func TestComponentFileTypesEscapedName(t *testing.T) {
+	t.Parallel()
+
+	cfg := shortcutConfig(t, `
+  - id: App
+    files: [{ source: app.exe, name: 'app[1].exe' }]
+  - id: Assoc
+    fileTypes: [{ progId: Acme.Doc, file: 'app[1].exe', extensions: [{ extension: acmedoc }] }]
+features:
+  - { id: Main, components: [App], features: [{ id: Doc, components: [Assoc] }] }
+`)
+	database := mustBuild(t, cfg).Database
+
+	row := rowWhere(t, database, "Registry", func(r []any) bool { return r[2] == `Acme.Doc\shell\open\command` })
+	if row == nil || row[4] != `"[INSTALLDIR]app[\[]1[\]].exe" "%1"` {
+		t.Errorf("command row %v", row)
 	}
 }

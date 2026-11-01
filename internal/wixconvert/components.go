@@ -90,6 +90,7 @@ func (c *converter) emitComponents(tree map[*dir]bool) {
 			continue
 		}
 
+		comp.out.opens = comp.e.opens
 		c.out.add("components", comp.out)
 	}
 }
@@ -152,8 +153,8 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 	}
 
 	// A folder source takes no guid; pinHarvested gives its files theirs.
-	if comp.generated && comp.folder == nil && c.built != nil {
-		c.pinCode(comp, builtKeyFile(elm, content.keyFile))
+	if comp.generated {
+		c.keepCode(comp, builtKeyFile(elm, content.keyFile))
 	}
 
 	content.finish()
@@ -161,10 +162,25 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 	return out
 }
 
+// keepCode gives a component whose Guid WiX generates the code WiX gave
+// it: from the built package, else computed from the source.
+func (c *converter) keepCode(comp *comp, keyFile string) {
+	switch {
+	case c.built != nil && comp.folder == nil:
+		c.pinCode(comp, keyFile)
+	case c.built != nil:
+		// pinHarvested gives the files of a folder source their codes.
+	case comp.folder != nil:
+		c.computeHarvested(comp)
+	default:
+		c.computeCode(comp)
+	}
+}
+
 // builtKeyFile returns the key file a component has in the built package:
 // none when its key path is no file.
 func builtKeyFile(elm *elem, keyFile string) string {
-	if key := keyElem(elm); key != nil && !key.is("File") && !key.is("Files") {
+	if key := keyElem(elm); key != nil && !key.is(elemFile) && !key.is("Files") {
 		return ""
 	}
 
@@ -173,19 +189,26 @@ func builtKeyFile(elm *elem, keyFile string) string {
 
 // Bitness values.
 const (
-	platformX64 = "x64"
-	platformX86 = "x86"
-	always32    = "always32"
-	always64    = "always64"
+	platformX64   = "x64"
+	platformX86   = "x86"
+	platformArm64 = "arm64"
+	always32      = "always32"
+	always64      = "always64"
 )
 
 // Names that several elements share.
 const (
-	attrDirectory  = "Directory"
-	attrProperty   = "Property"
-	elemPermission = "Permission"
-	elemCondition  = "Condition"
-	rightsFull     = "full"
+	attrDirectory    = "Directory"
+	attrProperty     = "Property"
+	elemPermission   = "Permission"
+	elemRemoveFile   = "RemoveFile"
+	elemRemoveFolder = "RemoveFolder"
+	// folderTargetDir is the root folder, folderProgramFiles6432 the
+	// Program Files folder of the platform WiX builds for.
+	folderTargetDir        = "TARGETDIR"
+	folderProgramFiles6432 = "ProgramFiles6432Folder"
+	elemCondition          = "Condition"
+	rightsFull             = "full"
 )
 
 // WiX standard wizards and their variables.
@@ -230,6 +253,7 @@ type compConv struct {
 	removeFolder []*omap
 	services     []*omap
 	serviceLines []int
+	serviceKeys  []string // the services' match keys (serviceKey)
 	controls     []*elem
 	shortcuts    int
 	files        int
@@ -239,19 +263,19 @@ type compConv struct {
 
 // componentChildren convert the elements a Component holds.
 var componentChildren = map[string]func(cc *compConv, e *elem){ //nolint:gochecknoglobals // dispatch table
-	"File":                  (*compConv).file,
+	elemFile:                (*compConv).file,
 	"Files":                 (*compConv).folderFiles,
-	"RegistryKey":           func(cc *compConv, e *elem) { cc.registry(e, e.attr("Root"), "") },
-	"RegistryValue":         func(cc *compConv, e *elem) { cc.registry(e, e.attr("Root"), "") },
+	elemRegistryKey:         func(cc *compConv, e *elem) { cc.registry(e, e.attr("Root"), "") },
+	elemRegistryValue:       func(cc *compConv, e *elem) { cc.registry(e, e.attr("Root"), "") },
 	"RemoveRegistryKey":     (*compConv).removeRegistry,
 	"RemoveRegistryValue":   (*compConv).removeRegistry,
-	"Environment":           (*compConv).environment,
-	"ServiceInstall":        (*compConv).service,
-	"ServiceControl":        func(cc *compConv, e *elem) { cc.controls = append(cc.controls, e) },
+	elemEnvironment:         (*compConv).environment,
+	elemServiceInstall:      (*compConv).service,
+	elemServiceControl:      func(cc *compConv, e *elem) { cc.controls = append(cc.controls, e) },
 	elemCloseApp:            func(cc *compConv, e *elem) { cc.c.closeApps = append(cc.c.closeApps, e) },
-	"CreateFolder":          (*compConv).createFolder,
-	"RemoveFile":            (*compConv).removeFile,
-	"RemoveFolder":          (*compConv).removeFile,
+	elemCreateFolder:        (*compConv).createFolder,
+	elemRemoveFile:          (*compConv).removeFile,
+	elemRemoveFolder:        (*compConv).removeFile,
 	"util:RemoveFolderEx":   (*compConv).purge,
 	elemShortcut:            (*compConv).shortcut,
 	"util:InternetShortcut": (*compConv).shortcut,
@@ -420,6 +444,7 @@ func (cc *compConv) file(elm *elem) { //nolint:cyclop // a flat list of independ
 	file.order("source", "name", "id", "version", "vital", "checksum", "readOnly", "hidden", "system",
 		"permissions", "shortcuts", "fileTypes", "close")
 	file.head = comments(elm)
+	file.opens = relOpens(elm, cc.cp.e)
 
 	src, name := cc.fileSource(file, elm)
 	file.set("id", elm.attr("Id"))
@@ -537,7 +562,7 @@ func (cc *compConv) registry(elm *elem, root, parentKey string) {
 		key = joinKey(parentKey, key)
 	}
 
-	if elm.is("RegistryValue") {
+	if elm.is(elemRegistryValue) {
 		cc.registryValue(elm, root, key)
 
 		return
@@ -547,7 +572,7 @@ func (cc *compConv) registry(elm *elem, root, parentKey string) {
 
 	for _, kid := range elm.kids {
 		switch {
-		case kid.is("RegistryKey"), kid.is("RegistryValue"):
+		case kid.is(elemRegistryKey), kid.is(elemRegistryValue):
 			cc.registry(kid, root, key)
 		case permissionElems[kid.qname()]:
 			conv.todof(cc.out, "", kid.line, "permissions on registry keys: add permissions to a registry entry of this key by hand")
@@ -571,12 +596,16 @@ func (cc *compConv) forcedKey(elm *elem, root, key string) {
 	if forceDelete && !forceCreate && !hasRegistryValue(elm) {
 		// WiX writes only the "-" row: the key is deleted on uninstall
 		// but never created (REG-08). A key entry would create it.
-		cc.addRemoveRegistry(newMap().set("root", root).set("key", key).set("on", "uninstall"))
+		removal := newMap().set("root", root).set("key", key).set("on", "uninstall")
+		removal.opens = relOpens(elm, cc.cp.e)
+		cc.addRemoveRegistry(removal)
 
 		return
 	}
 
 	entry := newMap().set("root", root).set("key", key).set("type", "key")
+	entry.opens = relOpens(elm, cc.cp.e)
+
 	if forceDelete {
 		entry.set("removeOnUninstall", true)
 	}
@@ -588,7 +617,7 @@ func (cc *compConv) forcedKey(elm *elem, root, key string) {
 // a nested key, which creates the key on install.
 func hasRegistryValue(elm *elem) bool {
 	return slices.ContainsFunc(elm.kids, func(kid *elem) bool {
-		return kid.is("RegistryValue") || kid.is("RegistryKey") && hasRegistryValue(kid)
+		return kid.is(elemRegistryValue) || kid.is(elemRegistryKey) && hasRegistryValue(kid)
 	})
 }
 
@@ -609,6 +638,7 @@ func (cc *compConv) registryValue(elm *elem, root, key string) { //nolint:cyclop
 	entry := newMap()
 	entry.order("id", "root", "key", "name", "type", "value", "append", "prepend")
 	entry.head = comments(elm)
+	entry.opens = relOpens(elm, cc.cp.e)
 
 	typ, ok := registryTypes[elm.attr("Type")]
 	if !ok {
@@ -758,7 +788,7 @@ func (cc *compConv) addRemoveRegistry(entry *omap) {
 	}
 
 	for _, item := range existing {
-		if other, ok := item.(*omap); ok && sameRemoval(other, entry) {
+		if other, ok := item.(*omap); ok && sameRemoval(other, entry) && slices.Equal(other.opens, entry.opens) {
 			return
 		}
 	}
@@ -782,6 +812,7 @@ func (cc *compConv) environment(elm *elem) {
 	env := newMap()
 	env.order("name", "value", "action", "scope", "removeOnUninstall")
 	env.head = comments(elm)
+	env.opens = relOpens(elm, cc.cp.e)
 	env.set("name", conv.value(elm, "Name")).set("value", conv.value(elm, "Value"))
 
 	switch action, part := elm.attr("Action"), elm.attr("Part"); {

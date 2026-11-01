@@ -187,11 +187,11 @@ func (c *converter) stdID(id string) string {
 // those that formatted text or an ID-valued attribute refers to.
 func (c *converter) markNeededDirs() {
 	idAttrs := map[string][]string{
-		"Shortcut":        {"WorkingDirectory"},
+		elemShortcut:      {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
-		"SetDirectory":    {"Id"},
-		"RemoveFile":      {attrDirectory},
-		"RemoveFolder":    {attrDirectory},
+		elemSetDirectory:  {"Id"},
+		elemRemoveFile:    {attrDirectory},
+		elemRemoveFolder:  {attrDirectory},
 		"Property":        {"Id"},
 		"DirectorySearch": {"Id"},
 		"RemoveFolderEx":  {attrProperty},
@@ -239,9 +239,9 @@ func ownFolder(comp *comp) string {
 
 	for _, k := range comp.e.kids {
 		switch {
-		case k.is("File"):
+		case k.is(elemFile):
 			return comp.dir
-		case k.is("CreateFolder") && k.attr(attrDirectory) != "":
+		case k.is(elemCreateFolder) && k.attr(attrDirectory) != "":
 			folder = k.attr(attrDirectory)
 		}
 	}
@@ -329,7 +329,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		nodes[folder] = entry
 
 		if folder.parent == nil || folder.parent.std {
-			rootID := "TARGETDIR"
+			rootID := folderTargetDir
 			if folder.parent != nil {
 				rootID = c.stdID(folder.parent.id)
 			}
@@ -379,7 +379,7 @@ const folderProgramFiles = "ProgramFilesFolder"
 
 func (c *converter) defaultInstallParent(id string) bool {
 	switch id {
-	case "ProgramFiles6432Folder":
+	case folderProgramFiles6432:
 		return true
 	case "ProgramFiles64Folder":
 		return c.platform != platformX86
@@ -426,7 +426,7 @@ func (c *converter) dirValue(id string, tree map[*dir]bool) string {
 		names = append(dirNames(cur.name), names...)
 	}
 
-	return joinPath("TARGETDIR", names)
+	return joinPath(folderTargetDir, names)
 }
 
 // relative returns a path below the install dir, with "./" when its first
@@ -466,4 +466,4 @@ func joinPath(start string, names []string) string {
 	return strings.Join(append([]string{start}, names...), "/")
 }
 
-func isFile(e *elem) bool { return e.is("File") || e.is("Files") }
+func isFile(e *elem) bool { return e.is(elemFile) || e.is("Files") }

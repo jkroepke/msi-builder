@@ -18,8 +18,8 @@ import (
 func newConvertCmd() *cobra.Command {
 	var (
 		out   string
-		built string
 		force bool
+		flags convertFlags
 	)
 
 	cmd := &cobra.Command{
@@ -28,26 +28,39 @@ func newConvertCmd() *cobra.Command {
 		Long: `Convert reads a WiX source file (.wxs, WiX v3 or later) and writes the
 msi.yaml that describes the same package, as far as msi-builder can express
 it. It is a starting point for a port, not a byte-for-byte translation:
-everything it cannot convert, such as preprocessor conditions, includes,
-bind variables, hand-built dialogs and extensions without a counterpart,
-becomes a "# TODO" comment in the YAML file and a line on stderr.
+everything it cannot convert, such as includes, bind variables, hand-built
+dialogs and extensions without a counterpart, becomes a "# TODO" comment in
+the YAML file and a line on stderr.
 
-With --msi and the package WiX built from the source file, every component
-whose Guid WiX generated (Guid="*" or none) keeps the ComponentId it has in
-that package, when convert finds it there by its ID, its key file or its registry key
-path, and
-each file a WiX Files glob harvested keeps its code in the guids of the
-folder source the glob became; the others get a "# TODO" comment. Without
-them, msi-builder generates other component codes, and
-an upgrade that removes the old version after installing the new one
-(MajorUpgrade Schedule="afterInstallExecute", and presumably
-"afterInstallFinalize") deletes the files of every component whose code
-changed.
+Preprocessor blocks become template actions: <?if?>, <?ifdef?>, <?elseif?>
+and <?else?> become {{ if }}, {{ if has "NAME" }} and {{ else }}, and
+<?foreach?> becomes {{ range }} over split ";". A <?define?> inside a block
+becomes a var whose value tests the block, and an <?error?> becomes fail.
+Convert writes a block as a template when every element in it is a
+component, a file, registry value or key, environment variable, plain
+property, or a reference that puts components in a feature or group; for
+any other block, it converts only the first branch and leaves a "# TODO".
+
+A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
+gives it: convert computes it from the key file or key registry value as
+WiX does, for the platform --arch names (without it, codes that depend on the
+platform keep a "# TODO") and, with --bcgg, as
+WiX 6 and later do with -bcgg. Each file a WiX Files glob harvests keeps its code in the
+guids of the folder source the glob became, when the folder is next to the
+source file. With --msi and the package WiX built from the source file,
+convert takes the codes from that package instead, finding each component
+by its ID, its key file or its registry key path. A component whose code
+convert finds neither way gets a "# TODO" comment: msi-builder generates
+another code for it, and an upgrade that removes the old version after
+installing the new one (MajorUpgrade Schedule="afterInstallExecute", and
+presumably "afterInstallFinalize") deletes the files of every component
+whose code changed.
 
 The YAML file goes to stdout, or to the file --output names. Review it, then
 check it with msi-builder validate.`,
 		Example: `  msi-builder convert app.wxs
   msi-builder convert -o msi.yaml app.wxs
+  msi-builder convert --arch x64 -o msi.yaml app.wxs
   msi-builder convert --msi app-1.4.0.msi -o msi.yaml app.wxs`,
 		Args:              exactlyOne("app.wxs"),
 		ValidArgsFunction: fileArg("wxs"),
@@ -56,25 +69,36 @@ check it with msi-builder validate.`,
 				return usageError{errors.New("--force needs --output")}
 			}
 
-			return convert(cmd, args[0], built, out, force)
+			return convert(cmd, args[0], flags, out, force)
 		},
 	}
 
 	cmd.Flags().StringVarP(&out, "output", "o", "", "write the YAML file here instead of stdout")
-	cmd.Flags().StringVar(&built, "msi", "", "keep the component codes of this package, built by WiX from app.wxs")
+	cmd.Flags().StringVar(&flags.built, "msi", "", "keep the component codes of this package, built by WiX from app.wxs")
+	cmd.Flags().StringVar(&flags.arch, "arch", "", "the platform WiX built for (wix build -arch): x86, x64 or arm64; also sets package.platform")
+	cmd.Flags().BoolVar(&flags.bcgg, "bcgg", false, "WiX 6 or later built the package with -bcgg (WiX 3 codes for registry key paths)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing output file")
 	mustComplete(cmd.MarkFlagFilename("output", "yaml", "yml"))
 	mustComplete(cmd.MarkFlagFilename("msi", "msi"))
+	mustComplete(cmd.RegisterFlagCompletionFunc("arch", cobra.FixedCompletions([]string{"x86", "x64", "arm64"}, cobra.ShellCompDirectiveNoFileComp)))
 
 	return cmd
 }
 
-func convert(cmd *cobra.Command, path, built, out string, force bool) error {
-	dir := filepath.Dir(path)
-	opts := wixconvert.Options{Source: filepath.Base(path), Exists: existsBeside(dir)}
+// convertFlags are the flags of convert that tune the conversion.
+type convertFlags struct {
+	built, arch string
+	bcgg        bool
+}
 
-	if built != "" {
-		pkg, err := builtPackage(built)
+func convert(cmd *cobra.Command, path string, flags convertFlags, out string, force bool) error {
+	dir := filepath.Dir(path)
+	opts := wixconvert.Options{
+		Source: filepath.Base(path), Exists: existsBeside(dir), FS: os.DirFS(dir), Arch: flags.arch, BCGG: flags.bcgg,
+	}
+
+	if flags.built != "" {
+		pkg, err := builtPackage(flags.built)
 		if err != nil {
 			return err
 		}

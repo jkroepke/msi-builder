@@ -2833,75 +2833,18 @@
                 "type": "array",
                 "description": "File types this file opens: Registry rows under HKEY_CLASSES_ROOT for the ProgID, its verbs and the extensions that point at it.",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "progId": {
-                      "type": "string",
-                      "description": "Programmatic identifier, such as Acme.Document.1."
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/fileType"
                     },
-                    "description": {
-                      "type": "string",
-                      "description": "The type's name in Explorer, written as it is: [PROPERTY] references are not formatted."
-                    },
-                    "iconIndex": {
-                      "type": "integer",
-                      "description": "Icon resource of the file for DefaultIcon; leave out for none."
-                    },
-                    "extensions": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "extension": {
-                            "type": "string",
-                            "description": "Extension without its dot."
-                          },
-                          "contentType": {
-                            "type": "string",
-                            "description": "MIME type written as Content Type."
-                          },
-                          "openWithOnly": {
-                            "type": "boolean",
-                            "description": "Only list the ProgID in the extension's Open with menu (OpenWithProgids); keep its default program and content type."
-                          }
-                        },
+                    {
+                      "not": {
                         "required": [
-                          "extension"
-                        ],
-                        "additionalProperties": false
-                      }
-                    },
-                    "verbs": {
-                      "type": "array",
-                      "description": "Shell verbs; default one open verb, [] for none.",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "description": "Verb key, such as open or edit."
-                          },
-                          "text": {
-                            "type": "string",
-                            "description": "Menu text; empty shows the shell's text for the id."
-                          },
-                          "arguments": {
-                            "type": "string",
-                            "description": "Arguments after the quoted file path, as formatted text; default \"%1\", empty for none.",
-                            "default": "\"%1\""
-                          }
-                        },
-                        "required": [
-                          "id"
-                        ],
-                        "additionalProperties": false
+                          "file"
+                        ]
                       }
                     }
-                  },
-                  "required": [
-                    "progId"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               },
               "close": {
@@ -3255,6 +3198,25 @@
               "failureActionsOnNonCrashFailures": {
                 "$ref": "#/$defs/bool"
               },
+              "sidType": {
+                "description": "The service SID type (MsiServiceConfig ConfigType 5).",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "none",
+                      "unrestricted",
+                      "restricted"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/var"
+                  }
+                ]
+              },
+              "preshutdownTimeout": {
+                "type": "string",
+                "description": "A Go duration such as 3m: how long the service manager waits for the service after a preshutdown notification (MsiServiceConfig ConfigType 7)."
+              },
               "control": {
                 "type": "object",
                 "properties": {
@@ -3552,6 +3514,22 @@
           "description": "Shortcuts that point at a file of any component, a folder, a program outside the package or a URL; each names exactly one of file, folder, program or url. They install with this component's features.",
           "items": {
             "$ref": "#/$defs/shortcut"
+          }
+        },
+        "fileTypes": {
+          "type": "array",
+          "description": "File types that open a file of any component, which each name with file; their Registry rows install with this component's features, so an extension can be optional.",
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/fileType"
+              },
+              {
+                "required": [
+                  "file"
+                ]
+              }
+            ]
           }
         }
       },
@@ -4089,6 +4067,85 @@
           }
         }
       },
+      "additionalProperties": false
+    },
+    "fileType": {
+      "type": "object",
+      "properties": {
+        "progId": {
+          "type": "string",
+          "description": "Programmatic identifier, such as Acme.Document.1."
+        },
+        "file": {
+          "type": "string",
+          "description": "Only in a component's own fileTypes: the id or name of the packaged file, in any component, that the file type opens."
+        },
+        "description": {
+          "type": "string",
+          "description": "The type's name in Explorer, written as it is: [PROPERTY] references are not formatted."
+        },
+        "iconFile": {
+          "type": "string",
+          "description": "The id or name of a packaged file, in any component, such as an .ico, whose icon DefaultIcon names instead of the opened file's; iconIndex picks the icon (default 0)."
+        },
+        "iconIndex": {
+          "type": "integer",
+          "description": "Icon resource of the file, or of iconFile, for DefaultIcon; leave out for none (0 with iconFile)."
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "extension": {
+                "type": "string",
+                "description": "Extension without its dot."
+              },
+              "contentType": {
+                "type": "string",
+                "description": "MIME type written as Content Type."
+              },
+              "openWithOnly": {
+                "type": "boolean",
+                "description": "Only list the ProgID in the extension's Open with menu (OpenWithProgids); keep its default program and content type."
+              }
+            },
+            "required": [
+              "extension"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "verbs": {
+          "type": "array",
+          "description": "Shell verbs; default one open verb, [] for none.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Verb key, such as open or edit."
+              },
+              "text": {
+                "type": "string",
+                "description": "Menu text; empty shows the shell's text for the id."
+              },
+              "arguments": {
+                "type": "string",
+                "description": "Arguments after the quoted file path, as formatted text; default \"%1\", empty for none.",
+                "default": "\"%1\""
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "progId"
+      ],
       "additionalProperties": false
     },
     "property": {

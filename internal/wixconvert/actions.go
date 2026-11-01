@@ -1261,7 +1261,7 @@ func (c *converter) setter(setter *elem) (*omap, []any) {
 
 	before, after := setter.attr("Before"), setter.attr("After")
 
-	if setter.is("SetDirectory") {
+	if setter.is(elemSetDirectory) {
 		action.set("setDirectory", flowMap().set("directory", c.dirRef(setterID)).set("value", c.value(setter, "Value")))
 
 		if before == "" && after == "" {
