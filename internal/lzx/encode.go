@@ -200,8 +200,8 @@ func Compress(data []byte, opts Options) ([][]byte, error) {
 
 	var frames [][]byte
 
-	for off := 0; off < len(data); off += FrameSize {
-		out, err := enc.Frame(data[off:min(off+FrameSize, len(data))])
+	for off := 0; off < len(data); off += min(FrameSize, len(data)-off) {
+		out, err := enc.Frame(data[off : off+min(FrameSize, len(data)-off)])
 		if err != nil {
 			return nil, err
 		}
@@ -267,7 +267,7 @@ func (e *Encoder) Frame(data []byte) ([][]byte, error) {
 	e.hist.add(data, e.pending)
 
 	// E8 translation runs on the copy, before matching.
-	e8(e.hist.buf[e.read-e.hist.base:], e.read, int32(e.size), true) //nolint:gosec // checked in NewEncoder
+	e8(e.hist.buf[e.read-e.hist.base:], e.read, uint32(e.size), true) //nolint:gosec // checked in NewEncoder
 	e.read += len(data)
 
 	if e.read-e.pending < blockSpan && e.read < e.size {

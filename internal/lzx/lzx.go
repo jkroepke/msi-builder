@@ -111,7 +111,8 @@ func slotOf(formatted uint32) int {
 
 // e8 translates (encode true) or restores (encode false) the x86 call
 // operands of one frame starting at offset in the folder ([MS-PATCH] 2.2.2).
-func e8(frame []byte, offset int, size int32, encode bool) {
+// The translation size is the header's unsigned 32-bit value.
+func e8(frame []byte, offset int, size uint32, encode bool) {
 	if offset >= e8Limit || len(frame) <= 10 {
 		return
 	}
@@ -121,20 +122,21 @@ func e8(frame []byte, offset int, size int32, encode bool) {
 			continue
 		}
 
-		cur := int32(offset + i)                                //nolint:gosec // below 1 GB
 		value := int32(binary.LittleEndian.Uint32(frame[i+1:])) //nolint:gosec // reinterpreting the operand
 
-		if out, ok := e8Value(value, cur, size, encode); ok {
-			binary.LittleEndian.PutUint32(frame[i+1:], uint32(out)) //nolint:gosec // reinterpreting the operand
+		if out, ok := e8Value(int64(value), int64(offset+i), int64(size), encode); ok {
+			binary.LittleEndian.PutUint32(frame[i+1:], uint32(out)) //nolint:gosec // the operand modulo 2^32
 		}
 
 		i += 4
 	}
 }
 
-// e8Value maps one call operand at position cur; ok is false when the
-// operand stays as it is.
-func e8Value(value, cur, size int32, encode bool) (int32, bool) {
+// e8Value maps one call operand, read as signed 32-bit, at position cur;
+// ok is false when the operand stays as it is. The arithmetic runs in 64
+// bits, since the translation size reaches 2^32-1 and value + size does not
+// fit 32 bits; the result is written back modulo 2^32.
+func e8Value(value, cur, size int64, encode bool) (int64, bool) {
 	if value < -cur || value >= size {
 		return 0, false
 	}

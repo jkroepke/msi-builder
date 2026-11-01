@@ -16,16 +16,17 @@ type Decoder struct {
 	r           bitReader
 	main, lens  decoder
 	align, pre  decoder
-	mask        int
-	pos         int // uncompressed bytes decoded
+	mask        int64
+	pos         int64 // uncompressed bytes decoded, 64-bit also on 32-bit builds
 	blockType   int
 	blockLeft   int
 	storedPos   int
 	rep         repState
-	e8size      int32
+	e8size      uint32 // the E8 translation size, unsigned
 	alignLens   [numAligned]uint8
 	started     bool
 	blockOdd    bool // stored block of odd size: a pad byte follows it
+	padNext     bool // the pad byte of a stored block opens the next frame
 }
 
 // NewDecoder returns a decoder for a window of 2^window bytes.
@@ -70,7 +71,14 @@ func (d *Decoder) DecodeInto(frame, out []byte) error {
 		return fmt.Errorf("lzx: frame of %d bytes", size)
 	}
 
-	d.r.reset(frame)
+	// A stored block of odd size that ended at the previous frame's end
+	// leaves its pad byte at the start of this frame.
+	start := 0
+	if d.padNext {
+		d.padNext, start = false, 1
+	}
+
+	d.r.reset(frame, start)
 
 	if !d.started {
 		d.started = true
@@ -78,30 +86,30 @@ func (d *Decoder) DecodeInto(frame, out []byte) error {
 		// The E8 header opens the stream ([MS-PATCH] 2.2.2).
 		if d.r.read(1) == 1 {
 			high := d.r.read(16)
-			d.e8size = int32(high<<16 | d.r.read(16)) //nolint:gosec // reinterpreting the stored value
+			d.e8size = high<<16 | d.r.read(16)
 		}
 	}
 
-	start := d.pos
+	first := d.pos
 
-	if err := d.fill(frame, start+size); err != nil {
+	if err := d.fill(frame, first+int64(size)); err != nil {
 		return err
 	}
 
 	// The window keeps the translated bytes as history; only out is
 	// restored. A frame never exceeds the window, so it wraps at most once.
-	head := copy(out, d.window[start&d.mask:])
+	head := copy(out, d.window[first&d.mask:])
 	copy(out[head:], d.window)
 
-	if d.e8size != 0 {
-		e8(out, start, d.e8size, false)
+	if d.e8size != 0 && first < e8Limit {
+		e8(out, int(first), d.e8size, false)
 	}
 
 	return nil
 }
 
 // fill decodes blocks until the window holds end bytes.
-func (d *Decoder) fill(frame []byte, end int) error { //nolint:cyclop // one loop over the block types
+func (d *Decoder) fill(frame []byte, end int64) error { //nolint:cyclop // one loop over the block types
 	if d.blockLeft > 0 && d.blockType == blockStored {
 		d.storedFrame, d.storedPos = frame, 0
 	}
@@ -254,8 +262,8 @@ func (d *Decoder) pathCode(prev uint8) (int, uint8, error) {
 }
 
 // stored copies the bytes of a stored block that fall in this frame.
-func (d *Decoder) stored(end int) error {
-	count := min(d.blockLeft, end-d.pos)
+func (d *Decoder) stored(end int64) error {
+	count := int(min(int64(d.blockLeft), end-d.pos))
 	if d.storedPos+count > len(d.storedFrame) {
 		return errTruncated
 	}
@@ -269,19 +277,24 @@ func (d *Decoder) stored(end int) error {
 	d.blockLeft -= count
 
 	if d.blockLeft == 0 {
-		if d.blockOdd {
+		// The pad byte of a block that fills the frame opens the next
+		// frame, where cabinet.dll reads it (Windows CI).
+		switch {
+		case d.blockOdd && d.pos == end:
+			d.padNext = true
+		case d.blockOdd:
 			d.storedPos++
 		}
 
 		// The bitstream resumes after the stored bytes.
-		d.r = bitReader{data: d.storedFrame, pos: d.storedPos}
+		d.r.reset(d.storedFrame, d.storedPos)
 	}
 
 	return nil
 }
 
 // tokens decodes matches and literals up to the end of the block or frame.
-func (d *Decoder) tokens(end int) error { //nolint:cyclop // one pass over the token format
+func (d *Decoder) tokens(end int64) error { //nolint:cyclop // one pass over the token format
 	for d.blockLeft > 0 && d.pos < end {
 		sym, err := d.r.decode(&d.main)
 		if err != nil {
@@ -301,16 +314,21 @@ func (d *Decoder) tokens(end int) error { //nolint:cyclop // one pass over the t
 			return err
 		}
 
-		if int(offset) > d.pos || int(offset) > len(d.window)-3 || offset == 0 {
+		// A repeated offset from a stored block header is any 32-bit value
+		// and reaches the full window, while position slots stop at the
+		// window less 3; cabinet.dll accepts the full window (Windows CI).
+		// The check runs in 64 bits, since int turns an offset of 2^31 or
+		// more negative on 32-bit builds.
+		if offset == 0 || int64(offset) > min(d.pos, int64(len(d.window))) {
 			return fmt.Errorf("%w: match offset %d at %d", errCorrupt, offset, d.pos)
 		}
 
-		if length > d.blockLeft || d.pos+length > end {
+		if length > d.blockLeft || d.pos+int64(length) > end {
 			return fmt.Errorf("%w: match of %d bytes crosses the block or frame end", errCorrupt, length)
 		}
 
 		for range length {
-			d.window[d.pos&d.mask] = d.window[(d.pos-int(offset))&d.mask]
+			d.window[d.pos&d.mask] = d.window[(d.pos-int64(offset))&d.mask]
 			d.pos++
 		}
 

@@ -64,7 +64,15 @@ versioning after 1.0.
   [MS-CAB] only. To test the reader on layouts the writer never
   produces (other tools' cabinets, empty folders, corrupt blocks, legacy
   names), build them with `RawCabinet` (`export_test.go`), which the native
-  tests use too to compare with `cabinet.dll`.
+  tests use too to compare with `cabinet.dll`. LZX streams the encoder never
+  writes (blocks off frame boundaries, odd stored blocks mid-stream, chosen
+  repeated offsets, E8 sizes, bad trees) are crafted block by block in
+  `internal/lzx/decode_test.go`; `TestWindowsFixtures` keeps them in
+  `internal/lzx/testdata/windows` (regenerate with
+  `MSI_BUILDER_UPDATE_SNAPSHOTS=1`) and `TestNativeFDICraftedLZX` compares
+  cabinet.dll with the reader on them. Values the readers take from the data
+  are 32-bit unsigned: compare them in 64 bits, and CI runs internal/lzx and
+  internal/cab as `GOARCH=386`.
 - [`internal/summary`](internal/summary): the summary information stream.
 - [`pkg/sign`](pkg/sign): Authenticode signing and verification of packages
   and of cabinets written with a signature reserve (spec chapter 12), written

@@ -143,7 +143,9 @@ func newOptimal(hist *history, opts Options) *optimal {
 // findAll appends the plain matches at pos to p.list in order of increasing
 // length, at most limit bytes long, and inserts pos into the match finder.
 func (p *optimal) findAll(pos, limit int, report bool) {
-	if pos+3 > p.hist.end() {
+	// Lengths are compared, not pos + 3: positions reach math.MaxInt32,
+	// which pos + 3 overflows on 32-bit builds.
+	if p.hist.end()-pos < 3 {
 		return
 	}
 
@@ -156,7 +158,7 @@ func (p *optimal) findAll(pos, limit int, report bool) {
 
 	p.head3[h3] = int32(pos) //nolint:gosec // data is below 2 GiB
 
-	if pos+4 <= p.hist.end() {
+	if p.hist.end()-pos >= 4 {
 		p.walk(pos, limit, bestLen, report)
 	}
 }
@@ -302,16 +304,19 @@ func (p *optimal) block(start, end int) []token {
 		free <- &p.found[i]
 	}
 
+	// Frame ends are start plus the remaining length, never frame +
+	// FrameSize: a stream of up to math.MaxInt32 bytes would overflow int
+	// on 32-bit builds.
 	go func() {
-		for frame := start; frame < end; frame += FrameSize {
+		for frame := start; frame < end; frame += min(FrameSize, end-frame) {
 			dst := <-free
-			p.collect(frame, min(frame+FrameSize, end), dst)
+			p.collect(frame, frame+min(FrameSize, end-frame), dst)
 
 			ready <- dst
 		}
 	}()
 
-	for frame := start; frame < end; frame += FrameSize {
+	for frame := start; frame < end; frame += min(FrameSize, end-frame) {
 		size := min(FrameSize, end-frame)
 		found := <-ready
 

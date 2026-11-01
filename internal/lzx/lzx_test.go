@@ -248,7 +248,7 @@ func TestE8Inverse(t *testing.T) {
 	orig := append([]byte(nil), data...)
 
 	for off := 0; off < len(data); off += FrameSize {
-		e8(data[off:off+FrameSize], off, int32(len(data)), true) //nolint:gosec // 96 KB
+		e8(data[off:off+FrameSize], off, uint32(len(data)), true) //nolint:gosec // 96 KB
 	}
 
 	if bytes.Equal(data, orig) {
@@ -256,7 +256,7 @@ func TestE8Inverse(t *testing.T) {
 	}
 
 	for off := 0; off < len(data); off += FrameSize {
-		e8(data[off:off+FrameSize], off, int32(len(data)), false) //nolint:gosec // 96 KB
+		e8(data[off:off+FrameSize], off, uint32(len(data)), false) //nolint:gosec // 96 KB
 	}
 
 	if !bytes.Equal(data, orig) {
@@ -454,8 +454,9 @@ func TestDecodeIntoAllocates(t *testing.T) { //nolint:paralleltest // AllocsPerR
 	}
 }
 
-// TestDecoderRejectsSingleCode: a tree that is not all zero needs at least
-// two codes ([MS-PATCH] 2.4), which is also what buildLengths writes.
+// TestDecoderRejectsSingleCode: a tree that is not all zero must be
+// complete, so it has at least two codes ([MS-PATCH] 2.4), which is also
+// what buildLengths writes; cabinet.dll rejects an incomplete tree.
 func TestDecoderRejectsSingleCode(t *testing.T) {
 	t.Parallel()
 
@@ -469,7 +470,9 @@ func TestDecoderRejectsSingleCode(t *testing.T) {
 		"one code":        {lengths: []uint8{0, 1, 0}},
 		"one long code":   {lengths: []uint8{0, 0, 16}},
 		"oversubscribed":  {lengths: []uint8{1, 1, 1}},
-		"incomplete pair": {lengths: []uint8{1, 2}, ok: true},
+		"incomplete pair": {lengths: []uint8{1, 2}},
+		"incomplete deep": {lengths: []uint8{1, 2, 3}},
+		"complete three":  {lengths: []uint8{1, 2, 2}, ok: true},
 	} {
 		var dec decoder
 
