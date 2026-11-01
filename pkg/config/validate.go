@@ -2931,6 +2931,40 @@ func (v *validator) finishText(cfg *Config) {
 	v.checkFinishText("ui.finishText", cfg.UI.FinishText)
 }
 
+// maxSequenceCondition is the length of a sequence table's Condition
+// column.
+const maxSequenceCondition = 255
+
+// scopePage checks ui.scopePage: its conditions choose an option of the
+// scope page, which only a dual package with a wizard has, and each becomes
+// the condition of a UI sequence action.
+func (v *validator) scopePage(cfg *Config) {
+	page := cfg.UI.ScopePage
+	if page == nil {
+		return
+	}
+
+	if !cfg.Package.Scope.Dual() || !cfg.UI.Enabled {
+		v.errorf("ui.scopePage", "the scope page needs a wizard and a dual package.scope (perUserOrMachine or perMachineOrUser)")
+	}
+
+	for _, entry := range []struct{ field, cond string }{{"ui.scopePage.perMachine", page.PerMachine}, {"ui.scopePage.perUser", page.PerUser}} {
+		if entry.cond == "" {
+			continue
+		}
+
+		if err := condition.Check(entry.cond); err != nil {
+			v.errorf(entry.field, "%v", err)
+
+			continue
+		}
+
+		if len(entry.cond) > maxSequenceCondition {
+			v.errorf(entry.field, "the condition is longer than %d characters, the size of the sequence table's Condition column", maxSequenceCondition)
+		}
+	}
+}
+
 // checkFinishText reports a finish page text at path that is only blanks.
 func (v *validator) checkFinishText(at, text string) {
 	if text != "" && strings.TrimSpace(text) == "" {
@@ -2949,6 +2983,7 @@ func (v *validator) theme(cfg *Config) {
 	}
 
 	v.finishText(cfg)
+	v.scopePage(cfg)
 
 	theme := &cfg.UI.Theme
 	if none && *theme != (Theme{}) {

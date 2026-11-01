@@ -116,6 +116,9 @@ type build struct { //nolint:govet // grouped by build step
 	// lastScopeAction is the last UI action the scope page added; the
 	// next one follows it.
 	lastScopeAction string
+	// beforeCosting holds the scope page's folder setters, which sequences
+	// schedules last before CostFinalize in the UI sequence.
+	beforeCosting []sequence.Action
 	// scopePage is set when the scope page runs before the wizard, with
 	// FindRelatedProducts and LaunchConditions of the UI sequence after it.
 	scopePage bool

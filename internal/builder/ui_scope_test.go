@@ -103,13 +103,30 @@ func TestScopePage(t *testing.T) {
 		`[ALLUSERS] {} [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] 1 [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] {} [BuilderInstallScope="perMachine"]`,
-		`[INSTALLDIR] [InstallScopeUser_INSTALLDIR] [NOT BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
-		`[INSTALLDIR] [InstallScopeMachine_INSTALLDIR] [BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
+		`[InstallScopeDir_INSTALLDIR] [InstallScopeUser_INSTALLDIR] [NOT BuilderInstallScope="perMachine"]`,
+		`[InstallScopeDir_INSTALLDIR] [InstallScopeMachine_INSTALLDIR] [BuilderInstallScope="perMachine"]`,
 		"EndDialog Return [1]",
 	}
 
 	if got := eventsOf(t, res, "InstallScopeDlg", "Next"); !slices.Equal(got, want) {
 		t.Errorf("Next events\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// Next leaves INSTALLDIR alone: the folder is set right before
+	// CostFinalize, so that an action after the page that restores a
+	// folder into an empty INSTALLDIR still runs.
+	numbers, conds := map[string]int{}, map[string]string{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			numbers[fmt.Sprint(row[0])], conds[fmt.Sprint(row[0])] = n, fmt.Sprint(row[1])
+		}
+	}
+
+	setter := "SetInstallScopeDir_INSTALLDIR"
+	if numbers[setter] != numbers["CostFinalize"]-1 || conds[setter] != "InstallScopeDir_INSTALLDIR AND "+unchanged {
+		t.Errorf("%s at %d under %q, CostFinalize at %d; want it right before CostFinalize under the chosen folder",
+			setter, numbers[setter], conds[setter], numbers["CostFinalize"])
 	}
 
 	// The x86 package's folder under ProgramFilesFolder: per user below
@@ -283,9 +300,83 @@ ui: { enabled: true }
 `)
 
 	events := strings.Join(eventsOf(t, res, "InstallScopeDlg", "Next"), "\n")
-	for _, want := range []string{"[COMPANYDIR] [InstallScopeUser_COMPANYDIR]", "[INSTALLDIR] [InstallScopeMachine_INSTALLDIR]"} {
+	for _, want := range []string{"[InstallScopeDir_COMPANYDIR] [InstallScopeUser_COMPANYDIR]", "[InstallScopeDir_INSTALLDIR] [InstallScopeMachine_INSTALLDIR]"} {
 		if !strings.Contains(events, want) {
 			t.Errorf("Next events lack %s:\n%s", want, events)
 		}
+	}
+}
+
+// TestScopePagePreselect checks ui.scopePage: its conditions set the
+// page's property after the context and remembered-folder setters, perUser
+// before perMachine, and before the page.
+func TestScopePagePreselect(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perUserOrMachine", "x64", "installDir: { remember: true }\n"+
+		"ui: { enabled: true, scopePage: { perMachine: PREVMACHINE, perUser: NOT PREVMACHINE } }\n")
+
+	seq := map[string]int{}
+	conds := map[string]string{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			seq[fmt.Sprint(row[0])] = n
+			conds[fmt.Sprint(row[0])] = fmt.Sprint(row[1])
+		}
+	}
+
+	order := []string{"SetInstallScopeUser", "SetInstallScopePrevious", "SetInstallScopePreferUser", "SetInstallScopePreferMachine", "InstallScopeDlg"}
+	for i := 1; i < len(order); i++ {
+		if seq[order[i-1]] == 0 || seq[order[i]] <= seq[order[i-1]] {
+			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], seq[order[i-1]], order[i], seq[order[i]])
+		}
+	}
+
+	if conds["SetInstallScopePreferMachine"] != "PREVMACHINE" || conds["SetInstallScopePreferUser"] != "NOT PREVMACHINE" {
+		t.Errorf("conditions %q and %q", conds["SetInstallScopePreferMachine"], conds["SetInstallScopePreferUser"])
+	}
+
+	targets := map[string]string{}
+	for _, row := range rows(t, res.Database, "CustomAction") {
+		targets[fmt.Sprint(row[0])] = fmt.Sprint(row[2]) + "=" + fmt.Sprint(row[3])
+	}
+
+	if targets["SetInstallScopePreferMachine"] != "BuilderInstallScope=perMachine" || targets["SetInstallScopePreferUser"] != "BuilderInstallScope=perUser" {
+		t.Errorf("targets %q and %q", targets["SetInstallScopePreferMachine"], targets["SetInstallScopePreferUser"])
+	}
+}
+
+// TestScopePageLongDirSetter checks that the setter before CostFinalize of
+// a folder whose id leaves no room for "SetInstallScopeDir_" gets a
+// generated name and still sets that folder last before CostFinalize.
+func TestScopePageLongDirSetter(t *testing.T) {
+	t.Parallel()
+
+	long := "INSTALL" + strings.Repeat("D", 48)
+	res := buildScope(t, "perUserOrMachine", "x64", "installDir: { id: "+long+" }\nui: { enabled: true }\n")
+
+	setter := ""
+
+	for _, row := range rows(t, res.Database, "CustomAction") {
+		if fmt.Sprint(row[2]) == long && fmt.Sprint(row[3]) == "[InstallScopeDir_"+long+"]" {
+			setter = fmt.Sprint(row[0])
+		}
+	}
+
+	if !strings.HasPrefix(setter, "SetScope") || len(setter) > config.MaxIdentifierLength {
+		t.Fatalf("setter of %s is %q, want a generated SetScope name of at most %d characters", long, setter, config.MaxIdentifierLength)
+	}
+
+	numbers := map[string]int{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			numbers[fmt.Sprint(row[0])] = n
+		}
+	}
+
+	if numbers[setter] != numbers["CostFinalize"]-1 {
+		t.Errorf("%s at %d, CostFinalize at %d; want it right before CostFinalize", setter, numbers[setter], numbers["CostFinalize"])
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jkroepke/msi-builder/internal/sequence"
 	"github.com/jkroepke/msi-builder/pkg/config"
 )
 
@@ -61,6 +62,18 @@ func (b *build) installScope(wiz *wizard) {
 			b.uiAction("SetInstallScopePrevious", propScope, scopeMachine, "NOT ALLUSERS AND "+machine+" AND NOT "+user)
 		} else {
 			b.uiAction("SetInstallScopePrevious", propScope, scopeUser, "ALLUSERS=1 AND "+user+" AND NOT "+machine)
+		}
+	}
+
+	// The package's own preference comes last, perMachine after perUser,
+	// so that it wins over the context and a remembered folder.
+	if prefer := b.cfg.UI.ScopePage; prefer != nil {
+		if prefer.PerUser != "" {
+			b.uiAction("SetInstallScopePreferUser", propScope, scopeUser, prefer.PerUser)
+		}
+
+		if prefer.PerMachine != "" {
+			b.uiAction("SetInstallScopePreferMachine", propScope, scopeMachine, prefer.PerMachine)
 		}
 	}
 
@@ -182,10 +195,10 @@ var scopeFolders = map[string]struct{ user, machine, machine32 string }{ //nolin
 // the context the package opened in and passes them to the server, which
 // takes a set directory property as it is, so a switch would install per
 // machine into the user's profile or per user into Program Files
-// (INST-02). Next sets each such folder to its path in the chosen context
-// unless it holds another path, typed on the command line or remembered;
-// CostFinalize, which runs after the page, then resolves the folders below
-// it.
+// (INST-02). Next records each such folder's path in the chosen context,
+// and an action right before CostFinalize sets the folder to it unless it
+// holds another path, typed on the command line, remembered or set by an
+// action of the package; CostFinalize then resolves the folders below it.
 func (b *build) scopeFolders(next *uiControl) {
 	for _, dir := range b.scopeDirs() {
 		top, rel := b.dirPath(dir)
@@ -204,10 +217,30 @@ func (b *build) scopeFolders(next *uiControl) {
 			b.uiAction("Set"+machine+"_Remembered", machine, "["+rememberedMachine(dir.id)+"]", rememberedMachine(dir.id))
 		}
 
+		// Next only records the chosen context's folder. The folder itself
+		// is set right before CostFinalize, so that actions between the
+		// page and costing that restore a folder into an empty property
+		// (NOT INSTALLDIR) still see it empty.
+		chosen := scopeProperty("InstallScopeDir_", dir.id)
+		next.on("["+chosen+"]", "["+user+"]", "NOT "+condMachine)
+		next.on("["+chosen+"]", "["+machine+"]", condMachine)
+
 		unchanged := "(NOT " + dir.id + " OR " + dir.id + " ~= " + user + " OR " + dir.id + " ~= " + machine + ")"
-		next.on("["+dir.id+"]", "["+user+"]", "NOT "+condMachine+" AND "+unchanged)
-		next.on("["+dir.id+"]", "["+machine+"]", condMachine+" AND "+unchanged)
+		b.costAction("Set"+chosen, dir.id, "["+chosen+"]", chosen+" AND "+unchanged)
 	}
+}
+
+// costAction sets property to value in the UI sequence right before
+// CostFinalize, after every other action placed before it; sequences
+// schedules it last. A name too long for the CustomAction table gets a
+// generated one.
+func (b *build) costAction(name, property, value, cond string) {
+	if len(name) > config.MaxIdentifierLength {
+		name = generatedID("SetScope", name)
+	}
+
+	b.addAction(&actionInfo{name: name, typ: caSetProperty, source: property, target: value})
+	b.beforeCosting = append(b.beforeCosting, sequence.Action{Name: name, Condition: cond, Before: actCostFinalize})
 }
 
 // scopeProperty names a private property that holds a folder of dir; an id
@@ -245,7 +278,8 @@ func (b *build) scopeDirs() []*dirInfo {
 }
 
 // publicAbove reports whether a public directory lies between dir and its
-// standard folder: CostFinalize resolves dir below the one Next sets.
+// standard folder: CostFinalize resolves dir below the one the scope page
+// sets.
 func (b *build) publicAbove(dir *dirInfo) bool {
 	for parent := b.dirs[dir.parent]; parent != nil && !parent.standard; parent = b.dirs[parent.parent] {
 		if config.IsPublicProperty(parent.id) {
@@ -285,7 +319,7 @@ func (b *build) dirPath(dir *dirInfo) (string, string) {
 
 // uiAction sets property to value in the UI sequence after AppSearch, which
 // finds the remembered folders, and before the scope page and costing, so
-// that CostFinalize resolves the folders Next sets. The actions run in the
+// that the page's folder paths are ready for Next. The actions run in the
 // order they are added, after the other actions placed after AppSearch. A
 // name too long for the CustomAction table gets a generated one.
 func (b *build) uiAction(name, property, value, cond string) {

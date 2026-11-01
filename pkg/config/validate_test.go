@@ -153,6 +153,8 @@ func TestValidateAccepted(t *testing.T) {
 		"dual scope": pkg(`{platform: x64, scope: perUserOrMachine}`) + strings.Replace(appComponent, "    files:",
 			"    registry: [{root: HKCR, key: .app, value: App.File}, {root: HKMU, key: Software\\X, name: N, value: v}]\n    files:", 1),
 		"dual scope machine first": pkg(`{platform: x64, scope: PerMachineOrUser}`) + appComponent,
+		"scope page preselection": pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent +
+			"ui: {enabled: true, scopePage: {perMachine: PREVMACHINE, perUser: NOT PREVMACHINE}}\n",
 		// The schema allows installerVersion as a number, so 5 is 5.0.
 		"installer version number": pkg(`{platform: x64, installerVersion: 5}`) + appComponent,
 		// A variable follows the context; a perMachine component writes
@@ -249,6 +251,22 @@ func TestValidate(t *testing.T) {
 			base + appComponent +
 				"launchConditions: [{condition: VersionNT64, message: a}, {condition: VersionNT64, message: b}]\n",
 			sevError, "launchConditions[1].condition", "already used by launchConditions[0]",
+		},
+		"scope page without dual scope": {
+			base + appComponent + "ui: {enabled: true, scopePage: {perMachine: X}}\n",
+			sevError, "ui.scopePage", "dual package.scope",
+		},
+		"scope page without wizard": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent + "ui: {scopePage: {perMachine: X}}\n",
+			sevError, "ui.scopePage", "needs a wizard",
+		},
+		"scope page condition syntax": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent + "ui: {enabled: true, scopePage: {perUser: 'X ='}}\n",
+			sevError, "ui.scopePage.perUser", "",
+		},
+		"scope page condition length": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent + "ui: {enabled: true, scopePage: {perMachine: X" + strings.Repeat("Y", 255) + "}}\n",
+			sevError, "ui.scopePage.perMachine", "longer than 255",
 		},
 		// INST-05: Condition rows.
 		"feature condition without level": {

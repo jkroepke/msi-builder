@@ -2138,6 +2138,21 @@
           "default": false,
           "description": "Adds a page after the welcome and license pages that shows the install folder (installDir) and lets the user change it."
         },
+        "scopePage": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Conditions under which the scope page of a dual package.scope preselects a context instead of the one the package opened in; evaluated before the page, perUser first, so perMachine wins when both are true.",
+          "properties": {
+            "perMachine": {
+              "$ref": "#/$defs/condition",
+              "description": "Preselects \"all users\" when true, for example when a per-machine copy is installed."
+            },
+            "perUser": {
+              "$ref": "#/$defs/condition",
+              "description": "Preselects \"just you\" when true."
+            }
+          }
+        },
         "finishText": {
           "type": "string",
           "description": "Formatted paragraph shown on the finish page below its standard text; hidden by the condition Installed OR ACTION = \"ADMIN\"."

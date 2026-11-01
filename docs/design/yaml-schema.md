@@ -2784,6 +2784,25 @@ condition, therefore tests `ALLUSERS=1` and `NOT ALLUSERS` as in the execute
 sequence (UI-11).
 The ready page then shows Install with the UAC shield for all users.
 
+`ui.scopePage` changes the preselected option with conditions, which the UI
+sequence evaluates before the page, after the context and the remembered
+folder: `perUser` first and `perMachine` last, so `perMachine` wins when
+both are true. Each is a condition of 255 characters at most and needs a
+dual scope and the wizard. A package that refuses a per-user install next
+to a per-machine copy preselects all users when the copy exists, so that
+accepting the defaults updates it instead of ending at the launch
+condition (UI-11, UI-12):
+
+```yaml
+ui:
+  enabled: true
+  scopePage:
+    perMachine: PREVMACHINE   # a property search that finds the per-machine copy
+```
+
+A condition overrides the command line's `MSIINSTALLPERUSER` on the page
+too; add `NOT MSIINSTALLPERUSER` or similar terms where that matters.
+
 The page runs in the UI sequence after `AppSearch` and the actions placed
 after it, and the UI sequence's `FindRelatedProducts` and
 `LaunchConditions` run after the page, all before `CostInitialize`, where
@@ -2804,10 +2823,18 @@ after it, and the build reports the rest. A launch condition that refuses the ch
 message right after the page; without the wizard's sequence, as in a
 silent install, the server checks the launch conditions with the context
 the command line chose. The
-client keeps the folders it resolved for the context it opened in, so Next
-also sets every public folder under Program Files or Common Files (such as
-the install folder) to its path in the chosen context, unless it holds
-another path from the command line or `installDir.remember`. Installed
+client keeps the folders it resolved for the context it opened in, so every
+public folder under Program Files or Common Files (such as the install
+folder) is set to its path in the chosen context, unless it holds another
+path from the command line, `installDir.remember` or an action of the
+package. Next only records that path; an action right before
+`CostFinalize`, after every other action placed before it, sets the
+folder. An action between the page and costing that restores a folder
+into an empty property (`condition: SAVEDDIR AND NOT INSTALLDIR`, placed
+`after: LaunchConditions`) therefore still sees it empty: when Next set the
+folder itself, such an action never ran in a full-UI install and the
+remembered folder was lost (UI-12). A `ui` action at a fixed number right
+before `CostFinalize` collides with that setter, which only the build reports. Likewise, a `ui` action between the page and costing that reads such a folder (`DATADIR = [INSTALLDIR]data`) sees it empty, as in a package with a single scope: an action that needs the folder runs after `CostFinalize`. Installed
 products step over the page, since they keep their context. Its texts are
 the `ui.strings` keys `InstallScopeTitle`, `InstallScopeText`,
 `InstallScopeUser`, `InstallScopeMachine` and `InstallScopeHint`, translated

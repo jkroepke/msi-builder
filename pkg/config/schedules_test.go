@@ -238,6 +238,10 @@ func TestScheduleBuilderChains(t *testing.T) {
 			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 53"),
 			"action InstallScopeDlg would get number 53",
 		},
+		"scope page preference": {
+			dual(base) + appComponent + "ui: {enabled: true, scopePage: {perMachine: X}}\n" + uiSetProps("at: 53"),
+			"SetInstallScopePreferMachine comes from the scope page",
+		},
 		"FindRelatedProducts after the scope page": {
 			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 54"),
 			"FindRelatedProducts comes from the scope page",

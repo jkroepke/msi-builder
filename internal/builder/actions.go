@@ -630,6 +630,10 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 
 	b.anchorActions()
 
+	// The scope page's folder setters go last before CostFinalize, after
+	// the actions that a package places there.
+	b.schedules[seqInstallUI] = append(b.schedules[seqInstallUI], b.beforeCosting...)
+
 	// Every scheduled name must be a standard action or a custom action.
 	for _, table := range sequenceTables {
 		for _, action := range b.schedules[table] {
