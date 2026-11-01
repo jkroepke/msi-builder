@@ -224,6 +224,22 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<Property Id="P" Value="$(var.Mode)" /><?ifdef Debug ?><?define Mode = "debug" ?><?endif ?>`,
 			note: "<?ifdef Debug?> is not evaluated: only its first branch was converted",
 		},
+		"implied key file after a file in a branch": {
+			body: `<Component Id="C" Directory="INSTALLFOLDER"><?ifdef X ?><RemoveFolder Id="rf" On="uninstall" /><?else ?><File Id="x" Source="x.exe" /><?endif ?>
+    <?ifdef Pro ?><File Id="pro" Source="pro.exe" /><?endif ?><File Id="base" Source="base.exe" /></Component>`,
+			note: "<?ifdef Pro?> is not evaluated: only its first branch was converted",
+		},
+		"service controlled by a name in another case": {
+			body: `<?ifdef Svc ?><Component Id="Svc" Directory="INSTALLFOLDER"><File Source="svc.exe" /><ServiceInstall Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" /></Component><?endif ?>
+    <Component Id="Ctl" Directory="INSTALLFOLDER"><File Source="ctl.exe" /><ServiceControl Id="SC" Name="hellosvc" Stop="both" /></Component>`,
+			note: "<?ifdef Svc?> is not evaluated: only its first branch was converted",
+		},
+		"variable read before a later define": {
+			body: `<?ifdef D ?><?define Mode = "d" ?><?else ?><?define Mode = "r" ?><?endif ?>
+    <Property Id="P" Value="$(var.Mode)" />
+    <?define Mode = "x" ?>`,
+			note: "<?ifdef D?> is not evaluated: only its first branch was converted",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -313,5 +329,72 @@ func TestConvertPreprocessorRoots(t *testing.T) {
 
 	if !strings.Contains(string(res.YAML), "name: Hello") {
 		t.Errorf("the first branch was not converted:\n%s", res.YAML)
+	}
+}
+
+// TestConvertPreprocessorKeeps checks blocks that convert writes as
+// templates, and that every build of them validates.
+func TestConvertPreprocessorKeeps(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		body string
+		want string
+		vars []string
+	}{
+		"key file in a loop": {
+			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><?foreach L in en;de ?><File Id="f_$(var.L)" Source="$(var.L).txt" /><?endforeach ?></Component>`,
+			want: `{{ range $L := split ";" "en;de" }}`,
+		},
+		"level from a variable set before the block": {
+			body: `<?define A = "1" ?><?define B = "$(var.A)" ?><?ifdef D ?><?define A = "2" ?><?else ?><?define A = "3" ?><?endif ?>
+    <Feature Id="Main" Level="$(var.B)"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="P" Value="$(var.A)" />`,
+			want: `A: '{{ if has "D" }}2{{ else }}3{{ end }}'`,
+			vars: []string{"D"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="Hello" /></StandardDirectory>
+    ` + tc.body + `
+  </Package>
+</Wix>`
+
+			res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !strings.Contains(string(res.YAML), tc.want) {
+				t.Errorf("want %q in:\n%s", tc.want, res.YAML)
+			}
+
+			for _, note := range res.Notes {
+				if strings.Contains(note.Message, "not evaluated") || strings.Contains(note.Message, "not expanded") ||
+					strings.Contains(note.Message, "feature level") {
+					t.Errorf("note %q", note.Message)
+				}
+			}
+
+			for _, set := range append([]string{""}, tc.vars...) {
+				opts := config.Options{Vars: map[string]string{}}
+				if set != "" {
+					opts.Vars[set] = ""
+				}
+
+				if _, err := config.Parse(res.YAML, opts); err != nil {
+					t.Errorf("%s: %v\n%s", set, err, res.YAML)
+				}
+			}
+		})
 	}
 }

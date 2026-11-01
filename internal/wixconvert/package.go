@@ -40,6 +40,14 @@ func (c *converter) resolveDefines() {
 			c.defined[define[0]] = c.literalStatic(define[1])
 		}
 	}
+
+	// A variable set from a block's variable before the block, or set
+	// again after it, has one value after all.
+	for name, value := range c.conditionalValues(conditional) {
+		if !strings.Contains(value, "{{") && !strings.Contains(value, "$(") {
+			c.defined[name] = value
+		}
+	}
 }
 
 // literal fills the values of the defines into text.

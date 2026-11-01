@@ -414,8 +414,28 @@ func directAllowed(elm, parent *elem) bool {
 // leaves out; so would the first File, which is the key path when no
 // resource is marked one, unless every build has one in its branch.
 func componentResource(elm, parent *elem) bool {
-	return !holdsKeyPath(elm) && (keyElem(parent) != elm || keyInEveryBranch(elm, parent)) &&
+	return !holdsKeyPath(elm) && (!mayBeKey(elm, parent) || keyInEveryBranch(elm, parent)) &&
 		parent.has("Id") && contained(elm)
+}
+
+// mayBeKey reports whether a File is the key path of its component in
+// some build: no resource is marked one, and every File before it sits
+// in a branch, which a build may leave out.
+func mayBeKey(file, comp *elem) bool {
+	if !file.is(elemFile) || slices.ContainsFunc(comp.kids, holdsKeyPath) {
+		return false
+	}
+
+	for _, kid := range comp.kids {
+		switch {
+		case kid == file:
+			return true
+		case kid.is(elemFile) && branchBlock(kid, comp) == nil && len(kid.pos) == len(comp.pos):
+			return false
+		}
+	}
+
+	return false
 }
 
 // keyInEveryBranch reports whether the implied key file of a component,
@@ -424,7 +444,17 @@ func componentResource(elm, parent *elem) bool {
 // starts the key file, which the converter takes from the first branch.
 func keyInEveryBranch(key, comp *elem) bool {
 	blk := branchBlock(key, comp)
-	if blk == nil || blk.foreach || blk.branches[len(blk.branches)-1].target != piElse || advertises(comp) {
+	if blk == nil || advertises(comp) {
+		return false
+	}
+
+	if blk.foreach {
+		// A loop over a list of its own makes a file each round, the
+		// first of which is the key path in every build.
+		return !strings.Contains(blk.list, "$(") && strings.Trim(blk.list, "; ") != ""
+	}
+
+	if blk.branches[len(blk.branches)-1].target != piElse {
 		return false
 	}
 
@@ -795,49 +825,121 @@ func definedFrom(proc procInst) []string {
 // the kept blocks that define it, or a variable its defines read, must
 // be read by their first branch.
 func (c *converter) needFixed(name string) {
-	c.needFixedSeen(name, make(map[string]bool))
+	if c.conditionalVars()[name] {
+		c.needFixedAt(name, len(c.doc.procs), make(map[fixedAt]bool))
+	}
 }
 
-func (c *converter) needFixedSeen(name string, seen map[string]bool) {
-	if !c.conditionalVars()[name] || seen[name] {
+// fixedAt is a variable at an instruction: the value it has there.
+type fixedAt struct {
+	name string
+	at   int
+}
+
+// needFixedAt records the kept blocks that make the value a variable has
+// before instruction before differ between builds. A last define outside
+// the blocks takes the value of the variables it reads there.
+func (c *converter) needFixedAt(name string, before int, seen map[fixedAt]bool) {
+	if seen[fixedAt{name, before}] {
+		return
+	}
+
+	seen[fixedAt{name, before}] = true
+
+	last := c.lastDefine(name, before)
+	if last < 0 {
+		return
+	}
+
+	if len(c.opensOf(c.doc.procs[last].pos)) == 0 {
+		for _, ref := range definedFrom(c.doc.procs[last]) {
+			c.needFixedAt(ref, last, seen)
+		}
+
+		return
+	}
+
+	for i, proc := range c.doc.procs[:before] {
+		if proc.skipped || defineName(proc) != name {
+			continue
+		}
+
+		for _, ref := range definedFrom(proc) {
+			c.needFixedAt(ref, i, seen)
+		}
+
+		c.recordUnkeep(proc.pos)
+	}
+}
+
+// lastDefine returns the index of the last <?define?> of a variable
+// before instruction at, or -1.
+func (c *converter) lastDefine(name string, at int) int {
+	last := -1
+
+	for i, proc := range c.doc.procs[:at] {
+		if !proc.skipped && defineName(proc) == name {
+			last = i
+		}
+	}
+
+	return last
+}
+
+// recordUnkeep records the kept blocks in pos for the next conversion
+// to read by their first branch.
+func (c *converter) recordUnkeep(pos []ppPos) {
+	for _, inside := range pos {
+		if inside.block.keep {
+			if c.unkeep == nil {
+				c.unkeep = make(map[int]bool)
+			}
+
+			c.unkeep[slices.Index(c.doc.blocks, inside.block)] = true
+		}
+	}
+}
+
+// checkEarlyReaders leaves out the other branches of the blocks that
+// set a variable which an element reads before the variable's last
+// define: the template reads the last value, where WiX reads the one the
+// variable has at the element.
+func (c *converter) checkEarlyReaders() {
+	last := make(map[string]int)
+	kept := make(map[string]bool)
+
+	for _, proc := range c.doc.procs {
+		if name := defineName(proc); name != "" && !pruned(proc.pos) {
+			last[name] = proc.line
+			kept[name] = kept[name] || slices.ContainsFunc(proc.pos, func(p ppPos) bool { return p.block.keep })
+		}
+	}
+
+	c.addDerived(kept)
+
+	for name, line := range last {
+		if kept[name] && readsBefore(c.doc.root, name, line) {
+			c.unkeepDefiners(name, make(map[string]bool))
+		}
+	}
+}
+
+// unkeepDefiners leaves out the other branches of the blocks that define
+// a variable, or a variable its defines read.
+func (c *converter) unkeepDefiners(name string, seen map[string]bool) {
+	if seen[name] {
 		return
 	}
 
 	seen[name] = true
 
 	for _, proc := range c.doc.procs {
-		if proc.skipped || defineName(proc) != name {
+		if defineName(proc) != name {
 			continue
 		}
 
 		for _, ref := range definedFrom(proc) {
-			c.needFixedSeen(ref, seen)
-		}
-
-		for _, pos := range proc.pos {
-			if pos.block.keep {
-				if c.unkeep == nil {
-					c.unkeep = make(map[int]bool)
-				}
-
-				c.unkeep[slices.Index(c.doc.blocks, pos.block)] = true
-			}
-		}
-	}
-}
-
-// checkEarlyReaders leaves out the other branches of a block that
-// defines a variable an element before it reads: the template reads the
-// last value, where WiX reads the one the variable has at the element.
-func (c *converter) checkEarlyReaders() {
-	for _, proc := range c.doc.procs {
-		name := defineName(proc)
-		if name == "" || !slices.ContainsFunc(proc.pos, func(p ppPos) bool { return p.block.keep }) {
-			continue
-		}
-
-		if !readsBefore(c.doc.root, name, proc.line) {
-			continue
+			c.unkeepDefiners(ref, seen)
 		}
 
 		for _, pos := range proc.pos {
@@ -1141,11 +1243,11 @@ func (c *converter) checkReferences() {
 
 		switch {
 		case elm.is(elemServiceInstall):
-			for _, ctl := range kept.controls[elm.attr("Name")] {
+			for _, ctl := range kept.controls[strings.ToLower(elm.attr("Name"))] {
 				unkeepApart(elm, ctl)
 			}
 		case elm.is(elemServiceControl):
-			for _, svc := range kept.services[elm.attr("Name")] {
+			for _, svc := range kept.services[strings.ToLower(elm.attr("Name"))] {
 				unkeepApart(elm, svc)
 			}
 		}
@@ -1160,7 +1262,7 @@ type targets struct {
 	// names are the files by lower-case name.
 	names map[string][]*elem
 	// controls are the service controls and services the service
-	// installs by service name.
+	// installs by lower-case service name, as the converter matches them.
 	controls, services map[string][]*elem
 }
 
@@ -1188,9 +1290,11 @@ func keptTargets(root *elem) targets {
 				kept.defs[id] = append(kept.defs[id], elm)
 			}
 		case elm.is(elemServiceControl):
-			kept.controls[elm.attr("Name")] = append(kept.controls[elm.attr("Name")], elm)
+			name := strings.ToLower(elm.attr("Name"))
+			kept.controls[name] = append(kept.controls[name], elm)
 		case elm.is(elemServiceInstall):
-			kept.services[elm.attr("Name")] = append(kept.services[elm.attr("Name")], elm)
+			name := strings.ToLower(elm.attr("Name"))
+			kept.services[name] = append(kept.services[name], elm)
 		}
 	})
 
