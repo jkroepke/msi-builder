@@ -2545,7 +2545,7 @@
           ]
         },
         "ignoreFailure": {
-          "type": "boolean",
+          "$ref": "#/$defs/bool",
           "description": "The install goes on when netsh cannot add the rule. The rule is then missing."
         }
       },

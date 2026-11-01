@@ -7,8 +7,9 @@
 - Tests in `internal/builder/nativetest/firewall_windows_test.go`:
   `TestNetshAnyProtocolPort`, `TestMsiexecFirewallAnyProtocol`,
   `TestMsiexecFirewallIgnoreFailure`, `TestMsiexecFirewallWixBlackBox`,
-  `TestMsiexecFirewallServiceStopped` (run once with
-  `MSI_BUILDER_STOP_FIREWALL=1`)
+  `TestMsiexecFirewallServiceStopped` (run with
+  `MSI_BUILDER_STOP_FIREWALL=1` in this run and again at commit 1871a3d,
+  where `Stop-Service` failed the same way)
 
 Every rule name starts with `MsiBuilderCA10`, and the cleanups delete only
 those names.

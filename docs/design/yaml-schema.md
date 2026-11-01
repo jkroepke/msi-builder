@@ -2203,7 +2203,8 @@ a port, `any` is one rule for every protocol (MSISPEC CA-10).
 A rule whose add fails, for example because `netsh` rejects an argument that
 a property filled in at runtime, fails the install with
 1603 and rolls it back. With `ignoreFailure: true` the install goes on and
-the rule is missing; use it for a rule the program can do without, such as
+the rule is missing (with `protocol: any` and a port, each of the two adds
+goes on by itself, so one protocol can be open without the other); use it for a rule the program can do without, such as
 one that only lets other machines connect. The removal never fails on a rule
 (MSISPEC section 17.3).
 

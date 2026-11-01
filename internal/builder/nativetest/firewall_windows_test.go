@@ -311,6 +311,10 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 		t.Skip("stops the firewall service; set MSI_BUILDER_STOP_FIREWALL on a throwaway machine")
 	}
 
+	// Created before the cleanups below, so that it is removed after them:
+	// the parent cleanup uninstalls the packages it holds.
+	parentDir := t.TempDir()
+
 	sd, err := exec.CommandContext(t.Context(), "sc.exe", "sdshow", "mpssvc").Output()
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +364,6 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 	}
 
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
-	parentDir := t.TempDir()
 
 	for _, tc := range []struct {
 		name, upgradeCode string
