@@ -51,6 +51,17 @@ const moveFind = `standardActions:
       - { sequence: ui, after: SetAllUsersFromPrevious }
 `
 
+// folderSetter sets INSTALLDIR to the per-machine folder together with
+// ALLUSERS: the folders were resolved for the per-user context when the
+// package opened, and setting ALLUSERS later does not resolve them again
+// (INST-07).
+const folderSetter = `  - id: SetInstallDirFromPrevious
+    setProperty: { name: INSTALLDIR, value: '[%ProgramW6432]\MsiBuilderMovedFind\' }
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+      - { sequence: ui, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+`
+
 // registered returns where a product is registered: "user", "machine",
 // "both" or "none".
 func registered(t *testing.T, productCode string) string {
@@ -67,7 +78,9 @@ func registered(t *testing.T, productCode string) string {
 // (25, before AppSearch) it misses the per-machine v1; moved behind the
 // setter it finds and removes it. Silently, and with the reduced UI, which
 // runs the UI sequence, where FindRelatedProducts keeps the execute
-// sequence from running it again.
+// sequence from running it again. The folders stay those of the per-user
+// context unless a second setter sets INSTALLDIR too, so without it v2 is
+// registered per machine with its files in the per-user folder.
 //
 //nolint:paralleltest // msiexec runs one installation at a time
 func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
@@ -79,21 +92,29 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 	inputs := map[string][]byte{"app.exe": app}
 
 	for i, tc := range []struct {
-		name, ui string
-		moved    bool
+		name, ui      string
+		moved, folder bool
 		// oldAfter is where v1 is registered after the v2 install.
 		oldAfter string
+		// appIn is the folder v2 installs app.exe in, "user" or "machine".
+		appIn string
 	}{
-		{"default /qn", "/qn", false, "machine"},
-		{"moved /qn", "/qn", true, "none"},
-		{"default /qr", "/qr", false, "machine"},
-		{"moved /qr", "/qr", true, "none"},
+		{"default /qn", "/qn", false, false, "machine", "user"},
+		{"moved /qn", "/qn", true, false, "none", "user"},
+		{"default /qr", "/qr", false, false, "machine", "user"},
+		{"moved /qr", "/qr", true, false, "none", "user"},
+		{"moved with folder /qn", "/qn", true, true, "none", "machine"},
+		{"moved with folder /qr", "/qr", true, true, "none", "machine"},
 	} {
 		t.Run("UPG-14 "+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			name := fmt.Sprintf("MovedFind%d", i)
 			config := func(version string) string {
 				doc := strings.Replace(movedFindConfig, "VERSION", version, 1)
+				if tc.folder {
+					doc += folderSetter
+				}
+
 				doc = strings.ReplaceAll(doc, "MovedFind", name)
 				doc = strings.Replace(doc, "3e8b7c2f1a64", fmt.Sprintf("3e8b7c2f1a6%d", i), 1)
 
@@ -157,10 +178,24 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 				t.Errorf("v1 is registered in %s after the v2 install, want %s", oldAfter, tc.oldAfter)
 			}
 
-			if _, err := os.Stat(filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilder"+name, "app.exe")); err != nil {
-				_, userErr := os.Stat(filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "MsiBuilder"+name, "app.exe"))
-				t.Errorf("app.exe after the v2 install: %v (server INSTALLDIR %q, in the per-user folder %t)", err,
-					serverProperties(text)["INSTALLDIR"], userErr == nil)
+			machineApp := filepath.Join(os.Getenv("ProgramW6432"), "MsiBuilder"+name, "app.exe")
+			userApp := filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "MsiBuilder"+name, "app.exe")
+			want, other := userApp, machineApp
+
+			if tc.appIn == "machine" {
+				want, other = machineApp, userApp
+			}
+
+			t.Logf("UPG-14 %s: server INSTALLDIR %q", tc.name, serverProperties(text)["INSTALLDIR"])
+
+			if _, err := os.Stat(want); err != nil {
+				t.Errorf("app.exe after the v2 install: %v (server INSTALLDIR %q)", err, serverProperties(text)["INSTALLDIR"])
+			}
+
+			if tc.oldAfter == "none" {
+				if _, err := os.Stat(other); err == nil {
+					t.Errorf("app.exe is also in %s after v1 was removed", other)
+				}
 			}
 		})
 	}
