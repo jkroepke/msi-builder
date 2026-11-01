@@ -113,7 +113,7 @@ func TestJSONSchemaUpgradeCode(t *testing.T) {
 	for code, valid := range map[string]bool{
 		"3f2504e0-4f89-41d3-9a0c-0305e82c3301":     true,
 		`"{3F2504E0-4F89-41D3-9A0C-0305E82C3301}"`: true,
-		`"${UPGRADE_CODE}"`:                        true,
+		`"{{ .UPGRADE_CODE }}"`:                    true,
 		"00000000-0000-0000-0000-000000000000":     false,
 		`"{00000000-0000-0000-0000-000000000000}"`: false,
 		"not-a-guid": false,
@@ -166,7 +166,7 @@ func TestJSONSchemaMatchesTypes(t *testing.T) {
 	}
 
 	// resolve follows $ref and picks the branch of an anyOf that matches,
-	// since typed values also accept a ${NAME} string.
+	// since typed values also accept a {{ }} string.
 	var resolve func(n *schemaNode, match func(*schemaNode) bool) *schemaNode
 
 	resolve = func(node *schemaNode, match func(*schemaNode) bool) *schemaNode {

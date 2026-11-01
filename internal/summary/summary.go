@@ -252,17 +252,23 @@ func Unmarshal(data []byte) ([]Property, error) { //nolint:cyclop,gocognit // on
 		return nil, errors.New("summary: not a SummaryInformation property set")
 	}
 
-	sec := int(order.Uint32(data[0x2C:]))
-	if sec+8 > len(data) {
+	// Each field is compared as uint32 before it becomes an int: on a
+	// 32-bit build a value of 2^31 or more turns negative and would pass
+	// the checks below.
+	rawSec := order.Uint32(data[0x2C:])
+	if uint64(rawSec)+8 > uint64(len(data)) {
 		return nil, errors.New("summary: section offset out of range")
 	}
 
-	size := int(order.Uint32(data[sec:]))
-	count := int(order.Uint32(data[sec+4:]))
+	sec := int(rawSec)
+	rawSize, rawCount := order.Uint32(data[sec:]), order.Uint32(data[sec+4:])
 
-	if size > len(data)-sec || count > (size-8)/8 {
+	room := uint64(len(data) - sec) //nolint:gosec // sec <= len(data)-8 was checked
+	if uint64(rawSize) > room || (rawCount > 0 && (rawSize < 8 || uint64(rawCount) > uint64(rawSize-8)/8)) {
 		return nil, errors.New("summary: section size or count out of range")
 	}
+
+	size, count := int(rawSize), int(rawCount)
 
 	section := data[sec : sec+size]
 

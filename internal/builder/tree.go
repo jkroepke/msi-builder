@@ -153,6 +153,9 @@ func (b *build) deriveProductCode() error { //nolint:cyclop // one pass over the
 
 	cfgCopy := *b.cfg
 	cfgCopy.BaseDir = ""
+	// The template has written the variables into the configuration
+	// already; a variable it does not read changes nothing installed.
+	cfgCopy.Vars = nil
 
 	var tree yaml.Node
 	if err := tree.Encode(&cfgCopy); err != nil {

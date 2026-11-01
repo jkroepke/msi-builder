@@ -148,17 +148,26 @@ func (db *Database) Marshal(opts Options) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// checkCodepage refuses a database code page the string pool cannot use.
+func checkCodepage(codePage int) error {
+	if codePage == 1200 || codePage == 1201 {
+		return errors.New("msidb: UTF-16 database code pages are not valid")
+	}
+
+	if !codepage.Supported(codePage) {
+		return fmt.Errorf("msidb: database code page %d is not supported", codePage)
+	}
+
+	return nil
+}
+
 // MarshalTo serializes the database into a compound file written to dst in one
 // pass. Tables and Streams are encoded in memory; Sources are copied through
 // from their readers, so a cabinet of any size needs no memory beyond a few
 // sectors. The layout says where each stream landed, by encoded name.
 func (db *Database) MarshalTo(dst io.Writer, opts Options) (*cfb.Layout, error) { //nolint:maintidx,cyclop,gocyclo,gocognit // one pass over the format
-	if !codepage.Supported(db.Codepage) {
-		return nil, fmt.Errorf("msidb: database code page %d is not supported", db.Codepage)
-	}
-
-	if db.Codepage == 1200 || db.Codepage == 1201 {
-		return nil, errors.New("msidb: UTF-16 database code pages are not valid")
+	if err := checkCodepage(db.Codepage); err != nil {
+		return nil, err
 	}
 
 	seen := make(map[string]bool)
@@ -324,6 +333,10 @@ func (db *Database) MarshalTo(dst io.Writer, opts Options) (*cfb.Layout, error) 
 			}
 		}
 	}
+
+	// Database.Summary is the only way to write the summary stream: one in
+	// Streams or Sources as well would be stored under a second name.
+	streamNames[summary.StreamName] = true
 
 	for _, stream := range db.Streams {
 		if streamNames[stream.Name] {
