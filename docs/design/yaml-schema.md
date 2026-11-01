@@ -1951,7 +1951,7 @@ the same part twice, is an error.
 One installation applies the parts one after the other in config order:
 the entries of a component in YAML order, the top-level `components` in
 YAML order and then the components defined inside `features`, in feature
-order. A later `append` goes behind an earlier one, and a later
+order, a feature's components before those of its sub-features. A later `append` goes behind an earlier one, and a later
 `prepend` in front of it, so `prepend` entries `[INSTALLDIR]` and
 `[INSTALLDIR]Scripts` give `[INSTALLDIR]Scripts;[INSTALLDIR];…`. The
 engine applies `Environment` rows in key order (ENVVAR-04), so the builder
