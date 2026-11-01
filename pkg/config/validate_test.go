@@ -2182,3 +2182,32 @@ func TestInstallDirBesideTargetDirTree(t *testing.T) {
 		t.Error("no warning about APPDIR")
 	}
 }
+
+// TestSharedSidTypesQuiet checks that the shared-process SID warning stays
+// quiet when every shareProcess service of the component is restricted,
+// for a restricted ownProcess service, and across components, which run
+// other executables.
+func TestSharedSidTypesQuiet(t *testing.T) {
+	t.Parallel()
+
+	for name, services := range map[string]string{
+		"all restricted": "    services: [{name: svc, type: shareProcess, sidType: restricted}, " +
+			"{name: other, type: shareProcess, sidType: restricted}]\n",
+		"own process": "    services: [{name: svc, sidType: restricted}, {name: other, type: shareProcess}]\n",
+	} {
+		doc := base + strings.Replace(appComponent, "    files:", services+"    files:", 1)
+		for _, d := range validate(t, doc) {
+			if strings.HasSuffix(d.Path, ".sidType") {
+				t.Errorf("%s: %s: %s", name, d.Path, d.Message)
+			}
+		}
+	}
+
+	doc := base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, type: shareProcess, sidType: restricted}]\n    files:", 1) +
+		"  - id: Other\n    directory: INSTALLDIR\n    files: [{source: other.exe}]\n    services: [{name: other, type: shareProcess}]\n"
+	for _, d := range validate(t, doc) {
+		if strings.HasSuffix(d.Path, ".sidType") {
+			t.Errorf("across components: %s: %s", d.Path, d.Message)
+		}
+	}
+}

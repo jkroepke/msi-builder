@@ -117,7 +117,7 @@ func (c *converter) serviceConfig(svc *omap, elm *elem) {
 		c.todof(svc, "", elm.line, "ServiceConfig ServiceSid=%q has no counterpart", sid)
 	}
 
-	if delay := elm.attr("PreShutdownDelay"); delay != "" {
+	if delay := c.value(elm, "PreShutdownDelay"); delay != "" {
 		c.preshutdown(svc, elm, delay)
 	}
 
@@ -142,6 +142,12 @@ func (c *converter) serviceConfigTodos(svc *omap, elm *elem) {
 
 // preshutdown converts PreShutdownDelay, a count of milliseconds.
 func (c *converter) preshutdown(svc *omap, elm *elem, delay string) {
+	if strings.Contains(delay, "{{") {
+		svc.set("preshutdownTimeout", delay+"ms")
+
+		return
+	}
+
 	if ms, err := strconv.ParseInt(delay, 10, 64); err == nil && ms > 0 && ms <= math.MaxInt32 {
 		svc.set("preshutdownTimeout", strconv.FormatInt(ms, 10)+"ms")
 

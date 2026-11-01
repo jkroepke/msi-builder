@@ -1593,7 +1593,7 @@ the install with error 1920 (SVC-05).
 `sidType` sets the service SID type. Microsoft documents that
 `unrestricted` adds the service's own SID (`NT SERVICE\<name>`) to its
 process token, so an ACL that grants the service SID (a `grant` to
-`NT SERVICE\<name>`) applies to the service; that `restricted` also adds
+`NT SERVICE\<name>`) presumably applies to the service (inferred); that `restricted` also adds
 the service SID, Everyone, the service logon SID and the write-restricted
 SID (S-1-5-33) to the token's restricted SID list, which presumably limits
 where the service can write (inferred); `none` presumably leaves the SID
@@ -1602,8 +1602,9 @@ that is already registered, since InstallServices reconfigures it
 (SVC-06). Microsoft also documents that a change takes effect at the next
 system start; whether a service started by the same install already runs
 with the new SID is not tested.
-`preshutdownTimeout` is how long the service manager waits for a service
-that accepts preshutdown notifications before shutdown goes on; a whole
+`preshutdownTimeout` is, as Microsoft documents, how long the service
+manager waits for a service that accepts preshutdown notifications before
+shutdown goes on; a whole
 number of milliseconds from 1 ms to about 24.8 days. Both become
 `MsiServiceConfig` rows for install and repair, which `MsiConfigureServices`
 applies: the values were set at install, and a `/fa` repair restored them
