@@ -228,6 +228,10 @@ func TestUnmarshalBinaryKeyCells(t *testing.T) {
 	if !slices.Equal(database.Problems, want) || database.Table("T").Rows[0][1] != nil {
 		t.Errorf("problems %q, rows %v; want %q", database.Problems, database.Table("T").Rows, want)
 	}
+
+	if len(database.Streams) != 1 || database.Streams[0].Name != "T.a" {
+		t.Errorf("streams %v, want T.a kept", database.Streams)
+	}
 }
 
 // The patch itself leaves a consistent database: without edits the package

@@ -189,7 +189,7 @@ Silent-failure cases a producer has to guard against itself:
 | MSIDB-17 | Confirmed | Same as MSIDB-06 |
 | MSIDB-18, MSIDB-19 | Confirmed | Same as MSIDB-08 |
 | MSIDB-20 | Confirmed | Same as MSIDB-01 |
-| MSIDB-21 | Confirmed | `TestNativeMalformedCatalog` (`internal/msidb`, SERVER2025, msi.dll 5.0.26100.1742): msi.dll reads a duplicated column name (first column wins), no key, and a key after a non-key column (only the leading keys count); the reader returns the same rows and leading keys and reports each as a problem (section 3) |
+| MSIDB-21 | Confirmed | `TestNativeMalformedCatalog` (`internal/msidb`), run by hand on SERVER2025 (msi.dll 5.0.26100.1742) at commit 52e2d79, its log was not committed; it also runs in the Windows unit CI job. msi.dll reads a duplicated column name (first column wins), no key, and a key after a non-key column; `MsiDatabaseGetPrimaryKeys` returns only the leading keys. The reader returns the same rows and leading keys and reports each as a problem (section 3) |
 | MSIDB-22 | Not run | msi-rs regression case; test a candidate writer |
 | MSIDB-23 | Not run | msi-rs regression case; test a candidate writer |
 | SUM-01 | Confirmed | [log](msitest/results/SUM-01/native-summary/log.md) |
