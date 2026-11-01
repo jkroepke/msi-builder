@@ -826,7 +826,7 @@
           ]
         },
         "MSIDISABLERMRESTART": {
-          "description": "1: programs Restart Manager shut down are not restarted after the install; 0 restarts them. Ignored when Restart Manager is unavailable or disabled.",
+          "description": "1: programs Restart Manager shut down are not restarted after the install; 0 restarts the services it shut down and the applications registered with Restart Manager. Ignored when Restart Manager is unavailable or disabled.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1326,7 +1326,7 @@
           "not": {}
         },
         "REBOOT": {
-          "description": "Force asks for a restart after the install, and restarts without asking when there is no UI unless msiexec runs with /norestart; Suppress drops the restart prompt at the end but keeps those of ForceReboot; ReallySuppress drops every restart, and msiexec returns 3010 when one is needed. Only the first letter is read.",
+          "description": "Force asks for a restart after the install, and restarts without asking when there is no UI unless msiexec runs with /norestart; Suppress drops the restart prompt at the end but keeps the restarts of ForceReboot, which happen without asking when there is no UI; ReallySuppress drops every restart. Only the first letter is read.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1344,7 +1344,7 @@
                     },
                     {
                       "type": "string",
-                      "pattern": "^[FfSsRr]"
+                      "pattern": "^[FSR]"
                     },
                     {
                       "type": "null"
@@ -1371,7 +1371,7 @@
                         },
                         {
                           "type": "string",
-                          "pattern": "^[FfSsRr]"
+                          "pattern": "^[FSR]"
                         },
                         {
                           "type": "null"

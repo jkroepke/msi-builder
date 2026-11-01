@@ -2148,7 +2148,7 @@ Section 8.7 covers the mechanics. These are the documented properties a package 
 | `MsiLogging` | Default logging mode as a string of `iwearucmopvx!` letters; `+` and `*` are not allowed; the engine writes `MSI*.LOG` and sets `MsiLogFileLocation` | 4.0; a transform may change it, a patch may not |
 | `MSIRESTARTMANAGERCONTROL` | `0` (default) use Restart Manager, `Disable` use the FilesInUse dialog, `DisableShutdown` detect with Restart Manager but do not shut applications down | 4.0; only the `Property` table or a transform, never a custom action; PROP-04 tests the values and their case |
 | `MSIDISABLERMRESTART`, `MSIRMSHUTDOWN` | Restart Manager policy for shutting down and restarting applications holding files | 4.0 |
-| `REBOOT` | `Force`, `Suppress` or `ReallySuppress`; only the first letter is read. `Suppress` keeps `ForceReboot` prompts and drops the end-of-install prompt; `ReallySuppress` drops both. With no UI, `Force` restarts the machine | Section 8.6 uses `ReallySuppress` |
+| `REBOOT` | `Force`, `Suppress` or `ReallySuppress`; only the first letter is read. `Suppress` keeps `ForceReboot` prompts and drops the end-of-install prompt; `ReallySuppress` drops both. With no UI, `Force` restarts the machine, and so does each `ForceReboot` under `Suppress` | Section 8.6 uses `ReallySuppress` |
 | `REBOOTPROMPT` | `Suppress` (or `S`): any needed restart happens without asking | — |
 | `DISABLEADVTSHORTCUTS` | Advertised shortcuts (`Shortcut.Target` = Feature key) are written as ordinary shortcuts | Also settable by transform or admin stream |
 | `MSIENFORCEUPGRADECOMPONENTRULES` | `1` makes small updates and minor upgrades fail when a component is removed | 3.0 |

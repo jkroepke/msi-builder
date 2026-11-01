@@ -77,6 +77,10 @@ func restartManagerRun(t *testing.T, value, target string) []string {
 		if err := exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn", "/norestart").Run(); err != nil {
 			t.Logf("%s: uninstall: %v", value, err)
 		}
+
+		if err := os.RemoveAll(filepath.Dir(target)); err != nil {
+			t.Logf("%s: %v", value, err)
+		}
 	}()
 
 	// A run that failed earlier may have left the product installed.
@@ -124,11 +128,9 @@ func restartManagerRun(t *testing.T, value, target string) []string {
 	log = filepath.Join(dir, "repair.log")
 	code := msiexecCode(t, log, "/fa", path)
 
-	if code == 3010 {
-		// The engine replaces the held file at the next restart; drop
-		// that, so that a developer machine does not get it back.
-		defer dropPendingRenames(t, filepath.Dir(target))
-	}
+	// A 3010 repair replaces the held file at the next restart; drop that
+	// and the staged copy, so that a developer machine does not get it back.
+	defer dropPendingRenames(t, filepath.Dir(target))
 
 	alive := "still running"
 
@@ -143,19 +145,24 @@ func restartManagerRun(t *testing.T, value, target string) []string {
 	return append(report, fmt.Sprintf("repair with the file held open: exit %d, holder %s, %q", code, alive, restartManagerLines(log)))
 }
 
-// dropPendingRenames removes the restart renames of files below dir from
-// PendingFileRenameOperations.
+// dropPendingRenames removes the restart renames from or to files below dir
+// from PendingFileRenameOperations and deletes their staged source files.
+// .NET drops a trailing empty string of the value, which a final delete
+// entry leaves, so an odd count is completed with one.
 func dropPendingRenames(t *testing.T, dir string) {
 	t.Helper()
 
 	script := `$k = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
 $v = (Get-ItemProperty $k -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
 if ($v) {
-  if ($v.Count % 2) { throw "odd PendingFileRenameOperations count $($v.Count)" }
+  if ($v.Count % 2) { $v += '' }
   $keep = @()
   $pat = '*' + $env:RM_DIR + '\*'
   for ($i = 0; $i + 1 -lt $v.Count; $i += 2) {
-    if ($v[$i] -notlike $pat -and $v[$i + 1] -notlike $pat) { $keep += $v[$i]; $keep += $v[$i + 1] }
+    if ($v[$i] -notlike $pat -and $v[$i + 1] -notlike $pat) { $keep += $v[$i]; $keep += $v[$i + 1]; continue }
+    Write-Output "dropped: $($v[$i]) -> $($v[$i + 1])"
+    $src = $v[$i] -replace '^\\\?\?\\', ''
+    if ($src -and (Test-Path -LiteralPath $src)) { Remove-Item -LiteralPath $src -Force }
   }
   if ($keep.Count) { Set-ItemProperty $k -Name PendingFileRenameOperations -Value $keep -Type MultiString }
   else { Remove-ItemProperty $k -Name PendingFileRenameOperations }
@@ -165,7 +172,12 @@ if ($v) {
 
 	cmd.Env = append(os.Environ(), "RM_DIR="+dir)
 
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		t.Errorf("clearing the pending renames: %v\n%s", err, out)
+	}
+
+	if len(out) > 0 {
+		t.Logf("pending renames: %s", out)
 	}
 }
