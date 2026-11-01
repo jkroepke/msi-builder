@@ -494,14 +494,14 @@ func (b *build) firewall() error { //nolint:cyclop,funlen // one pass over the f
 		b.addAction(&actionInfo{name: "FwClear" + r.id, typ: deferred | caContinue, source: sysDir, target: r.del})
 	}
 
-	for _, r := range rules {
+	for _, fwRule := range rules {
 		typ := deferred
-		if r.ignoreFailure {
+		if fwRule.ignoreFailure {
 			typ |= caContinue
 		}
 
-		for _, a := range r.adds {
-			b.addAction(&actionInfo{name: "FwAddRollback" + a.id, typ: rollback | caContinue, source: sysDir, target: r.del})
+		for _, a := range fwRule.adds {
+			b.addAction(&actionInfo{name: "FwAddRollback" + a.id, typ: rollback | caContinue, source: sysDir, target: fwRule.del})
 			b.addAction(&actionInfo{name: "FwAdd" + a.id, typ: typ, source: sysDir, target: a.target})
 		}
 	}
