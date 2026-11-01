@@ -29,6 +29,16 @@ versioning after 1.0.
   passes. A folder source's `guids` pin the codes of single files.
   Replaced components stay in `Config.folders`, so the second pass still
   reports problems at their YAML path.
+  Every file is a Go `text/template` (`template.go`, `Render`, also behind
+  `msi-builder render`) with `{{ .NAME }}` as the only variable syntax;
+  `vars` live in a header document (`header.go`) read before rendering.
+  The functions (`funcs.go`) are sprig's hermetic set minus other
+  run-to-run functions, with msi-builder's `has`, `quote` and `split`, and
+  caps on `indent`, `nindent`, `repeat`, `until`, `untilStep` and `seq`;
+  a sprig upgrade must keep the build repeatable (`TestTemplateSprig`).
+  YAML errors name lines of the rendered text. Template examples in the
+  docs that hold a header or `{{-` are fenced as `text`, because the guide
+  tests parse every `yaml` block.
 - [`pkg/builder`](pkg/builder): the public `Build`, `Options`, `Result` and
   `File`. It converts to and from `internal/builder` and adds nothing else;
   `Options` and `File` mirror the internal structs field by field so that a
@@ -74,7 +84,7 @@ versioning after 1.0.
   standard table definitions, PE version resources, the condition grammar,
   checks of formatted strings,
   sequence numbering, code pages and the wizard bitmaps.
-- [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `inspect`, `convert`,
+- [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `render`, `inspect`, `convert`,
   `sign`, `verify`, `completion` and `version`, built on `spf13/cobra`.
 - [`internal/wixconvert`](internal/wixconvert): the best-effort WiX `.wxs` to
   YAML converter behind `msi-builder convert`, on `encoding/xml` only. It
@@ -290,9 +300,11 @@ go test ./... -shuffle=on -race
 - `HKCU\Software` is shared by the 32-bit and 64-bit registry views, so
   `reg query /reg:32` finds a per-user value the package wrote in the 64-bit
   view; only HKLM tells the views apart (SEARCH-06).
-- Quote `${VAR}` inside a YAML flow mapping (`{ version: "${VERSION}" }`):
-  `{` and `}` end a plain scalar there, so the document fails to parse
-  ("did not find expected ',' or '}'"). The windows-only tests only show
+- Quote `{{ .VAR }}` inside a YAML flow mapping
+  (`{ version: '{{ .VERSION }}' }`, or `{{ .VAR | quote }}` for any text):
+  never in double quotes, which read the backslashes of a path as escapes.
+  `{` and `}` end a plain scalar there,
+  so the document fails to parse ("did not find expected ',' or '}'"). The windows-only tests only show
   this in CI, so parse their configs with `config.Parse` on Linux first.
 - Uninstall test products with `defer`, not `t.Cleanup`: `msiexecQuiet` runs
   under `t.Context()`, which is cancelled before cleanups run, so a cleanup
@@ -361,8 +373,9 @@ go test ./... -shuffle=on -race
   variables, since a client only has its own context's folder properties.
 - `cmd/msi-builder` uses `spf13/cobra` (with `spf13/pflag`) and nothing else
   outside the standard library; never import `cobra/doc`, which pulls in a
-  man-page renderer. Add no new module dependencies elsewhere without
-  discussing them first.
+  man-page renderer. `pkg/config` uses `Masterminds/sprig/v3` for template
+  functions (Joe's choice, PR #197). Add no new module dependencies
+  elsewhere without discussing them first.
 
 ## Command line
 

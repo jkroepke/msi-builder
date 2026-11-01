@@ -21,16 +21,16 @@ import (
 // transitive, so a repair evaluates their conditions again. ${SCOPE} and
 // ${PLATFORM} choose the variant.
 const installScopeConfig = `schema: msi-builder/v1
-product: { name: MsiBuilderScope, manufacturer: msi-builder tests, version: "${VERSION}", upgradeCode: 7d2c41e8-93a5-4f1b-8e60-2b9d5c7a4f13 }
+product: { name: MsiBuilderScope, manufacturer: msi-builder tests, version: {{ .VERSION | quote }}, upgradeCode: 7d2c41e8-93a5-4f1b-8e60-2b9d5c7a4f13 }
 package: { platform: ${PLATFORM}, scope: ${SCOPE} }
 installDir: { remember: true }
 ui: { enabled: true, chooseDirectory: true }
 components:
   - transitive: true
     files:
-      - source: ${SOURCE}
+      - source: {{ .SOURCE | quote }}
         name: tool.exe
-        version: ${FILEVERSION}
+        version: {{ .FILEVERSION | quote }}
         shortcuts: [{ name: MsiBuilderScope }]
     registry:
       - { root: HKMU, key: Software\MsiBuilderTest\Scope, name: Dir, value: "[INSTALLDIR]" }
@@ -142,7 +142,7 @@ func buildInstallScope(t *testing.T, dir, scope, platform string) (string, strin
 	replace := []string{"${SCOPE}", scope, "${PLATFORM}", platform}
 	if platform == "x86" {
 		// A 32-bit package gets the 32-bit PING.EXE.
-		replace = append(replace, "${SOURCE}", filepath.Join(os.Getenv("SystemRoot"), "SysWOW64", "PING.EXE"))
+		replace = append(replace, "{{ .SOURCE | quote }}", filepath.Join(os.Getenv("SystemRoot"), "SysWOW64", "PING.EXE"))
 	}
 
 	doc := strings.NewReplacer(replace...).Replace(installScopeConfig)

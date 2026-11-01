@@ -6,8 +6,8 @@ import (
 )
 
 // schemaJSON is the JSON Schema of the YAML format, for editors. It accepts
-// ${NAME} wherever a typed value is expected, because editors see the file
-// before substitution, and it cannot express the cross-reference rules, so
+// a {{ }} template action wherever a typed value is expected, because
+// editors see the file before it is rendered, and it cannot express the cross-reference rules, so
 // Validate stays the authority.
 //
 //go:embed schema.json

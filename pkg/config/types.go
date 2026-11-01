@@ -1,7 +1,7 @@
 // Package config defines msi-builder's YAML input format (schema msi-builder/v1).
 //
 // The format is specified in docs/design/yaml-schema.md. This package loads a
-// file, substitutes ${NAME} variables, applies defaults and validates
+// file, renders it as a Go template, applies defaults and validates
 // everything that can be checked without reading the referenced input files.
 package config
 
