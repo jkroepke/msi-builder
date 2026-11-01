@@ -30,6 +30,32 @@ func convertValid(t *testing.T, src string) string {
 	return string(res.YAML)
 }
 
+// convertVars is convertValid with the variables of the result set.
+func convertVars(t *testing.T, src string) string {
+	t.Helper()
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vars := map[string]string{}
+	for _, name := range res.Vars {
+		vars[name] = "1.0.0"
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{Vars: vars})
+	if err != nil {
+		t.Fatalf("parse: %v\n%s", err, res.YAML)
+	}
+
+	if ds := config.Validate(cfg); ds.Err() != nil {
+		t.Fatalf("validate: %v\n%s", ds, res.YAML)
+	}
+
+	return string(res.YAML)
+}
+
 // TestConvertPerUserPackageForMachine checks a per-user WiX v3 package
 // that a bootstrapper installs per machine with ALLUSERS=1 and whose
 // components test ALLUSERS: it becomes perUserOrMachine, the conditions
@@ -253,6 +279,7 @@ func TestConvertMachineContent(t *testing.T) {
 		"hklm":            `<RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="S" Value="1" Type="string" KeyPath="yes" />`,
 		"service":         `<File Id="svc.exe" Source="svc.exe" KeyPath="yes" /><ServiceInstall Id="Svc" Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" />`,
 		"common app data": `<File Id="data.txt" Source="data.txt" KeyPath="yes" />`,
+		"variable":        `<RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="S" Value="1" Type="string" KeyPath="yes" />`,
 	} {
 		folder := "ProgramFiles64Folder"
 		if name == "common app data" {
@@ -277,7 +304,11 @@ func TestConvertMachineContent(t *testing.T) {
   </Product>
 </Wix>`
 
-		yaml := convertValid(t, src)
+		if name == "variable" {
+			src = strings.Replace(src, `Version="1.0.0"`, `Version="$(var.ProductVersion)"`, 1)
+		}
+
+		yaml := convertVars(t, src)
 		if strings.Contains(yaml, "scope: perUserOrMachine") || !strings.Contains(yaml, "condition: ALLUSERS=1") {
 			t.Errorf("%s: want a perMachine package with its condition:\n%s", name, yaml)
 		}

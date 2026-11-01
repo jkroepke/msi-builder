@@ -293,7 +293,7 @@ upgrade:
   the dual package would not validate, for example because of services,
   HKLM data or a folder such as `CommonAppDataFolder` that only a
   per-machine install may use; then it stays perMachine with its
-  conditions) `perUserOrMachine` when a component's condition names the context or an
+  conditions, as long as that validates no worse) `perUserOrMachine` when a component's condition names the context or an
   action sets one of the two properties; choose `perMachineOrUser` if the
   install should default to all users. It turns the conditions into
   `components[].scope` and drops the setters with a note, also in a

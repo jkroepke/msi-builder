@@ -91,16 +91,16 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 	}
 
 	// A WiX v3 package without a scope became a dual package because it
-	// chooses its context; when that package does not validate and the
-	// perMachine one that a bootstrapper installs validates better, keep
-	// perMachine.
-	dualErrors := validationErrors(res.YAML)
+	// chooses its context; when that package does not validate, keep the
+	// perMachine one that a bootstrapper installs, as before, unless it
+	// validates worse.
+	dualErrors := validationErrors(res)
 	if dualErrors == 0 {
 		return res, nil
 	}
 
 	machine, _, err := convertOnce(src, opts, true)
-	if err != nil || validationErrors(machine.YAML) >= dualErrors {
+	if err != nil || validationErrors(machine) > dualErrors {
 		return res, nil //nolint:nilerr // the dual result stands
 	}
 
@@ -108,9 +108,16 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 }
 
 // validationErrors returns the number of errors config.Validate reports
-// for a converted file, or a large number when it does not parse.
-func validationErrors(text []byte) int {
-	cfg, err := config.Parse(text, config.Options{})
+// for a converted file, or a large number when it does not parse. The
+// variables the file references get the placeholder 1.0.0, which fits a
+// version as well as a name.
+func validationErrors(res *Result) int {
+	vars := make(map[string]string, len(res.Vars))
+	for _, name := range res.Vars {
+		vars[name] = "1.0.0"
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{Vars: vars})
 	if err != nil {
 		return math.MaxInt
 	}
