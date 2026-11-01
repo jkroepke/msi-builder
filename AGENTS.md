@@ -83,7 +83,10 @@ versioning after 1.0.
   [`internal/codepage`](internal/codepage), [`internal/artwork`](internal/artwork):
   standard table definitions, PE version resources, the condition grammar,
   checks of formatted strings,
-  sequence numbering, code pages and the wizard bitmaps.
+  sequence numbering, code pages and the wizard bitmaps. `internal/pe` must
+  report a version exactly when `MsiGetFileVersionW` does (FILE-15): add each
+  malformed image a parser change handles to `TestMsiGetFileVersionAgrees`,
+  which runs on the Windows unit runner.
 - [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `render`, `inspect`, `convert`,
   `sign`, `verify`, `completion` and `version`, built on `spf13/cobra`.
 - [`internal/wixconvert`](internal/wixconvert): the best-effort WiX `.wxs` to
