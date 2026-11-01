@@ -371,30 +371,44 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 // anchoredBack reports whether a placement starts a loop of moves anchored
 // to one another in its sequence, such as AppSearch before LaunchConditions
 // and LaunchConditions after AppSearch, and its action comes first in the
-// loop. Such moves state one order, which msi-builder would see as a
+// loop, counting the LaunchConditions the builder puts after a moved
+// AppSearch. Such moves state one order, which msi-builder would see as a
 // cycle; dropping the move of the first action keeps the order.
 func (c *converter) anchoredBack(name string, placement *omap) bool {
 	order := []string{actFindRelatedProducts, actAppSearch, actLaunchConditions}
 	seq := placement.str("sequence")
 	seen := map[string]bool{name: true}
-	current := placement
+	anchor := placement.str(keyBefore) + placement.str(keyAfter)
 
-	for {
-		anchor := current.str(keyBefore) + current.str(keyAfter)
-		if anchor == name {
-			return true
-		}
-
-		if !movableActions[anchor] || seen[anchor] || slices.Index(order, anchor) < slices.Index(order, name) || !c.movesIn(anchor, seq) {
+	for anchor != name {
+		if !movableActions[anchor] || seen[anchor] || slices.Index(order, anchor) < slices.Index(order, name) {
 			return false
 		}
 
 		seen[anchor] = true
-
-		if current = c.movedPlacement(anchor, seq); current == nil {
-			return false
-		}
+		anchor = c.movedAnchor(anchor, seq)
 	}
+
+	return true
+}
+
+// movedAnchor returns the action a movable action is anchored to in a
+// sequence: that of its kept move, AppSearch for an unmoved
+// LaunchConditions, which the builder puts after a moved AppSearch, or "".
+func (c *converter) movedAnchor(name, seq string) string {
+	if c.movesIn(name, seq) {
+		if placement := c.movedPlacement(name, seq); placement != nil {
+			return placement.str(keyBefore) + placement.str(keyAfter)
+		}
+
+		return ""
+	}
+
+	if name == actLaunchConditions && c.runsLaunchConditions() && c.movesIn(actAppSearch, seq) {
+		return actAppSearch
+	}
+
+	return ""
 }
 
 // movedPlacement returns the move of an action in a sequence, or nil.

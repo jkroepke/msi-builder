@@ -2839,6 +2839,15 @@ func TestConvertMovesDecidedAfterReanchor(t *testing.T) {
 				"  - action: LaunchConditions\n    schedule:\n      - {sequence: execute, after: AppSearch}\n",
 			"action: FindRelatedProducts",
 		},
+		"anchored in a loop through the LaunchConditions after a moved AppSearch": {
+			`<Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <FindRelatedProducts Before="LaunchConditions" />
+      <AppSearch After="FindRelatedProducts" />
+    </InstallExecuteSequence>`,
+			"standardActions:\n  - action: AppSearch\n    schedule:\n      - {sequence: execute, after: FindRelatedProducts}\n",
+			"action: FindRelatedProducts",
+		},
 	} {
 		src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
