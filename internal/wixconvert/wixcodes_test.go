@@ -362,3 +362,20 @@ func TestConvertComputedCodesGroupSubdirectory(t *testing.T) {
 		t.Errorf("Tool is not in bin:\n%s", res.YAML)
 	}
 }
+
+// TestConvertComputedCodesV3NoArch leaves the default bitness of a WiX 3
+// source to a todo without --arch: the Package Platform does not tell
+// which -arch candle ran with.
+func TestConvertComputedCodesV3NoArch(t *testing.T) {
+	t.Parallel()
+
+	got, res := convertCodes(t, v3ProbeSource, wixconvert.Options{})
+	checkCodes(t, got, map[string]string{
+		"AppExe": "{1C2DB505-EC99-5268-95D7-15C86F1C7D04}",
+		"Reg32":  "{9CA1B61F-85B6-5B11-A923-ACACF0FCC8D7}",
+	}, res.YAML)
+
+	if code, ok := got["Reg64"]; ok {
+		t.Errorf("Reg64 got %s without --arch:\n%s", code, res.YAML)
+	}
+}
