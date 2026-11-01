@@ -1340,8 +1340,11 @@ the silent shutdown of an unrelated holder was observed in PROP-04);
 `close` covers the programs the package knows about. With `Disable`, a file
 that a program `close` does not end still holds is replaced at the next
 restart: a silent `/fa` repair then returned 1641 and restarted the machine
-although `/norestart` was given (PROP-04), so pass `REBOOT=ReallySuppress`
-to such a repair (documented to suppress the restart, untested). Not adopted from WiX:
+although `/norestart` was given (PROP-04). `/f` passes no command-line
+property, so run such a repair as `msiexec /i <package> REINSTALL=ALL
+REINSTALLMODE=a REBOOT=ReallySuppress`; with `DisableShutdown` such a
+repair returned 3010 instead. The value is case-sensitive: `disable`
+behaved like `0`. Not adopted from WiX:
 closing a program by name wherever it runs, end-session messages
 (`WM_QUERYENDSESSION`), registering programs for a restart after the
 install, and a reboot prompt for programs that refuse to exit.
@@ -1994,7 +1997,7 @@ and their documented values, so that an editor completes and checks them. It
 refuses the properties the builder writes, whose hover text names the key to
 use instead (`ARPNOMODIFY` is `product.arp.noModify`), and the request
 properties such as `ADDLOCAL`. Any other name takes any value. The descriptions follow Microsoft's documentation and
-are not verified on Windows, except `0` and `Disable` of
+are not verified on Windows, except the values of
 `MSIRESTARTMANAGERCONTROL` (MSISPEC case PROP-04).
 
 **Search.** `search` fills a property from the target machine before the
