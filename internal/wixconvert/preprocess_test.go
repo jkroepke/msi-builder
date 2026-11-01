@@ -201,6 +201,29 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<?ifdef Extra ?><?define Flags = "$(var.Flags) extra" ?><?endif ?><Property Id="FLAGS" Value="$(var.Flags)" />`,
 			note: "<?ifdef Extra?> is not evaluated: only its first branch was converted",
 		},
+		"implied key file in a branch": {
+			body: `<Component Id="C" Directory="INSTALLFOLDER"><?ifdef Pro ?><File Id="pro" Source="pro.exe" /><?endif ?><File Id="base" Source="base.exe" /></Component>`,
+			note: "<?ifdef Pro?> is not evaluated: only its first branch was converted",
+		},
+		"shortcut to a file in a branch by its folder": {
+			body: `<Component Id="C" Directory="INSTALLFOLDER"><File Id="base" Source="base.exe" /><?ifdef Pro ?><File Id="pro" Source="pro.exe" /><?endif ?>
+    <Shortcut Id="L" Name="Pro" Directory="INSTALLFOLDER" Target="[INSTALLFOLDER]pro.exe" /></Component>`,
+			note: "<?ifdef Pro?> is not evaluated: only its first branch was converted",
+		},
+		"shortcut to a file without an Id in a branch": {
+			body: `<Component Id="C" Directory="INSTALLFOLDER"><File Id="base" Source="base.exe" /><?ifdef Pro ?><File Source="dist\pro.exe" Name="app.exe" /><?endif ?></Component>
+    <Component Id="Links" Directory="INSTALLFOLDER"><File Id="b" Source="b.exe" /><Shortcut Id="L" Name="App" Target="[#app.exe]" /></Component>`,
+			note: "<?ifdef Pro?> is not evaluated: only its first branch was converted",
+		},
+		"service in a branch controlled from outside": {
+			body: `<?ifdef Svc ?><Component Id="Svc" Directory="INSTALLFOLDER"><File Source="svc.exe" /><ServiceInstall Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" /></Component><?endif ?>
+    <Component Id="Ctl" Directory="INSTALLFOLDER"><File Source="ctl.exe" /><ServiceControl Id="SC" Name="HelloSvc" Stop="both" Remove="uninstall" /></Component>`,
+			note: "<?ifdef Svc?> is not evaluated: only its first branch was converted",
+		},
+		"variable read before a block defines it": {
+			body: `<Property Id="P" Value="$(var.Mode)" /><?ifdef Debug ?><?define Mode = "debug" ?><?endif ?>`,
+			note: "<?ifdef Debug?> is not evaluated: only its first branch was converted",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -228,15 +251,20 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 	}
 }
 
-// TestConvertPreprocessorExtendDefine checks that a define in a block that
-// reads the variable's earlier value takes that value, as WiX does.
+// TestConvertPreprocessorExtendDefine checks that a define that reads a
+// variable takes the value the variable has at that point, as WiX does,
+// also when a block or a later define changes the variable.
 func TestConvertPreprocessorExtendDefine(t *testing.T) {
 	t.Parallel()
 
 	src := `<?define Name = "Hello" ?>
 <?ifdef Debug ?><?define Name = "$(var.Name) Debug" ?><?endif ?>
+<?define Title = "$(var.Name)" ?>
+<?ifdef Debug ?><?define Name = "$(var.Title) Debug" ?><?endif ?>
+<?define Short = "$(var.Name)" ?>
+<?define Name = "x" ?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="$(var.Name)" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+  <Package Name="$(var.Short)" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
     <MajorUpgrade DowngradeErrorMessage="newer" />
   </Package>
 </Wix>`
@@ -246,7 +274,7 @@ func TestConvertPreprocessorExtendDefine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for vars, want := range map[string]string{"": "Hello", "Debug": "Hello Debug"} {
+	for vars, want := range map[string]string{"": "Hello", "Debug": "Hello Debug Debug"} {
 		opts := config.Options{Vars: map[string]string{}}
 		if vars != "" {
 			opts.Vars[vars] = ""

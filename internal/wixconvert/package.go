@@ -46,10 +46,8 @@ func (c *converter) resolveDefines() {
 // A variable that a kept block defines has no one value: the blocks that
 // define it are converted again with their first branch only.
 func (c *converter) literal(text string) string {
-	for _, m := range preprocessorVar.FindAllStringSubmatch(text, -1) {
-		if m[1] != "env" && m[1] != varSys {
-			c.needFixed(varName(m[2]))
-		}
+	for _, name := range varRefs(text) {
+		c.needFixed(name)
 	}
 
 	return c.literalStatic(text)
