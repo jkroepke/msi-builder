@@ -52,8 +52,8 @@ func restartLines(log string) string {
 // install Restart Manager shuts down the holder and the program, and that a
 // copy of the program in another folder, which is not registered, keeps
 // running. A repair with MSIRESTARTMANAGERCONTROL=Disable on the command
-// line still has a session (observed); the same package with the property
-// in its Property table starts none, so the action registers nothing and
+// line, run as /i REINSTALL=ALL, and the same package with the property in
+// its Property table start no session, so the action registers nothing and
 // the programs keep running.
 //
 //nolint:paralleltest // msiexec runs one installation at a time
@@ -113,11 +113,12 @@ func TestMsiexecRestartResources(t *testing.T) {
 		kind string
 	}{
 		{"install", append([]string{"/i", path}, props...), "registered"},
-		// The property on the command line: observed to leave Restart
-		// Manager on (CI, 2026-11-01). The repair dropped the other public
-		// properties too, so only the service is registered; presumably it
-		// dropped this one the same way (not examined).
-		{"repair-cmdline", []string{"/fomus", path, "MSIRESTARTMANAGERCONTROL=Disable"}, "cmdline"},
+		// The property on the command line of a repair. msiexecCode runs
+		// /fomus as /i REINSTALL=ALL REINSTALLMODE=omus, which passes it to
+		// the server, and it turns Restart Manager off (CI, 2026-11-01). A
+		// real /fomus dropped it with the other public properties and left
+		// Restart Manager on (CLOSE-04, first runs).
+		{"repair-cmdline", []string{"/fomus", path, "MSIRESTARTMANAGERCONTROL=Disable"}, "disabled"},
 		{"install-disabled", append([]string{"/i", offPath}, props...), "disabled"},
 	} {
 		holder := startHelper(t, holderExe, "hold", filepath.Join(dir, step.name+".holder"), held)
@@ -145,11 +146,6 @@ func TestMsiexecRestartResources(t *testing.T) {
 		switch step.kind {
 		case "disabled":
 			checkNoSession(t, step.name, text, map[string]*running{"holder": holder, "program": run})
-		case "cmdline":
-			if strings.Contains(text, "BuilderRestart: no Restart Manager session") ||
-				!strings.Contains(text, "BuilderRestart: service "+restartService+": registered") {
-				t.Errorf("%s: MSIRESTARTMANAGERCONTROL on the command line now turns Restart Manager off; update spec 17.11", step.name)
-			}
 		default:
 			checkRegistered(t, step.name, text, []string{
 				"BuilderRestart: file " + held + ": registered",
