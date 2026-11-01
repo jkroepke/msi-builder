@@ -553,8 +553,8 @@ Delete `probe.yaml` before marking the pull request ready for review: the
 never reaches `main`. GitHub only offers `workflow_dispatch` for workflows on
 the default branch, so rerun a probe with a new push or with "Re-run jobs" on
 its run. Every msiexec call of a probe passes `/norestart` and
-`REBOOT=ReallySuppress` (#215 makes the test helpers `msiexecCode` and
-`msiexecQuiet` add both). A `/f` repair passes no command-line property to
+`REBOOT=ReallySuppress` (pull request #215 changes the test helpers
+`msiexecCode` and `msiexecQuiet` to add both). A `/f` repair passes no command-line property to
 the install server, so `/norestart` does not stop it from restarting: one
 returned 1641, restarted the machine and so lost the hosted runner and its
 job log. Run a repair as `/i <package> REINSTALL=ALL REINSTALLMODE=<modes>`
