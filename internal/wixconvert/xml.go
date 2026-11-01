@@ -128,6 +128,8 @@ type procInst struct {
 	skipped bool
 	// leftOut is set on an elseif or else whose branch is left out.
 	leftOut bool
+	// branch is the branch an elseif or else opens.
+	branch int
 }
 
 // document is a parsed source file.
@@ -142,6 +144,8 @@ type document struct {
 	// mixed is set when an element or text straddles the branches of a
 	// block, which only the first-branch reading can convert.
 	mixed bool
+	// firstBranch is set when the parser read only the first branches.
+	firstBranch bool
 }
 
 // extAttr is an extension attribute, such as util:Foo on a File.
@@ -183,7 +187,7 @@ func parseData(data []byte, firstBranch bool) (*document, error) {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	// toUTF8 has decoded the file already.
 	dec.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }
-	tree := &treeBuilder{doc: &document{}, firstBranch: firstBranch}
+	tree := &treeBuilder{doc: &document{firstBranch: firstBranch}, firstBranch: firstBranch}
 
 	// line counts the newlines up to the token, without rescanning the
 	// file for every token.
@@ -322,6 +326,7 @@ func (b *treeBuilder) track(proc *procInst) {
 		if top != nil && !top.foreach {
 			top.branches = append(top.branches, ppBranch{target: proc.target, inst: proc.inst, line: proc.line})
 			b.pos[len(b.pos)-1].branch++
+			proc.branch = b.pos[len(b.pos)-1].branch
 			proc.block, proc.pos = top, slices.Clone(b.pos[:len(b.pos)-1])
 		}
 	case piEndif, piEndforeach:
