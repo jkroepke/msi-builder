@@ -835,6 +835,10 @@ func TestValidate(t *testing.T) {
 			strings.Replace(base, "        name: App\n", "        name: .\n", 1),
 			sevError, "directories[0].children[0].name", "standard folder",
 		},
+		"alias of a nested standard folder": {
+			strings.Replace(base, "        configurable: true\n", "        configurable: true\n        children: [{id: CommonAppDataFolder, children: [{id: DATA, name: .}]}]\n", 1),
+			sevError, "directories[0].children[0].children[0].children[0].name", "standard folder",
+		},
 		"recovery restart delay negative": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {restartDelay: -1s, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.restartDelay", "negative",

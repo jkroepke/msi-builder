@@ -78,7 +78,9 @@ func (b *build) removeFoldersFixed() []string {
 	dirs := make([]string, 0, len(b.dirs))
 
 	for id, dir := range b.dirs {
-		if !dir.standard && dir.long != "" {
+		// An alias counts too: the command line or an action can move it
+		// away from its parent.
+		if !dir.standard {
 			dirs = append(dirs, id)
 		}
 	}

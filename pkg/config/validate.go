@@ -434,15 +434,7 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop // a
 
 	var walk func([]*Directory, string, bool)
 
-	// topLevel holds the children of top-level nodes: an alias there would
-	// be a second id for a standard folder or TARGETDIR.
-	topLevel := make(map[*Directory]bool)
-
-	for _, root := range cfg.Directories {
-		for _, child := range root.Children {
-			topLevel[child] = true
-		}
-	}
+	inStandard := standardChildren(cfg.Directories)
 
 	walk = func(ds []*Directory, prefix string, top bool) {
 		names := make(map[string]string)
@@ -464,7 +456,7 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop // a
 				seen[dir.ID] = true
 			}
 
-			v.directoryName(dirPath, dir, top, topLevel[dir])
+			v.directoryName(dirPath, dir, top, inStandard[dir])
 
 			if dir.Configurable && !IsPublicProperty(dir.ID) {
 				v.errorf(dirPath+".id", "a configurable directory needs an upper-case id")
@@ -579,12 +571,40 @@ func (v *validator) rememberIDs(cfg *Config) {
 	}
 }
 
+// standardChildren returns the children of top-level nodes and of standard
+// folders nested deeper: an alias there would be a second id for a
+// standard folder or TARGETDIR.
+func standardChildren(roots []*Directory) map[*Directory]bool {
+	inStandard := make(map[*Directory]bool)
+
+	var mark func([]*Directory, bool)
+
+	mark = func(ds []*Directory, top bool) {
+		for _, dir := range ds {
+			for _, child := range dir.Children {
+				inStandard[child] = top || standardFolders[dir.ID]
+			}
+
+			mark(dir.Children, false)
+		}
+	}
+
+	mark(roots, true)
+
+	return inStandard
+}
+
 // directoryName checks the name of a directory node: none at the top
 // level, a valid folder name below it, or AliasName for a second id of a
-// named parent folder (inTop marks a child of a top-level node).
+// named parent folder (inTop marks a child of a top-level node or of a
+// standard folder).
 func (v *validator) directoryName(dirPath string, dir *Directory, top, inTop bool) { //nolint:cyclop // a flat list of independent checks
+	// Only a node written in directories can be an alias; a generated
+	// one, from product.name or a path, needs a real name.
+	alias := dir.Name == AliasName && dir.origin == ""
+
 	problem := nameProblem(dir.Name, "folder name")
-	if dir.Name == AliasName {
+	if alias {
 		problem = ""
 	}
 
@@ -594,7 +614,7 @@ func (v *validator) directoryName(dirPath string, dir *Directory, top, inTop boo
 	case top && dir.Name != "":
 		v.errorf(dirPath+".name", "a standard folder has no name")
 	case top || !v.required(dirPath+".name", dir.Name):
-	case dir.Name == AliasName && inTop:
+	case alias && inTop:
 		v.errorf(dirPath+".name", "%q names the parent folder itself, here a standard folder; use that folder's id instead", dir.Name)
 	case problem != "" && dir.origin == productNamePath:
 		v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)

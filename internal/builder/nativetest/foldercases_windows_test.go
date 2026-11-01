@@ -187,11 +187,19 @@ func TestMsiexecFolderCases(t *testing.T) { //nolint:paralleltest // msiexec run
 		t.Fatal(err)
 	}
 
-	decoys := []string{
-		filepath.Join(os.Getenv("SystemRoot"), "System32", "msibuilder-foldercases-decoy.tmp"),
-		filepath.Join(os.Getenv("SystemRoot"), "SysWOW64", "msibuilder-foldercases-decoy.tmp"),
-		filepath.Join(cwd, "msibuilder-foldercases-decoy.tmp"),
-		filepath.Join(volume, "msibuilder-foldercases-decoy.tmp"),
+	// The install-mode row's name and a name the uninstall pattern
+	// matches, in the current folders of both msiexec processes.
+	folders := []string{
+		filepath.Join(os.Getenv("SystemRoot"), "System32"),
+		filepath.Join(os.Getenv("SystemRoot"), "SysWOW64"),
+		cwd,
+		volume,
+	}
+	decoys := make([]string, 0, 2*len(folders))
+
+	for _, folder := range folders {
+		decoys = append(decoys, filepath.Join(folder, "msibuilder-foldercases-install.tmp"),
+			filepath.Join(folder, "msibuilder-foldercases-decoy.tmp"))
 	}
 
 	t.Cleanup(func() {
@@ -200,11 +208,12 @@ func TestMsiexecFolderCases(t *testing.T) { //nolint:paralleltest // msiexec run
 		}
 	})
 
-	install("empty")
-
 	for _, decoy := range decoys {
 		writeFile(t, decoy)
 	}
+
+	install("empty")
+	want("install with an empty property", decoys...)
 
 	log := uninstall("empty-x")
 

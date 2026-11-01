@@ -383,23 +383,15 @@ const dirTarget = "TARGETDIR"
 // for a folder such as C:\opt; the SetDirectory is then left out. A
 // directory that another action sets keeps its own row.
 func (c *converter) foldAliasDirs() {
-	setters := make(map[string][]*elem)
-
-	for _, setter := range c.setters {
-		setters[setter.attr("Id")] = append(setters[setter.attr("Id")], setter)
-	}
-
-	for _, custom := range c.actionOrder {
-		if custom.has("Value") && custom.has(attrDirectory) {
-			setters[custom.attr(attrDirectory)] = append(setters[custom.attr(attrDirectory)], custom)
-		}
-	}
+	setters := c.dirSetters()
 
 	kept := c.dirOrder[:0]
 
 	for _, folder := range c.dirOrder {
 		target := c.aliasTarget(folder, setters[folder.id])
 		if target == "" {
+			c.keepMovedRoot(folder, setters[folder.id])
+
 			kept = append(kept, folder)
 
 			continue
@@ -416,6 +408,67 @@ func (c *converter) foldAliasDirs() {
 	}
 
 	c.dirOrder = kept
+}
+
+// dirSetters returns, by ID, the elements that set a directory or name it
+// in the UI.
+func (c *converter) dirSetters() map[string][]*elem {
+	setters := make(map[string][]*elem)
+
+	for _, setter := range c.setters {
+		setters[setter.attr("Id")] = append(setters[setter.attr("Id")], setter)
+	}
+
+	// Anything else that sets the directory or names it in the UI keeps
+	// its row: a type-35 or type-51 action, a Property element (also one
+	// a search fills), a dialog control or a SetTargetPath event.
+	for _, custom := range c.actionOrder {
+		if custom.has("Value") {
+			for _, id := range []string{custom.attr(attrDirectory), custom.attr(attrProperty)} {
+				if id != "" {
+					setters[id] = append(setters[id], custom)
+				}
+			}
+		}
+	}
+
+	for _, prop := range c.properties {
+		setters[prop.attr("Id")] = append(setters[prop.attr("Id")], prop)
+	}
+
+	c.uiDirRefs(c.doc.root, setters)
+
+	return setters
+}
+
+// keepMovedRoot keeps the row of a nameless folder in TARGETDIR or a
+// standard folder that something moves, which then gets a todo note.
+func (c *converter) keepMovedRoot(folder *dir, setters []*elem) {
+	if parent := c.dirs[folder.parentID]; !folder.std && unnamed(folder.name) && (parent == nil || parent.std) && len(setters) > 0 {
+		c.needDirs[folder.id] = true
+	}
+}
+
+// uiDirRefs adds the dialog controls bound to a property and the
+// SetTargetPath events of the UI to setters, by the ID they change.
+func (c *converter) uiDirRefs(elm *elem, setters map[string][]*elem) {
+	if elm == nil {
+		return
+	}
+
+	switch {
+	case elm.is("Control") && elm.has(attrProperty):
+		setters[elm.attr(attrProperty)] = append(setters[elm.attr(attrProperty)], elm)
+	case elm.is("Publish") && elm.attr("Event") == "SetTargetPath":
+		id := strings.TrimSuffix(strings.TrimPrefix(elm.attr("Value"), "["), "]")
+		setters[id] = append(setters[id], elm)
+	case elm.is("Publish") && elm.has(attrProperty):
+		setters[elm.attr(attrProperty)] = append(setters[elm.attr(attrProperty)], elm)
+	}
+
+	for _, kid := range elm.kids {
+		c.uiDirRefs(kid, setters)
+	}
 }
 
 // aliasTarget returns the standard folder that a directory without a name
@@ -451,7 +504,7 @@ func unnamed(name string) bool {
 // sets its directory to, such as [WindowsVolume], and leaves the action
 // out; "" for any other value.
 func (c *converter) setterFolder(setter *elem) string {
-	if !setter.is("SetDirectory") || setter.has("Condition") {
+	if !setter.is("SetDirectory") || c.condition(setter) != "" {
 		return ""
 	}
 

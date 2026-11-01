@@ -1056,6 +1056,48 @@ func TestConvertFolderCases(t *testing.T) {
 	}
 }
 
+// TestConvertFolderAliasesKept checks that a nameless Directory keeps its
+// row when something besides one unconditioned SetDirectory sets it: a WiX
+// v3 SetDirectory with its condition in the text, or a dialog control
+// bound to one directly in a standard folder.
+func TestConvertFolderAliasesKept(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="OPTROOT" Value="[WindowsVolume]">NOT OPTROOT</SetDirectory>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="OPTROOT">
+        <Directory Id="INSTALLFOLDER" Name="Hello">
+          <Component Id="App" Guid="*"><File Source="hello.exe" /></Component>
+        </Directory>
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="DATAROOT">
+          <Component Id="Data" Guid="*"><CreateFolder /></Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <UI><Dialog Id="Pick" Width="370" Height="270"><Control Id="Path" Type="PathEdit" X="20" Y="20" Width="300" Height="18" Property="DATAROOT" /></Dialog></UI>
+    <Feature Id="Main"><ComponentRef Id="App" /><ComponentRef Id="Data" /></Feature>
+  </Product>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"OPTROOT", "setDirectory", "condition: NOT OPTROOT", "the Directory DATAROOT has no Name"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {
