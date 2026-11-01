@@ -51,7 +51,10 @@ versioning after 1.0.
   file after it or after a copy start new folders),
   stored, MSZIP or LZX blocks, plus an `fs.FS` view. The LZX encoder and
   decoder are [`internal/lzx`](internal/lzx), written from [MS-PATCH] and
-  [MS-CAB] only.
+  [MS-CAB] only. To test the reader on layouts the writer never
+  produces (other tools' cabinets, empty folders, corrupt blocks, legacy
+  names), build them with `RawCabinet` (`export_test.go`), which the native
+  tests use too to compare with `cabinet.dll`.
 - [`internal/summary`](internal/summary): the summary information stream.
 - [`pkg/sign`](pkg/sign): Authenticode signing and verification of packages
   and of cabinets written with a signature reserve (spec chapter 12), written
