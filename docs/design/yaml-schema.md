@@ -260,7 +260,7 @@ way:
 | no `installDir` | `INSTALLDIR`, configurable, named after the product, under `ProgramFiles64Folder` (`ProgramFilesFolder` on x86, `LocalAppDataFolder\Programs` for `perUser`). Not added when `directories` already defines that ID (section 4.4); added next to a tree with a configurable directory, or an upper-case one below Program Files, it warns, since components without `directory` go there. |
 | component without `directory` | the install dir |
 | `directory: bin` or `directory: CommonAppDataFolder/Hello/logs` | directory nodes for the path, with generated IDs such as `INSTALLDIR_bin` (section 4.4) |
-| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the directory ID |
+| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the first own file type's ProgID, else the directory ID |
 | no `features` | one feature `MainFeature`, titled with the product name, holding every component, with the install dir as its configurable directory |
 | a component written inside `features[].components` | the same component in `components`, referenced by ID |
 | `features[].components` entry that is only an ID | a reference to that component; in Go, `config.ComponentRef(id)` |
@@ -1112,6 +1112,7 @@ files:
       - progId: Example.Document                 # a key under HKEY_CLASSES_ROOT
         description: Example document            # the type's name in Explorer
         iconIndex: 0                             # DefaultIcon: "[#viewer.exe]",0; leave out for none
+        # iconFile: document.ico                 # take the icon from another packaged file
         extensions:
           - extension: exdoc                     # without the dot
             contentType: application/x-exdoc     # optional Content Type value
@@ -1173,6 +1174,75 @@ an error). Uninstalling removes only that entry and keeps other programs'
 entries (REG-04). Any number of ProgIDs may list an extension with
 `openWithOnly`; the default may be registered once. Explorer's "Open with"
 choice of the user (`UserChoice`) still wins over the package's default.
+
+**File type icons from other files.** `iconFile` names another packaged
+file, the ID or name of an `.ico`, `.exe` or `.dll` in any component,
+whose icon `DefaultIcon` shows instead of the opened file's:
+`"[#document.ico]",0`, with `iconIndex` picking the icon (default 0 with
+`iconFile`). A file that a folder source adds has a generated ID and cannot
+be named. An `icons` entry cannot be used: the engine copies those to disk
+for `Shortcut` rows, advertisement and the Add/Remove Programs icon
+(documented), and a `Registry` row has no way to name one (specification
+chapter 16). The `.ico` installs with its component like any file.
+
+**File types with features of their own.** A component can list
+`fileTypes` of its own, each naming the file it opens with `file`, the ID
+or name of a packaged file in any component. Their rows go into that
+component, so they install with its features, not those of the file, and
+each extension can be picked in the feature tree:
+
+```yaml
+components:
+  - id: Viewer
+    files: [{ source: viewer.exe }, { source: document.ico }]
+  - id: AssocExdoc
+    fileTypes:
+      - progId: Example.exdoc
+        file: viewer.exe                         # a file of any component
+        description: Example document
+        iconFile: document.ico
+        extensions: [{ extension: exdoc }]
+  - id: AssocExlog
+    fileTypes:
+      - progId: Example.exlog
+        file: viewer.exe
+        description: Example log
+        iconFile: document.ico
+        extensions: [{ extension: exlog }]
+features:
+  - id: Main
+    components: [Viewer]
+    features:
+      - { id: Exdoc, title: .exdoc files, components: [AssocExdoc] }
+      - { id: Exlog, title: .exlog files, default: off, components: [AssocExlog] }
+```
+
+They take the keys of a file's `fileTypes`, and `file` is required. When a
+feature of the listing component does not also install the file's
+component, the command and the icon name the file by its folder and long
+name, `"[INSTALLDIR]viewer.exe" "%1"`, instead of `[#id]`, by the rule of
+component shortcuts (SHORTCUT-04 observed ICE69 on shortcuts; Microsoft
+lists the `Registry` table for ICE69 too). Like a component shortcut, a
+file in another component of the same feature is named `[#id]`, which
+ICE69 reports as a warning (observed on shortcuts; for `Registry` rows
+documented, not tested). With the file's feature as the parent, as above,
+the file should always be there, since a child feature installs only with
+its parent (documented for the default feature attributes, not tested
+here). A component with nothing but
+file types is keyed on the first value with data they write: the ProgID's
+description, else its `DefaultIcon`, a verb's text or command or the default
+of an extension it owns, in the order they are written (an `openWithOnly` entry alone is not enough, which is an
+error). In a per-user package that value is under
+`HKCU\Software\Classes`, which should serve as the HKCU key path a profile folder needs (ICE38
+reported nothing for such a package per user, REG-09; a per-user install
+was not run).
+Adding a feature later should write only its rows and removing it remove
+only those, with the uninstall removing the rest (observed per machine,
+REG-09). Give each optional
+extension its own ProgID, as above: a ProgID is registered once per
+package, and the rows of one ProgID in two components would presumably be
+removed with the first of them, leaving the other extension pointing at
+nothing (inferred, not tested; specification chapter 16).
 
 **Closing running programs.** `close` on a program stops its running
 copies when its component is installed, repaired or removed, so that an
@@ -1425,7 +1495,8 @@ action per grant that runs when its component is installed or repaired
 (`$Component=3`) and the block's condition holds, so an action running as
 the installing user cannot change the list after the engine formatted it.
 A package with services has at most 44 grants, 19 when a service uses
-`delayedAutoStart` or `failureActionsOnNonCrashFailures`, fewer with other
+`delayedAutoStart`, `failureActionsOnNonCrashFailures`, `sidType` or
+`preshutdownTimeout`, fewer with other
 actions after `InstallServices` such as `recovery`; the builder says how
 many fit. The account and the
 folder still come from properties, and a standard user can start a
@@ -1559,6 +1630,8 @@ services:
         condition: ENABLED_COLLECTORS
     dependencies: [wmiApSrv]
     failureActionsOnNonCrashFailures: true   # MsiServiceConfig ConfigType 4
+    sidType: unrestricted        # none | unrestricted | restricted (ConfigType 5)
+    preshutdownTimeout: 3m       # ConfigType 7
     control:
       startOnInstall: true
       stopOnInstall: true
@@ -1600,6 +1673,33 @@ it back. With `false` the install succeeds and leaves such a service stopped;
 `startOnInstall` defaults to `false` for `start: disabled` and may not be
 set to `true` there: StartServices cannot start a disabled service and ends
 the install with error 1920 (SVC-05).
+
+`sidType` sets the service SID type. Microsoft documents that
+`unrestricted` adds the service's own SID (`NT SERVICE\<name>`) to its
+process token, so an ACL that grants the service SID (a `grant` to
+`NT SERVICE\<name>`) presumably applies to the service (inferred); that `restricted` also adds
+the service SID, Everyone, the service logon SID and the write-restricted
+SID (S-1-5-33) to the token's restricted SID list, which presumably limits
+where the service can write (inferred); `none` presumably leaves the SID
+out (inferred). `none` matters for a service
+that is already registered, since InstallServices reconfigures it
+(SVC-06). Microsoft also documents that a change takes effect at the next
+system start; whether a service started by the same install already runs
+with the new SID is not tested.
+`preshutdownTimeout` is, as Microsoft documents, how long the service
+manager waits for a service that accepts preshutdown notifications before
+shutdown goes on; a whole
+number of milliseconds from 1 ms to about 24.8 days. Both become
+`MsiServiceConfig` rows for install and repair, which `MsiConfigureServices`
+applies: the values were set at install, and a `/fa` repair restored them
+after they had been changed (SVC-10). Without `preshutdownTimeout` the
+service keeps its own timeout. Microsoft documents that a restricted service in a
+shared process needs every service of that process restricted, so a
+`shareProcess` service with `sidType: restricted` next to another
+`shareProcess` service of the same component (the same executable) that is
+not restricted is a warning.
+A service's required privileges (ConfigType 6) are not
+supported; see `MSISPEC.md` section 10.3.
 
 `deleteOnInstall` (default `false`) adds event 8: DeleteServices removes a
 service of the same name that is already registered, for example by an old
@@ -1754,9 +1854,9 @@ components:
 The folder must be the component's only file. Settings that name one file
 or one component cannot be copied to many: `guid` (other than `auto`),
 `keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `eventLog`,
-`environment`, `purge`, `createFolder` and `folderPermissions` on the
-component, and `name`, `id`, `version`, `language` and `shortcuts` on the
-file, are errors. Put them on a component of their own and exclude its file
+`environment`, `purge`, `createFolder`, `folderPermissions`, `shortcuts` and
+`fileTypes` on the component, and `name`, `id`, `version`, `language`,
+`shortcuts` and `fileTypes` on the file, are errors. Put them on a component of their own and exclude its file
 from the folder, or, for a GUID, list the file in `guids`. `include`,
 `exclude` and `guids` on a file that is not a folder are errors too, and so is a `firewall` rule whose `component` is a folder
 component. The generated components take the component's place in

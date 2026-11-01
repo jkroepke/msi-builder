@@ -83,7 +83,7 @@ func Validate(cfg *Config) Diagnostics {
 	checker.components(cfg, known)
 	checker.folderComponents(cfg, known)
 	checker.shortcuts(cfg, known)
-	checker.fileTypes(cfg)
+	checker.fileTypes(cfg, known)
 	checker.properties(cfg)
 	checker.launchConditions(cfg)
 	checker.customActions(cfg, known)
@@ -932,6 +932,45 @@ func (v *validator) components(cfg *Config, known *refs) {
 		v.movableGrants(cfg, known, p, comp)
 		v.componentEvents(p, comp, userData)
 	}
+
+	v.sharedSidTypes(cfg)
+}
+
+// sharedSidTypes warns about a restricted shareProcess service next to a
+// shareProcess service of the same component, which runs the same image,
+// that is not restricted: Microsoft documents that a restricted service in a
+// shared process needs every service of that process restricted
+// (documented, unverified: SERVICE_SID_INFO). Services of other components
+// run other executables, so they are not compared.
+func (v *validator) sharedSidTypes(cfg *Config) {
+	for i, comp := range cfg.Components {
+		others := unrestrictedShared(comp)
+		if len(others) == 0 {
+			continue
+		}
+
+		for j, svc := range comp.Services {
+			if svc != nil && svc.Type == "shareProcess" && svc.SidType == "restricted" {
+				v.warnf(fmt.Sprintf("%s.services[%d].sidType", comp.Path(i), j), "a restricted service in a shared "+
+					"process needs every service of that process restricted; %s is shareProcess without sidType: restricted",
+					strings.Join(others, ", "))
+			}
+		}
+	}
+}
+
+// unrestrictedShared returns the names of a component's shareProcess
+// services without sidType: restricted.
+func unrestrictedShared(comp *Component) []string {
+	var names []string
+
+	for _, svc := range comp.Services {
+		if svc != nil && svc.Type == "shareProcess" && svc.SidType != "restricted" {
+			names = append(names, svc.Name)
+		}
+	}
+
+	return names
 }
 
 // componentID checks a component's id and records it in seen.
@@ -1111,7 +1150,7 @@ func (v *validator) componentPermissions(compPath string, comp *Component) {
 		v.permissions(fmt.Sprintf("%s.registry[%d].permissions", compPath, j), value.Permissions, permRegistry)
 	}
 
-	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0
+	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0 && !fileTypesOnly(comp)
 	if v.permissions(compPath+".folderPermissions", comp.FolderPermissions, permFolder) && !comp.CreateFolder && !directoryKey {
 		v.errorf(compPath+".folderPermissions", "the component creates no folder row; set createFolder: true")
 	}
@@ -1196,8 +1235,14 @@ func (v *validator) permissions(field string, perm *Permissions, kind string) bo
 // userRegistryKeyPath reports whether the component's key path, resolved as
 // the builder does, is a registry value under HKCU (HKMU is HKCU in a
 // per-user package).
-func userRegistryKeyPath(c *Component, perUser bool) bool {
-	key := registryKeyPath(c)
+func userRegistryKeyPath(comp *Component, perUser bool) bool {
+	// A per-user package writes file types to HKCU\Software\Classes, so a
+	// component keyed on one of their values has an HKCU key path.
+	if perUser && fileTypesOnly(comp) {
+		return true
+	}
+
+	key := registryKeyPath(comp)
 
 	return key != nil && (key.Root == "HKCU" || perUser && key.Root == "HKMU")
 }
@@ -1729,6 +1774,12 @@ func (v *validator) service(svcPath string, svc *Service, keyFile *File, perUser
 		v.errorf(svcPath+".delayedAutoStart", "needs start: auto")
 	}
 
+	if svc.SidType != "" {
+		v.oneOf(svcPath+".sidType", svc.SidType, "none", "unrestricted", "restricted")
+	}
+
+	v.preshutdownTimeout(svcPath+".preshutdownTimeout", svc.PreshutdownTimeout)
+
 	if svc.Password != "" && !strings.Contains(svc.Password, "[") {
 		v.errorf(svcPath+".password", "use a hidden property such as [SERVICE_PASSWORD], never a literal password")
 	}
@@ -1893,6 +1944,21 @@ func (v *validator) recoveryDuration(field string, value *Duration, unit time.Du
 		v.errorf(field, "must be a whole number of %s", map[time.Duration]string{time.Millisecond: "milliseconds", time.Second: "seconds"}[unit])
 	case int64(time.Duration(*value)/unit) > math.MaxInt32:
 		v.errorf(field, "is too long for sc.exe")
+	}
+}
+
+// preshutdownTimeout checks a service's preshutdown timeout, written as
+// milliseconds into a MsiServiceConfig row. Zero is refused: the engine
+// documents an empty argument, not zero, for the default.
+func (v *validator) preshutdownTimeout(field string, value *Duration) {
+	switch {
+	case value == nil:
+	case *value <= 0:
+		v.errorf(field, "must be positive")
+	case time.Duration(*value)%time.Millisecond != 0:
+		v.errorf(field, "must be a whole number of milliseconds")
+	case int64(time.Duration(*value)/time.Millisecond) > math.MaxInt32:
+		v.errorf(field, "must be at most %d milliseconds", math.MaxInt32)
 	}
 }
 
@@ -3005,6 +3071,10 @@ func componentRoots(comp *Component) []string {
 		if len(file.FileTypes) > 0 {
 			roots = append(roots, "HKCR")
 		}
+	}
+
+	if len(comp.FileTypes) > 0 {
+		roots = append(roots, "HKCR")
 	}
 
 	for _, env := range comp.Environment {

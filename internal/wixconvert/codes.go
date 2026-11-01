@@ -110,7 +110,7 @@ var registryRoots = map[string]int{"HKMU": -1, "HKCR": 0, "HKCU": 1, "HKLM": 2, 
 func (c *converter) builtByRegistry(comp *comp) *BuiltComponent {
 	values := c.registryValues(comp.e, "", "")
 	if key := keyElem(comp.e); key != nil {
-		if !key.is("RegistryValue") {
+		if !key.is(elemRegistryValue) {
 			return nil
 		}
 
@@ -153,7 +153,7 @@ func (c *converter) registryValues(elm *elem, root, parentKey string) []builtVal
 	var values []builtValue
 
 	for _, kid := range elm.kids {
-		if !kid.is("RegistryValue") && !kid.is("RegistryKey") {
+		if !kid.is(elemRegistryValue) && !kid.is(elemRegistryKey) {
 			continue
 		}
 
@@ -167,7 +167,7 @@ func (c *converter) registryValues(elm *elem, root, parentKey string) []builtVal
 			key = joinKey(parentKey, key)
 		}
 
-		if kid.is("RegistryKey") {
+		if kid.is(elemRegistryKey) {
 			values = append(values, c.registryValues(kid, kidRoot, key)...)
 
 			continue

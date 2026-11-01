@@ -326,7 +326,22 @@ const (
 	configEventReinstall  = 4
 	configDelayedStart    = 3
 	configFailureNonCrash = 4
+	configSidType         = 5
+	configPreshutdown     = 7
 )
+
+// serviceSidType returns the SERVICE_SID_TYPE value of a sidType for a
+// MsiServiceConfig row (SVC-10).
+func serviceSidType(sidType string) string {
+	switch sidType {
+	case "unrestricted":
+		return "1"
+	case "restricted":
+		return "3"
+	default:
+		return "0"
+	}
+}
 
 func (b *build) writeServices(info *componentInfo) { //nolint:cyclop // one pass over the format; splitting would scatter it
 	comp := info.cfg
@@ -385,6 +400,17 @@ func (b *build) writeServices(info *componentInfo) { //nolint:cyclop // one pass
 		if svc.FailureActionsOnNonCrashFailures {
 			b.table("MsiServiceConfig").Add(b.componentServiceID("scf", comp, svc.Name), svc.Name,
 				configEventInstall|configEventReinstall, configFailureNonCrash, "1", comp.ID)
+		}
+
+		if svc.SidType != "" {
+			b.table("MsiServiceConfig").Add(b.componentServiceID("scsid", comp, svc.Name), svc.Name,
+				configEventInstall|configEventReinstall, configSidType, serviceSidType(svc.SidType), comp.ID)
+		}
+
+		if svc.PreshutdownTimeout != nil {
+			ms := int64(time.Duration(*svc.PreshutdownTimeout) / time.Millisecond)
+			b.table("MsiServiceConfig").Add(b.componentServiceID("scpre", comp, svc.Name), svc.Name,
+				configEventInstall|configEventReinstall, configPreshutdown, strconv.FormatInt(ms, 10), comp.ID)
 		}
 
 		if svc.Recovery != nil {

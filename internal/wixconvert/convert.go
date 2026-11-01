@@ -1,8 +1,10 @@
 // Package wixconvert converts a WiX source file (.wxs) to an msi-builder
 // YAML file. The conversion is best effort: it maps the elements that
 // docs/Migrating from WiX.md describes and writes a "# TODO" comment for
-// everything it cannot convert, such as preprocessor conditions, includes,
-// bind variables, hand-built dialogs and extensions without a counterpart.
+// everything it cannot convert, such as includes, bind variables,
+// hand-built dialogs and extensions without a counterpart. Preprocessor
+// blocks become template actions where it can carry their conditions into
+// the output (preprocess.go).
 // The result is a starting point that a person reviews; it is not meant to
 // build the same package byte for byte.
 package wixconvert
@@ -80,12 +82,12 @@ type Options struct {
 // Convert reads a .wxs file and returns the msi.yaml that describes the
 // same package as far as msi-builder can express it.
 func Convert(r io.Reader, opts Options) (*Result, error) {
-	src, err := io.ReadAll(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
-		return nil, fmt.Errorf("read the WiX file: %w", err)
+		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	res, conv, err := convertOnce(src, opts, false)
+	res, conv, err := convertAll(data, opts, false)
 	if err != nil || !conv.guessedDual {
 		return res, err
 	}
@@ -99,12 +101,36 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 		return res, nil
 	}
 
-	machine, _, err := convertOnce(src, opts, true)
+	machine, _, err := convertAll(data, opts, true)
 	if err != nil || validationErrors(machine) > dualErrors {
 		return res, nil //nolint:nilerr // the dual result stands
 	}
 
 	return machine, nil
+}
+
+// convertAll converts the file; with noDual, a WiX v3 package without a
+// scope does not become a dual package. A block that turns out to need one
+// value for all builds, such as a variable that a feature level reads, is
+// converted again with its first branch only.
+func convertAll(data []byte, opts Options, noDual bool) (*Result, *converter, error) {
+	forced := make(map[int]bool)
+
+	for {
+		conv, text, err := convertOnce(data, opts, forced, noDual)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if len(conv.unkeep) == 0 {
+			notes := append([]Note(nil), conv.notes...)
+			slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
+
+			return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, conv, nil
+		}
+
+		maps.Copy(forced, conv.unkeep)
+	}
 }
 
 // validationErrors returns the number of errors config.Validate reports
@@ -133,10 +159,10 @@ func validationErrors(res *Result) int {
 	return count
 }
 
-// convertOnce converts src; with noDual, a WiX v3 package without a scope
-// does not become a dual package.
-func convertOnce(src []byte, opts Options, noDual bool) (*Result, *converter, error) {
-	doc, err := parse(bytes.NewReader(src))
+// convertOnce converts the file once, with the blocks in forced read by
+// their first branch.
+func convertOnce(data []byte, opts Options, forced map[int]bool, noDual bool) (*converter, []byte, error) {
+	doc, err := parse(bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,6 +180,7 @@ func convertOnce(src []byte, opts Options, noDual bool) (*Result, *converter, er
 	conv := newConverter(doc)
 	conv.built = opts.Built
 	conv.exists = opts.Exists
+	conv.forced = forced
 	conv.fsys = opts.FS
 	conv.arch = opts.Arch
 	conv.bcgg = opts.BCGG
@@ -170,10 +197,7 @@ func convertOnce(src []byte, opts Options, noDual bool) (*Result, *converter, er
 		return nil, nil, err
 	}
 
-	notes := append([]Note(nil), conv.notes...)
-	slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
-
-	return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, conv, nil
+	return conv, text, nil
 }
 
 // dirFileSource returns the FileSource of a Directory or DirectoryRef,
@@ -251,8 +275,26 @@ type converter struct {
 	icons         []*elem
 	closeApps     []*elem
 	defines       [][2]string
-	// defined are the define values with earlier defines filled in.
-	defined     map[string]string
+	// defined are the define values with earlier defines filled in, for
+	// the variables that no kept block defines.
+	defined map[string]string
+	// ppUsed collects the variables a block's conditions read until the
+	// block is kept.
+	ppUsed map[string]bool
+	// ppFails are the template lines of the <?error?> instructions in
+	// kept blocks.
+	ppFails []string
+	// forced are the blocks, by index, that an earlier conversion found
+	// it must read by their first branch; unkeep are the ones this
+	// conversion finds.
+	forced, unkeep map[int]bool
+	// condVars caches conditionalVars.
+	condVars map[string]bool
+	// staticVars are the last values of the variables that only defines
+	// outside the blocks set (fillRedefined).
+	staticVars map[string]string
+	// staticDefs are the defines behind staticVars, in file order.
+	staticDefs  []staticDefine
 	sequences   []*elem
 	setters     []*elem
 	structure   map[string]func(c *converter, e *elem, sc scope)
@@ -351,6 +393,7 @@ type group struct {
 // reference to a component or group.
 type member struct {
 	comp  *comp
+	e     *elem  // the ComponentRef or ComponentGroupRef
 	ref   string // ComponentRef Id
 	group string // ComponentGroupRef Id
 }
@@ -431,6 +474,8 @@ func (c *converter) todof(target *omap, key string, line int, format string, arg
 
 // index walks the file once and records the elements by kind.
 func (c *converter) index() error {
+	c.fillRedefined()
+	c.planBlocks()
 	c.preprocessor()
 	c.extensionAttrs()
 
@@ -559,7 +604,7 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
-		"DirectoryRef": func(c *converter, e *elem, sc scope) {
+		elemDirectoryRef: func(c *converter, e *elem, sc scope) {
 			sc.dir = e.attr("Id")
 			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
@@ -581,14 +626,14 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 
 			conv.walk(elm, inner)
 		},
-		"Component": (*converter).addComp,
+		elemComponent: (*converter).addComp,
 		// WiX 4 lets a File or Files stand outside a Component; each one
 		// is a component of its own.
-		"File":              func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
-		"Files":             func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
-		"ComponentRef":      func(c *converter, e *elem, sc scope) { c.addMember(sc, member{ref: e.attr("Id")}) },
-		"ComponentGroupRef": func(c *converter, e *elem, sc scope) { c.addMember(sc, member{group: e.attr("Id")}) },
-		"Feature":           (*converter).addFeature,
+		elemFile:          func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
+		"Files":           func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
+		refComponent:      func(c *converter, e *elem, sc scope) { c.addMember(sc, member{ref: e.attr("Id"), e: e}) },
+		refComponentGroup: func(c *converter, e *elem, sc scope) { c.addMember(sc, member{group: e.attr("Id"), e: e}) },
+		"Feature":         (*converter).addFeature,
 		// A FeatureRef adds the components and features it contains to
 		// the feature it names.
 		"FeatureRef": func(conv *converter, elm *elem, within scope) {
@@ -626,7 +671,7 @@ var packageElems = map[string]func(c *converter, e *elem){ //nolint:gochecknoglo
 		c.actionOrder = append(c.actionOrder, e)
 	},
 	"SetProperty":              func(c *converter, e *elem) { c.setters = append(c.setters, e) },
-	"SetDirectory":             func(c *converter, e *elem) { c.setters = append(c.setters, e) },
+	elemSetDirectory:           func(c *converter, e *elem) { c.setters = append(c.setters, e) },
 	"InstallExecuteSequence":   func(c *converter, e *elem) { c.sequences = append(c.sequences, e) },
 	"InstallUISequence":        func(c *converter, e *elem) { c.sequences = append(c.sequences, e) },
 	"AdminExecuteSequence":     func(c *converter, e *elem) { c.sequences = append(c.sequences, e) },
@@ -706,7 +751,7 @@ func (c *converter) addDir(elm *elem, parentID string, standard bool) *dir {
 		wixName: elm.attr("Name"), seed: elm.attr("ComponentGuidGenerationSeed"),
 	}
 
-	if dirID == folderTargetDir || standard || isStandardFolder(dirID) {
+	if dirID == folderTargetDir || standard || c.isStandard(dirID) {
 		folder.std, folder.name, folder.parentID = true, "", ""
 	}
 
@@ -724,7 +769,7 @@ func (c *converter) keyFileID(elm *elem) string {
 	switch {
 	case key == nil:
 		return ""
-	case key.has("Id") || !key.is("File"):
+	case key.has("Id") || !key.is(elemFile):
 		return key.attr("Id")
 	}
 
@@ -752,11 +797,11 @@ func keyElem(elm *elem) *elem {
 		switch {
 		case kid.yes("KeyPath"):
 			return kid
-		case kid.is("RegistryKey"):
+		case kid.is(elemRegistryKey):
 			if key := markedKey(kid); key != nil {
 				return key
 			}
-		case kid.is("File") && first == nil:
+		case kid.is(elemFile) && first == nil:
 			first = kid
 		}
 	}
@@ -782,7 +827,7 @@ func markedKey(elm *elem) *elem {
 // subdir adds the folders of a Subdirectory path, such as bin\\x64, below a
 // directory and returns the ID of the last one.
 func (c *converter) subdir(parentID, path, wixPath string, line int) string {
-	if c.dirs[parentID] == nil && isStandardFolder(parentID) {
+	if c.dirs[parentID] == nil && c.isStandard(parentID) {
 		folder := &dir{id: parentID, std: true, line: line}
 		c.dirs[parentID] = folder
 		c.dirOrder = append(c.dirOrder, folder)
@@ -846,7 +891,7 @@ func (c *converter) group(id string) *group {
 // component WiX makes for it, which takes its Id, Directory and
 // Subdirectory.
 func implicitComponent(file *elem) *elem {
-	component := &elem{attrs: make(map[string]string), ns: file.ns, space: file.space, name: "Component", kids: []*elem{file}, line: file.line}
+	component := &elem{attrs: make(map[string]string), ns: file.ns, space: file.space, name: elemComponent, kids: []*elem{file}, line: file.line}
 
 	// WiX names the component after the file.
 	for _, name := range []string{"Id", attrDirectory, "Subdirectory"} {
@@ -912,15 +957,18 @@ func (c *converter) collectWixVars(elm *elem) {
 	}
 }
 
-// preprocessor turns <?define?> into vars and notes everything else.
+// preprocessor turns <?define?> into vars and notes everything else. The
+// blocks convert writes as templates need no note.
 func (c *converter) preprocessor() { //nolint:cyclop // one branch per processing instruction
 	for _, proc := range c.doc.procs {
 		if proc.skipped {
 			continue
 		}
 
+		kept := proc.block != nil && proc.block.keep
+
 		switch proc.target {
-		case "define":
+		case piDefine:
 			name, value, ok := strings.Cut(proc.inst, "=")
 			if !ok {
 				c.todof(nil, "", proc.line, "<?define %s?> has no value", proc.inst)
@@ -932,17 +980,25 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 			c.defines = append(c.defines, [2]string{varName(strings.TrimSpace(name)), value})
 		case "include":
 			c.todof(nil, "", proc.line, "<?include %s?>: convert the included file and merge it in by hand", proc.inst)
-		case "if", "ifdef", "ifndef":
-			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.inst)
-		case "elseif", "else":
-			if proc.leftOut {
-				c.todof(nil, "", proc.line, "the <?%s?> branch was left out; convert it by hand if your build takes it", strings.TrimSpace(proc.target+" "+proc.inst))
+		case piIf, piIfdef, piIfndef:
+			if !kept {
+				c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
 			}
-		case "foreach":
-			c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.inst)
-		case "endif", "endforeach":
+		case piElseif, piElse:
+			if proc.leftOut {
+				c.todof(nil, "", proc.line, "the <?%s?> branch was left out; convert it by hand if your build takes it", strings.TrimSpace(proc.target+" "+proc.text))
+			}
+		case piForeach:
+			if !kept {
+				c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.text)
+			}
+		case "error":
+			if !c.ppFail(proc) {
+				c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.text)
+			}
+		case piEndif, piEndforeach:
 		default:
-			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.inst)
+			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.text)
 		}
 	}
 }
@@ -986,6 +1042,10 @@ func (c *converter) render(opts Options) ([]byte, error) {
 		source = "a WiX file"
 	}
 
+	// Values such as Ids are written as they are in the source; their
+	// variables are filled in last, inside the loops of their entries.
+	c.expandLeftMap(c.out, nil)
+
 	head := []string{
 		"Converted from " + source + " by msi-builder convert.",
 		"Review it, resolve the TODO comments, then run msi-builder validate.",
@@ -1017,6 +1077,14 @@ func (c *converter) render(opts Options) ([]byte, error) {
 	out, err := encodeDocs(docs)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(c.ppFails) > 0 {
+		// The <?error?> instructions of kept blocks fail the build at the
+		// top of the body.
+		body := []byte("\nschema: ")
+		at := bytes.Index(out, body) + 1
+		out = slices.Concat(out[:at], []byte(strings.Join(c.ppFails, "\n")+"\n"), out[at:])
 	}
 
 	return append([]byte("# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json\n"), out...), nil

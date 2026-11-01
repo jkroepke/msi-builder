@@ -15,7 +15,7 @@ func (cc *compConv) service(elm *elem) { //nolint:cyclop // a flat list of indep
 	conv := cc.c
 	svc := newMap()
 	svc.order("name", "displayName", "description", "type", "start", "delayedAutoStart", "errorControl", "vital",
-		"account", "password", "arguments", "dependencies", "failureActionsOnNonCrashFailures", "control", "recovery", "permissions")
+		"account", "password", "arguments", "dependencies", "failureActionsOnNonCrashFailures", "sidType", "preshutdownTimeout", "control", "recovery", "permissions")
 	svc.head = comments(elm)
 	svc.set("name", conv.value(elm, "Name"))
 	svc.set("displayName", conv.value(elm, "DisplayName"))
@@ -68,14 +68,15 @@ func (cc *compConv) service(elm *elem) { //nolint:cyclop // a flat list of indep
 
 	cc.services = append(cc.services, svc)
 	cc.serviceLines = append(cc.serviceLines, elm.line)
+	cc.serviceKeys = append(cc.serviceKeys, conv.serviceKey(elm))
 	cc.out.add("services", svc)
 }
 
-func (cc *compConv) serviceChild(svc *omap, kid *elem) { //nolint:cyclop // one branch per child element
+func (cc *compConv) serviceChild(svc *omap, kid *elem) {
 	conv := cc.c
 
 	switch kid.qname() {
-	case "ServiceDependency":
+	case elemServiceDependency:
 		if kid.yes("Group") {
 			conv.todof(svc, "", kid.line, "a dependency on a load order group has no counterpart")
 
@@ -85,19 +86,7 @@ func (cc *compConv) serviceChild(svc *omap, kid *elem) { //nolint:cyclop // one 
 		deps := svc.list("dependencies")
 		svc.set("dependencies", append(deps, conv.value(kid, "Id")))
 	case "ServiceConfig":
-		if kid.yes("DelayedAutoStart") {
-			svc.set("delayedAutoStart", true)
-		}
-
-		if kid.attr("FailureActionsWhen") == "failedToStopOrReturnedError" {
-			svc.set("failureActionsOnNonCrashFailures", true)
-		}
-
-		for _, a := range []string{"PreShutdownDelay", "ServiceSid", "RequiredPrivilege"} {
-			if kid.has(a) {
-				conv.todof(svc, "", kid.line, "ServiceConfig %s has no counterpart", a)
-			}
-		}
+		conv.serviceConfig(svc, kid)
 	case "util:ServiceConfig":
 		conv.recovery(svc, kid)
 	default:
@@ -109,6 +98,64 @@ func (cc *compConv) serviceChild(svc *omap, kid *elem) { //nolint:cyclop // one 
 
 		conv.todof(svc, "", kid.line, "<%s> in a ServiceInstall has no counterpart", kid.qname())
 	}
+}
+
+// serviceConfig converts the MsiServiceConfig settings of a ServiceInstall.
+func (c *converter) serviceConfig(svc *omap, elm *elem) {
+	if elm.yes("DelayedAutoStart") {
+		svc.set("delayedAutoStart", true)
+	}
+
+	if elm.attr("FailureActionsWhen") == "failedToStopOrReturnedError" {
+		svc.set("failureActionsOnNonCrashFailures", true)
+	}
+
+	switch sid := c.value(elm, "ServiceSid"); {
+	case sid == "":
+	case sid == valueNone, sid == "unrestricted", sid == "restricted", strings.Contains(sid, "{{"):
+		svc.set("sidType", sid)
+	default:
+		c.todof(svc, "", elm.line, "ServiceConfig ServiceSid=%q has no counterpart", sid)
+	}
+
+	if delay := c.value(elm, "PreShutdownDelay"); delay != "" {
+		c.preshutdown(svc, elm, delay)
+	}
+
+	c.serviceConfigTodos(svc, elm)
+}
+
+// serviceConfigTodos notes the ServiceConfig attributes without a
+// counterpart.
+func (c *converter) serviceConfigTodos(svc *omap, elm *elem) {
+	if elm.has("RequiredPrivilege") {
+		c.todof(svc, "", elm.line, "ServiceConfig RequiredPrivilege has no counterpart")
+	}
+
+	// msi-builder applies these settings at install and repair. A
+	// ServiceConfig without any of the event attributes is left alone.
+	events := elm.has("OnInstall") || elm.has("OnReinstall") || elm.has("OnUninstall")
+	if events && (!elm.yes("OnInstall") || !elm.yes("OnReinstall") || elm.yes("OnUninstall")) {
+		c.todof(svc, "", elm.line, "ServiceConfig OnInstall, OnReinstall and OnUninstall have no counterpart; "+
+			"msi-builder applies the settings at install and repair")
+	}
+}
+
+// preshutdown converts PreShutdownDelay, a count of milliseconds.
+func (c *converter) preshutdown(svc *omap, elm *elem, delay string) {
+	if strings.Contains(delay, "{{") {
+		svc.set("preshutdownTimeout", delay+"ms")
+
+		return
+	}
+
+	if ms, err := strconv.ParseInt(delay, 10, 64); err == nil && ms > 0 && ms <= math.MaxInt32 {
+		svc.set("preshutdownTimeout", strconv.FormatInt(ms, 10)+"ms")
+
+		return
+	}
+
+	c.todof(svc, "", elm.line, "ServiceConfig PreShutdownDelay=%q is not a number of milliseconds from 1 to %d", delay, math.MaxInt32)
 }
 
 func (c *converter) recovery(svc *omap, elm *elem) {
@@ -169,12 +216,12 @@ func (cc *compConv) resolveControls() {
 	conv := cc.c
 
 	for _, elm := range cc.controls {
-		name := conv.value(elm, "Name")
+		name, key := conv.value(elm, "Name"), conv.serviceKey(elm)
 
 		var own *omap
 
-		for _, s := range cc.services {
-			if strings.EqualFold(s.str("name"), name) {
+		for i, s := range cc.services {
+			if cc.serviceKeys[i] == key {
 				own = s
 			}
 		}
@@ -188,7 +235,7 @@ func (cc *compConv) resolveControls() {
 			conv.todof(cc.out, "", elm.line, "the ServiceControl for %s was left out: msi-builder takes one control per "+
 				"service of a component; merge the events into the first one", name)
 		default:
-			cc.otherComponentControl(elm, name)
+			cc.otherComponentControl(elm, name, key)
 		}
 	}
 
@@ -197,14 +244,14 @@ func (cc *compConv) resolveControls() {
 
 // otherComponentControl converts a ServiceControl of a service that the
 // component does not install.
-func (cc *compConv) otherComponentControl(elm *elem, name string) {
+func (cc *compConv) otherComponentControl(elm *elem, name, key string) {
 	conv := cc.c
-	withOwn, without := conv.serviceInstallers(name)
+	withOwn, without := conv.serviceInstallers(key)
 
 	switch {
 	case len(withOwn)+len(without) == 0:
 		cc.foreignControl(elm)
-	case elm == conv.borrowedControl(name) && len(without) > 0:
+	case elm == conv.borrowedControl(key) && len(without) > 0:
 		msg := "the ServiceControl for %s became services[].control of %s, which keeps that component's condition " +
 			"and feature instead of this one's"
 		if len(withOwn) > 0 {
@@ -226,11 +273,11 @@ func (cc *compConv) otherControls() {
 			continue
 		}
 
-		name := svc.str("name")
-		if elm := cc.c.borrowedControl(name); elm != nil {
+		name, key := svc.str("name"), cc.serviceKeys[i]
+		if elm := cc.c.borrowedControl(key); elm != nil {
 			cc.ownControl(svc, elm)
 
-			withOwn, _ := cc.c.serviceInstallers(name)
+			withOwn, _ := cc.c.serviceInstallers(key)
 			if slices.ContainsFunc(withOwn, func(comp *comp) bool { return slices.Contains(comp.e.kids, elm) }) {
 				cc.c.todof(svc, "", cc.serviceLines[i], "services[].control of %s comes from the ServiceControl on line %d, "+
 					"which belongs to another component that installs it; WiX runs that one only when its own component "+
@@ -246,23 +293,55 @@ func (cc *compConv) otherControls() {
 	}
 }
 
-// namedKid returns a matcher of the elements of a kind that name a service;
-// service names do not depend on case.
-func (c *converter) namedKid(kind, name string) func(e *elem) bool {
-	return func(e *elem) bool { return e.is(kind) && strings.EqualFold(c.value(e, "Name"), name) }
+// namedKid returns a matcher of the elements of a kind that name a service
+// by its key (serviceKey).
+func (c *converter) namedKid(kind, key string) func(e *elem) bool {
+	return func(e *elem) bool { return e.is(kind) && c.serviceKey(e) == key }
+}
+
+// serviceKey is the name of the service that a ServiceInstall or a
+// ServiceControl names, as the converter matches them: with the values
+// of the defines filled in, so that a name written with a variable
+// matches one written without, and in lower case, as service names do
+// not depend on case.
+// The variables left, which blocks set, are written one way and keep
+// their case, as variable names depend on it.
+func (c *converter) serviceKey(elm *elem) string {
+	text := c.staticFill(elm.attr("Name"), posLoops(elm.pos))
+
+	var key strings.Builder
+
+	last := 0
+
+	for _, loc := range preprocessorVar.FindAllStringSubmatchIndex(text, -1) {
+		key.WriteString(strings.ToLower(text[last:loc[0]]))
+
+		kind := "var"
+		if loc[2] >= 0 {
+			kind = text[loc[2]:loc[3]]
+		}
+
+		key.WriteString("$(" + kind + "." + varName(text[loc[4]:loc[5]]) + ")")
+
+		last = loc[1]
+	}
+
+	key.WriteString(strings.ToLower(text[last:]))
+
+	return key.String()
 }
 
 // serviceInstallers returns the components that install a service, those
 // with a ServiceControl of it and those without.
-func (c *converter) serviceInstallers(name string) ([]*comp, []*comp) {
+func (c *converter) serviceInstallers(key string) ([]*comp, []*comp) {
 	var withOwn, without []*comp
 
 	for _, comp := range c.comps {
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceInstall", name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, key)) {
 			continue
 		}
 
-		if slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceControl", name)) {
+		if slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceControl, key)) {
 			withOwn = append(withOwn, comp)
 		} else {
 			without = append(without, comp)
@@ -276,16 +355,16 @@ func (c *converter) serviceInstallers(name string) ([]*comp, []*comp) {
 // service in the components that install it without one of their own: the
 // first in a component that does not install the service, else the first
 // in one that does.
-func (c *converter) borrowedControl(name string) *elem {
+func (c *converter) borrowedControl(key string) *elem {
 	var installer *elem
 
 	for _, comp := range c.comps {
-		i := slices.IndexFunc(comp.e.kids, c.namedKid("ServiceControl", name))
+		i := slices.IndexFunc(comp.e.kids, c.namedKid(elemServiceControl, key))
 		if i < 0 {
 			continue
 		}
 
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceInstall", name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, key)) {
 			return comp.e.kids[i]
 		}
 
@@ -622,9 +701,9 @@ func (cc *compConv) writesFolder(search *elem) bool {
 			}
 
 			switch {
-			case kid.is("RegistryKey") && walk(kid, regRoot, regKey):
+			case kid.is(elemRegistryKey) && walk(kid, regRoot, regKey):
 				return true
-			case kid.is("RegistryValue") && strings.TrimSuffix(kid.attr("Value"), `\`) == folder &&
+			case kid.is(elemRegistryValue) && strings.TrimSuffix(kid.attr("Value"), `\`) == folder &&
 				slices.Equal(want, []string{strings.ToUpper(regRoot), strings.ToLower(strings.Trim(regKey, `\`)), strings.ToLower(kid.attr("Name"))}):
 				return true
 			}
@@ -685,7 +764,7 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 		program = p
 	}
 
-	if f := elm.attr("File"); f != "" {
+	if f := elm.attr(elemFile); f != "" {
 		program = "[#" + f + "]"
 	}
 
@@ -766,7 +845,7 @@ func (c *converter) compID(comp *comp) string {
 		// Skip the IDs that components took from the source.
 		for comp.id == "" || c.compByID[comp.id] != nil {
 			c.anonymous++
-			comp.id = "Component" + strconv.Itoa(c.anonymous)
+			comp.id = elemComponent + strconv.Itoa(c.anonymous)
 		}
 
 		if comp.out != nil {
@@ -785,7 +864,7 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 	}
 
 	fileType := newMap()
-	fileType.order("progId", "description", "iconIndex", "extensions", "verbs")
+	fileType.order("progId", "file", "description", "iconFile", "iconIndex", "extensions", "verbs")
 	fileType.set("progId", conv.typeText(fileType, elm, "Id"))
 	fileType.set("description", conv.typeText(fileType, elm, "Description"))
 
@@ -900,7 +979,7 @@ func (c *converter) constProperty(name string) (string, bool) {
 		}
 	}
 
-	if found == nil || !found.has("Value") || len(found.kids) > 0 || c.propertyChanged(name) {
+	if found == nil || !found.has("Value") || len(found.kids) > 0 || len(found.opens) > 0 || c.propertyChanged(name) {
 		return "", false
 	}
 
@@ -909,8 +988,9 @@ func (c *converter) constProperty(name string) (string, bool) {
 	return value, !formattedLeft(value)
 }
 
-// varRef matches a {{ .NAME }} action that msi-builder fills in on load.
-var varRef = regexp.MustCompile(`\{\{ \.[A-Za-z_][A-Za-z0-9_]* \}\}`)
+// varRef matches a {{ .NAME }} action that msi-builder fills in on load,
+// or {{ $.NAME }} and {{ $NAME }} inside a loop.
+var varRef = regexp.MustCompile(`\{\{ (?:\$\.|\$|\.)[A-Za-z_][A-Za-z0-9_]* \}\}`)
 
 // formattedLeft reports whether text still holds formatted text or a WiX
 // bind or localization variable once the {{ .NAME }} actions are left out.
@@ -954,13 +1034,7 @@ func (c *converter) placeTypes() {
 	placed := make(map[string]placedType)
 
 	for _, pending := range c.pendingTypes {
-		var file *fileRef
-
-		for _, f := range c.files {
-			if pending.target != "" && f.key == pending.target || pending.target == "" && f.comp == pending.comp && file == nil {
-				file = f
-			}
-		}
+		file := c.typeFile(pending)
 
 		if file == nil {
 			c.todof(pending.parent, "", pending.e.line, "the ProgId %s opens no file of the package; file types go on the file they start", pending.e.attr("Id"))
@@ -975,36 +1049,63 @@ func (c *converter) placeTypes() {
 			continue
 		}
 
-		placed[progID] = placedType{pending: pending, file: file}
+		c.typeIcon(pending, file)
+
+		// A ProgId in a component with other features or a condition than
+		// the file it opens stays in that component, which names the file,
+		// so that it stays optional.
+		if pending.comp != file.comp && c.componentDiffers(file.comp, pending.comp) {
+			if pending.comp.folder == nil {
+				placed[progID] = placedType{pending: pending, file: file, home: pending.comp}
+
+				pending.out.set("file", fileRefName(file))
+				pending.comp.out.add("fileTypes", pending.out)
+
+				continue
+			}
+
+			c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with a folder source, which cannot list "+
+				"file types; it installs with the file it opens now, so the condition and features of that component no longer "+
+				"apply: move it to a component of its own with file", pending.e.attr("Id"))
+		}
+
+		placed[progID] = placedType{pending: pending, file: file, home: file.comp}
 
 		file.out.add("fileTypes", pending.out)
-		c.typeIconNote(pending, file)
-		c.typeFeatureNote(pending, file)
-		c.typeConditionNote(pending, file)
 	}
 }
 
-// placedType is a ProgId placed on the file it opens.
+// typeFile returns the file a ProgId opens: the target of its verbs, else
+// the first file of its component.
+func (c *converter) typeFile(pending pendingType) *fileRef {
+	var file *fileRef
+
+	for _, f := range c.files {
+		if pending.target != "" && f.key == pending.target || pending.target == "" && f.comp == pending.comp && file == nil {
+			file = f
+		}
+	}
+
+	return file
+}
+
+// fileRefName returns how the YAML names a converted file from another
+// component: its id, else its name.
+func fileRefName(file *fileRef) string {
+	if id := file.out.str("id"); id != "" {
+		return id
+	}
+
+	return file.name
+}
+
+// placedType is a ProgId placed on the file it opens or in its own
+// component.
 type placedType struct {
-	file    *fileRef
+	file *fileRef
+	// home is the component whose YAML holds the file type.
+	home    *comp
 	pending pendingType
-}
-
-// typeConditionNote notes a ProgId whose component has a condition that the
-// component of the file it opens does not share: the file type now
-// installs with the file.
-func (c *converter) typeConditionNote(pending pendingType, file *fileRef) {
-	if pending.comp == file.comp || pending.comp.out == nil {
-		return
-	}
-
-	cond := pending.comp.out.str("condition")
-	if cond == "" || file.comp.out != nil && file.comp.out.str("condition") == cond {
-		return
-	}
-
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with the condition %s; msi-builder installs "+
-		"file types with their file, so that condition no longer applies to it", pending.e.attr("Id"), cond)
 }
 
 // typeExtensions returns the extensions of a converted file type.
@@ -1057,8 +1158,9 @@ func (c *converter) mergeType(first placedType, again pendingType, file *fileRef
 	}
 
 	note := ""
-	if again.comp != file.comp && c.componentDiffers(file.comp, again.comp) {
-		note = "; it installs with the file now, so the condition and features of the component that declared it again no longer apply"
+	if again.comp != first.home && (c.componentDiffers(first.home, again.comp) || c.componentDiffers(again.comp, first.home)) {
+		note = "; it installs with the component of the first declaration now, whose condition and features replace those of the " +
+			"component that declared it again"
 	}
 
 	c.todof(first.pending.out, "", again.e.line, "the ProgId %s is declared again; convert merged its extensions into this file type "+
@@ -1117,35 +1219,39 @@ func commentsIn(value any, skip map[*omap]bool) []string {
 	return nil
 }
 
-// typeIconNote notes a ProgId whose icon is in another file than the one
-// it opens: iconIndex only picks an icon of the file the type goes on.
-func (c *converter) typeIconNote(pending pendingType, file *fileRef) {
+// typeIcon sets the icon of a ProgId whose Icon names another file than
+// the one it opens: iconFile names that file, and without an IconIndex
+// the first icon is taken. An <Icon> or a file this source does not
+// define gets a TODO.
+func (c *converter) typeIcon(pending pendingType, file *fileRef) {
 	icon := strings.TrimSpace(c.literal(pending.e.attr("Icon")))
 	if icon == "" || icon == file.key || icon == strings.TrimSpace(c.literal(file.key)) {
 		return
 	}
 
-	pending.out.del("iconIndex")
-
 	progID := pending.e.attr("Id")
-	isFile := slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == icon })
 
-	if !isFile && slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
-		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
-			"ProgIds use; install the icon as a file and add the DefaultIcon key HKCR\\%s\\DefaultIcon as a registry value "+
-			"naming it", progID, icon, progID)
+	if index := slices.IndexFunc(c.files, func(f *fileRef) bool { return f.key == icon }); index >= 0 {
+		pending.out.set("iconFile", fileRefName(c.files[index]))
+
+		if !pending.e.has("IconIndex") {
+			pending.out.del("iconIndex")
+		}
 
 		return
 	}
 
-	where := ""
-	if !isFile {
-		where = " (a file this source does not define)"
+	pending.out.del("iconIndex")
+
+	if slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
+		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
+			"ProgIds use; install the icon as a file and name it with iconFile", progID, icon)
+
+		return
 	}
 
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s%s, not from the file it opens; "+
-		"iconIndex only picks an icon of that file, so add the DefaultIcon key as a registry value "+
-		"(HKCR\\%s\\DefaultIcon = [#%s],%s)", progID, icon, where, progID, icon, c.iconIndexText(pending.e))
+	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s (a file this source does not define), "+
+		"not from the file it opens; name the file with iconFile (index %s)", progID, icon, c.iconIndexText(pending.e))
 }
 
 // iconIndexText returns a ProgId's icon index, 0 when it gives none.
@@ -1155,23 +1261,6 @@ func (c *converter) iconIndexText(elm *elem) string {
 	}
 
 	return "0"
-}
-
-// typeFeatureNote notes a ProgId whose component is in other features than
-// the file it opens: its file type now installs with the file.
-func (c *converter) typeFeatureNote(pending pendingType, file *fileRef) {
-	if file.comp == pending.comp {
-		return
-	}
-
-	own, target := c.featureIDs(pending.comp), c.featureIDs(file.comp)
-	if slices.Equal(own, target) {
-		return
-	}
-
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in features %s, the file it opens in %s; "+
-		"msi-builder installs file types with their file, so this one is no longer optional", pending.e.attr("Id"),
-		orNone(own), orNone(target))
 }
 
 // featureIDs returns the IDs of the features that hold a component, sorted.
@@ -1187,14 +1276,6 @@ func (c *converter) featureIDs(cp *comp) []string {
 	slices.Sort(ids)
 
 	return slices.Compact(ids)
-}
-
-func orNone(ids []string) string {
-	if len(ids) == 0 {
-		return valueNone
-	}
-
-	return strings.Join(ids, ", ")
 }
 
 // Rights names of grants.

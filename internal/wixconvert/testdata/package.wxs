@@ -90,7 +90,7 @@
                         Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"
                         Account="NT AUTHORITY\NetworkService" Arguments="--port [PORT]">
           <ServiceDependency Id="Tcpip" />
-          <ServiceConfig DelayedAutoStart="yes" OnInstall="yes" OnReinstall="yes" />
+          <ServiceConfig DelayedAutoStart="yes" ServiceSid="unrestricted" PreShutdownDelay="60000" OnInstall="yes" OnReinstall="yes" />
           <util:ServiceConfig ResetPeriodInDays="1" RestartServiceDelayInSeconds="120"
                               FirstFailureActionType="restart" SecondFailureActionType="restart"
                               ThirdFailureActionType="reboot" />

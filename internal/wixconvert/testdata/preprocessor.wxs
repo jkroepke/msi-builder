@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A sample package that builds for several platforms and editions with
+     preprocessor blocks, which convert writes as template actions. -->
+<?ifndef Version ?>
+<?define Version = "1.0.0" ?>
+<?endif ?>
+<?if $(var.Platform) = arm64 ?>
+<?define Folder = "ProgramFiles64Folder" ?>
+<?define Arch = "arm64" ?>
+<?elseif $(var.Platform) ~= X64 ?>
+<?define Folder = "ProgramFiles64Folder" ?>
+<?define Arch = "x64" ?>
+<?else ?>
+<?define Folder = "ProgramFilesFolder" ?>
+<?define Arch = "x86" ?>
+<?endif ?>
+<?if $(var.Platform) = ia64 Or $(var.Platform) = "arm" ?>
+<?error Platform $(var.Platform) is not supported ?>
+<?endif ?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="$(var.Version)" UpgradeCode="0b7c3f1e-2d4a-4e6b-9c8d-1a2b3c4d5e6f">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Hello is already installed." />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Directory Id="LangDir" Name="lang" />
+      </Directory>
+    </StandardDirectory>
+
+    <?ifdef Debug ?>
+    <Property Id="HELLO_LOG" Value="debug" />
+    <?else ?>
+    <Property Id="HELLO_LOG" Value="info" />
+    <?endif ?>
+
+    <ComponentGroup Id="App" Directory="INSTALLFOLDER">
+      <Component Id="MainExe">
+        <File Id="hello.exe" Source="dist\$(var.Arch)\hello.exe" />
+      </Component>
+      <?if Not ($(var.Edition) = "lite") And $(var.Arch) != x86 ?>
+      <Component Id="Plugins">
+        <File Id="plugins.dll" Source="dist\$(var.Arch)\plugins.dll" />
+        <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="plugins" Type="integer" Value="1" />
+      </Component>
+      <?endif ?>
+      <Component Id="Settings">
+        <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="version" Type="string" Value="$(var.Version)" KeyPath="yes" />
+        <?ifdef Debug ?>
+        <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="debug" Type="integer" Value="1" />
+        <?endif ?>
+      </Component>
+    </ComponentGroup>
+
+    <?foreach Lang in en;de;fr ?>
+    <DirectoryRef Id="LangDir">
+      <Component Id="Lang_$(var.Lang)">
+        <File Id="lang_$(var.Lang).txt" Source="dist\lang\$(var.Lang).txt" />
+      </Component>
+    </DirectoryRef>
+    <?endforeach ?>
+
+    <Feature Id="Main" Title="Hello">
+      <ComponentGroupRef Id="App" />
+      <?foreach Lang in en;de;fr ?>
+      <ComponentRef Id="Lang_$(var.Lang)" />
+      <?endforeach ?>
+    </Feature>
+  </Package>
+</Wix>
