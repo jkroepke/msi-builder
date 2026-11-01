@@ -192,3 +192,65 @@ func TestEventLogOnlyComponentFolderPermissions(t *testing.T) {
 		t.Error("no CreateFolder row")
 	}
 }
+
+// TestServiceSidAndPreshutdown checks the MsiServiceConfig rows of sidType
+// and preshutdownTimeout: ConfigType 5 with the SERVICE_SID_TYPE value and
+// ConfigType 7 with milliseconds, both at install and reinstall (SVC-10).
+func TestServiceSidAndPreshutdown(t *testing.T) {
+	t.Parallel()
+
+	for sidType, value := range map[string]string{"none": "0", "unrestricted": "1", "restricted": "3"} {
+		database := buildYAML(t, round5Header+`components:
+  - files: [{ source: hello.exe }]
+    services: [{ name: rwsvc, sidType: `+sidType+`, preshutdownTimeout: 2m30s }]
+`)
+
+		got := map[any][]any{}
+		for _, row := range rows(t, database, "MsiServiceConfig") {
+			got[row[0]] = row
+		}
+
+		for key, want := range map[string]string{
+			"scsid_rwsvc": fmt.Sprint([]any{"scsid_rwsvc", "rwsvc", 5, 5, value, "hello.exe"}),
+			"scpre_rwsvc": fmt.Sprint([]any{"scpre_rwsvc", "rwsvc", 5, 7, "150000", "hello.exe"}),
+		} {
+			if fmt.Sprint(got[key]) != want {
+				t.Errorf("sidType %s: row %s is %v, want %s", sidType, key, got[key], want)
+			}
+		}
+
+		if len(got) != 2 {
+			t.Errorf("sidType %s: %d MsiServiceConfig rows, want 2", sidType, len(got))
+		}
+
+		if seq := rows(t, database, "InstallExecuteSequence"); !strings.Contains(fmt.Sprint(seq), "MsiConfigureServices") {
+			t.Errorf("sidType %s: MsiConfigureServices is not sequenced", sidType)
+		}
+	}
+
+	// One key writes one row; neither writes none and no MsiConfigureServices.
+	for settings, want := range map[string]string{
+		"sidType: restricted":    "[[scsid_rwsvc rwsvc 5 5 3 hello.exe]]",
+		"preshutdownTimeout: 1s": "[[scpre_rwsvc rwsvc 5 7 1000 hello.exe]]",
+		"start: demand":          "",
+	} {
+		database := buildYAML(t, round5Header+`components:
+  - files: [{ source: hello.exe }]
+    services: [{ name: rwsvc, `+settings+` }]
+`)
+
+		var got string
+
+		if table := database.Table("MsiServiceConfig"); table != nil {
+			got = fmt.Sprint(table.Rows)
+		}
+
+		if got != want {
+			t.Errorf("%s: MsiServiceConfig %s, want %s", settings, got, want)
+		}
+
+		if seq := fmt.Sprint(rows(t, database, "InstallExecuteSequence")); strings.Contains(seq, "MsiConfigureServices") != (want != "") {
+			t.Errorf("%s: MsiConfigureServices sequenced: %v", settings, strings.Contains(seq, "MsiConfigureServices"))
+		}
+	}
+}

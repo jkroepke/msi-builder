@@ -1411,7 +1411,8 @@ action per grant that runs when its component is installed or repaired
 (`$Component=3`) and the block's condition holds, so an action running as
 the installing user cannot change the list after the engine formatted it.
 A package with services has at most 44 grants, 19 when a service uses
-`delayedAutoStart` or `failureActionsOnNonCrashFailures`, fewer with other
+`delayedAutoStart`, `failureActionsOnNonCrashFailures`, `sidType` or
+`preshutdownTimeout`, fewer with other
 actions after `InstallServices` such as `recovery`; the builder says how
 many fit. The account and the
 folder still come from properties, and a standard user can start a
@@ -1545,6 +1546,8 @@ services:
         condition: ENABLED_COLLECTORS
     dependencies: [wmiApSrv]
     failureActionsOnNonCrashFailures: true   # MsiServiceConfig ConfigType 4
+    sidType: unrestricted        # none | unrestricted | restricted (ConfigType 5)
+    preshutdownTimeout: 3m       # ConfigType 7
     control:
       startOnInstall: true
       stopOnInstall: true
@@ -1586,6 +1589,33 @@ it back. With `false` the install succeeds and leaves such a service stopped;
 `startOnInstall` defaults to `false` for `start: disabled` and may not be
 set to `true` there: StartServices cannot start a disabled service and ends
 the install with error 1920 (SVC-05).
+
+`sidType` sets the service SID type. Microsoft documents that
+`unrestricted` adds the service's own SID (`NT SERVICE\<name>`) to its
+process token, so an ACL that grants the service SID (a `grant` to
+`NT SERVICE\<name>`) presumably applies to the service (inferred); that `restricted` also adds
+the service SID, Everyone, the service logon SID and the write-restricted
+SID (S-1-5-33) to the token's restricted SID list, which presumably limits
+where the service can write (inferred); `none` presumably leaves the SID
+out (inferred). `none` matters for a service
+that is already registered, since InstallServices reconfigures it
+(SVC-06). Microsoft also documents that a change takes effect at the next
+system start; whether a service started by the same install already runs
+with the new SID is not tested.
+`preshutdownTimeout` is, as Microsoft documents, how long the service
+manager waits for a service that accepts preshutdown notifications before
+shutdown goes on; a whole
+number of milliseconds from 1 ms to about 24.8 days. Both become
+`MsiServiceConfig` rows for install and repair, which `MsiConfigureServices`
+applies: the values were set at install, and a `/fa` repair restored them
+after they had been changed (SVC-10). Without `preshutdownTimeout` the
+service keeps its own timeout. Microsoft documents that a restricted service in a
+shared process needs every service of that process restricted, so a
+`shareProcess` service with `sidType: restricted` next to another
+`shareProcess` service of the same component (the same executable) that is
+not restricted is a warning.
+A service's required privileges (ConfigType 6) are not
+supported; see `MSISPEC.md` section 10.3.
 
 `deleteOnInstall` (default `false`) adds event 8: DeleteServices removes a
 service of the same name that is already registered, for example by an old

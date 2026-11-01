@@ -321,7 +321,7 @@ Pipeline, each step a file of its own:
 5. **Registry, event log, environment, services**: value encodings
    (`#`, `#x`, `#%`, `##`, `[~]`), `=-*`-style environment names with an
    explicit `-` (ENVVAR-01), `ServiceInstall`, `ServiceControl`,
-   `MsiServiceConfig` (delayed start, failure actions on non-crash), and the
+   `MsiServiceConfig` (delayed start, failure actions on non-crash, SID type, preshutdown timeout), and the
    `sc.exe failure` recovery action (SVC-01).
 6. **Properties, launch conditions, upgrade**: `Property` rows, `ALLUSERS`,
    `SecureCustomProperties`, `MsiHiddenProperties`, `ARP*`, `Upgrade` rows

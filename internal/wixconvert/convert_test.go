@@ -2515,3 +2515,57 @@ func TestConvertRawRegistryFolderSearch(t *testing.T) {
 		}
 	}
 }
+
+// TestConvertServiceConfig checks the MsiServiceConfig settings of a
+// ServiceConfig: the SID type and the preshutdown delay in milliseconds
+// become sidType and preshutdownTimeout; values without a counterpart,
+// RequiredPrivilege and events other than install and reinstall a todo.
+func TestConvertServiceConfig(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component>
+          <File Source="hello.exe" />
+          <ServiceInstall Name="Hello" Start="auto" Type="ownProcess" ErrorControl="normal">
+            <ServiceConfig %s />
+          </ServiceInstall>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>`
+
+	for _, tc := range []struct{ attrs, want string }{
+		{`ServiceSid="restricted" PreShutdownDelay="180000" OnInstall="yes" OnReinstall="yes"`, "sidType: restricted\n        preshutdownTimeout: 180000ms\n"},
+		{`ServiceSid="none" OnInstall="yes" OnReinstall="yes"`, "sidType: none\n"},
+		{`ServiceSid="other" OnInstall="yes" OnReinstall="yes"`, `ServiceSid="other" has no counterpart`},
+		{`PreShutdownDelay="0" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="0" is not a number of milliseconds`},
+		{`PreShutdownDelay="[DELAY]" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="[DELAY]" is not a number of milliseconds`},
+		{`RequiredPrivilege="SeBackupPrivilege" OnInstall="yes" OnReinstall="yes"`, "RequiredPrivilege has no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes" OnReinstall="yes" OnUninstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "sidType: restricted\n"},
+		{`PreShutdownDelay="060000" OnInstall="yes" OnReinstall="yes"`, "preshutdownTimeout: 60000ms\n"},
+	} {
+		res, err := wixconvert.Convert(strings.NewReader(fmt.Sprintf(src, tc.attrs)), wixconvert.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if out := string(res.YAML); !strings.Contains(out, tc.want) {
+			t.Errorf("%s: the YAML lacks %q:\n%s", tc.attrs, tc.want, out)
+		}
+
+		cfg, err := config.Parse(res.YAML, config.Options{})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.attrs, err)
+		}
+
+		if err := config.Validate(cfg).Err(); err != nil {
+			t.Errorf("%s: the converted file does not validate: %v", tc.attrs, err)
+		}
+	}
+}
