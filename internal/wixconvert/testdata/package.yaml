@@ -13,6 +13,7 @@
 # TODO(line 52): the progress text of LaunchHello is dropped: the action was not converted to a customActions entry of its own
 # TODO(line 185): drop Wix4BroadcastEnvironmentChange_X64: Windows Installer announces environment changes itself
 # TODO(line 186): Wix4BroadcastSettingChange_X64 has no counterpart; if the package writes a setting that Windows reads only on WM_SETTINGCHANGE, send it from a run action
+# convert computed the guids of 2 components whose code WiX generates from their key paths, as wix build -arch x64 does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 vars:
   Port: "8080"
@@ -36,7 +37,6 @@ package:
   summary:
     keywords: hello,service
 upgrade:
-  # TODO(line 15): WiX generated the Guid of manual.pdf, hello.yaml; msi-builder generates other codes, and removing the old version after installing this one deletes their files on the first upgrade from the WiX package. Run msi-builder convert again with --msi and the package WiX built, or set each guid from msi-builder inspect --table Component
   removeOld: afterInstallExecute
   downgrade: allow
   downgradeMessage: A newer version of Hello is already installed.
@@ -87,6 +87,7 @@ features:
     components: [FirewallRule]
 components:
   - id: manual.pdf
+    guid: '{72C18645-B2B5-5C38-BF6A-08798F7EEB3C}'
     files:
       - source: docs/manual.pdf
   # TODO(line 125): <util:XmlFile> is not supported: ship the complete file, or edit it with a run action (no rollback)
@@ -186,6 +187,7 @@ components:
         scope: machine
   - id: hello.yaml
     directory: config
+    guid: '{01B0223A-D9A6-5DA9-A94E-77C26D5E5051}'
     files:
       - source: config/hello.yaml
         id: hello.yaml

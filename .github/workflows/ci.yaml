@@ -143,7 +143,9 @@ jobs:
 
       # TestMsiexecHarvestedComponentCodes (UPG-12) upgrades a package that
       # WiX built from a Files glob by the package msi-builder builds from the
-      # converted source. WiX runs as a black box; Files needs WiX 5.
+      # converted source, and TestMsiexecComputedComponentCodes (UPG-14)
+      # compares the codes convert computes with those of WiX packages. WiX
+      # runs as a black box; Files needs WiX 5.
       - name: Install WiX
         if: matrix.suite == 'native'
         shell: pwsh

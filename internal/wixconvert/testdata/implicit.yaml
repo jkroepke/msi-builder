@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
 # Converted from implicit.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
+# convert computed the guids of 4 components whose code WiX generates from their key paths, as wix build -arch x64 does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 product:
   name: Hello
@@ -28,6 +29,7 @@ components:
   # A Subdirectory is not the install folder.
   - id: Spy
     directory: spy
+    guid: '{8AB47247-ED44-5409-810A-C6759884172E}'
     files:
       - source: dist/spy.dll
   # A Subdirectory below a standard folder that no element declares.
@@ -42,6 +44,7 @@ components:
   # msi-builder writes both for every shortcut.
   - id: StartMenu
     directory: ProgramMenuFolder/Hello Project
+    guid: '{5E96C2DB-F63D-52F4-9546-E30DB37E0C0D}'
     shortcuts:
       # TODO(line 24): the shell property {12345678-1234-1234-1234-123456789ABC}, 2 was left out: write it by its canonical name, such as System.AppUserModel.ID
       - name: Hello
@@ -53,6 +56,7 @@ components:
   - id: TxtAssoc
     guid: 6a0f1c2e-7d3b-4e58-9a61-2b4c8d0e1f38
   - id: hello.exe
+    guid: '{78693E13-BDFA-5DDB-ACF6-13E143D638A9}'
     files:
       - source: dist/hello.exe
         id: hello.exe
@@ -74,5 +78,6 @@ components:
     files:
       - source: dist/LICENSE.txt
   - id: readme.txt
+    guid: '{7BB5105A-DE93-5841-9AD1-7B9AAC98F6BC}'
     files:
       - source: dist/readme.txt

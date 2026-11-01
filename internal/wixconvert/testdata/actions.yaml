@@ -3,6 +3,7 @@
 # Review it, resolve the TODO comments, then run msi-builder validate.
 # TODO(line 5): the WiX package has no MajorUpgrade; msi-builder adds the standard major upgrade (set upgrade: false to leave it out)
 # TODO(line 91): the Error row 1316 has no counterpart; only error actions take in their message
+# convert computed the guids of 7 components whose code WiX generates from their key paths, as wix build -arch x64 does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 product:
   name: Hello
@@ -25,6 +26,7 @@ features:
 components:
   - id: HelloExe
     directory: bin
+    guid: '{D9D9FBEC-81AF-5394-823D-0953CCB29395}'
     files:
       - source: dist/readme.txt
         id: readme.txt
@@ -48,17 +50,20 @@ components:
   # TODO(line 26): the condition "&Complete = 3" was left out: it tests the action state &Complete, which is not set yet when the installer evaluates component conditions; test a property instead
   # TODO(line 28): the ServiceControl for HelloSvc became services[].control of HelloExe, which keeps that component's condition and feature instead of this one's; merge its events into the control of HelloSvcLite too
   - id: HelloSvcControl
+    guid: '{466F140C-3791-595D-A3E2-3C02376DB130}'
     files:
       - source: dist/hello.yaml
         id: hello.yaml
   # A second control of the same service, which is left out.
   # TODO(line 33): the ServiceControl for HelloSvc was left out: msi-builder takes one control per service; merge the events into services[].control of HelloSvcLite, HelloExe
   - id: HelloSvcRestart
+    guid: '{828E142F-4705-52E6-BAAA-6D8358A06F5F}'
     files:
       - source: dist/hello.ini
         id: hello.ini
   # Installs the same service for another edition, with its own control.
   - id: HelloSvcLite
+    guid: '{C4E6279F-5C9F-55A3-B6F4-7E0DF95DBB5D}'
     files:
       - source: dist/hello-lite.exe
         id: hello_lite.exe
@@ -70,6 +75,7 @@ components:
     condition: EDITION="lite"
   # The key file has no Id; the advertised shortcut starts it.
   - id: Tray
+    guid: '{E35AD747-DCFD-5CAB-BDAE-4F6D2635CF60}'
     files:
       - source: dist/helper.dll
       - source: dist/tray.exe
@@ -80,6 +86,7 @@ components:
     keyPath: tray.exe
   # An & in a string is no action state.
   - id: RnD
+    guid: '{7B47C71B-EFA8-51EB-B8C7-DE6BC31A37C9}'
     files:
       - source: dist/rnd.txt
         id: rnd.txt
@@ -89,6 +96,7 @@ components:
   # msi-builder writes both for every shortcut.
   - id: ConsoleLink
     directory: ProgramMenuFolder/Hello
+    guid: '{EE86C846-C4EF-57A4-B715-295E2CEDE531}'
     registry:
       - root: HKCU
         key: Software\Example\Hello\Handlers

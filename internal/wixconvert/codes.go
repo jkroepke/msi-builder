@@ -253,6 +253,8 @@ func (c *converter) checkCodes() {
 	files := 0
 	if c.built != nil {
 		files = c.pinHarvested()
+	} else {
+		c.dropSharedCodes()
 	}
 
 	open, pinned := c.openCodes()
@@ -262,6 +264,7 @@ func (c *converter) checkCodes() {
 	c.noteHarvested()
 
 	if c.built == nil {
+		c.computedHeader()
 		c.noteLateRemoval(open)
 
 		return
@@ -741,11 +744,16 @@ func (c *converter) noteLateRemoval(open []*comp) {
 		list += fmt.Sprintf(" and %d more components", more)
 	}
 
+	again := "Run msi-builder convert again with --msi and the package WiX built"
+	if slices.ContainsFunc(open, func(comp *comp) bool { return comp.needArch }) {
+		again = "Run msi-builder convert again with --arch and the platform WiX built for, or with --msi and the package WiX built"
+	}
+
 	c.todof(upgrade, "removeOld", line,
-		"WiX generated the Guid of %s; msi-builder generates other codes, and removing the old version after installing "+
-			"this one deletes their files on the first upgrade from the WiX package. Run msi-builder convert again with "+
-			"--msi and the package WiX built, or set each guid from msi-builder inspect --table Component",
-		list)
+		"WiX generated the Guid of %s, which convert cannot compute from the source; msi-builder generates other codes, "+
+			"and removing the old version after installing this one deletes their files on the first upgrade from the WiX "+
+			"package. %s, or set each guid from msi-builder inspect --table Component",
+		list, again)
 }
 
 // hasCode reports whether a converted component has a pinned code, not

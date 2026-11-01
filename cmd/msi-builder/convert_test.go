@@ -194,13 +194,25 @@ components:
 	stdout.Reset()
 	stderr.Reset()
 
-	// Without --msi, the late removal gets a note instead.
+	// Without --msi, convert computes the codes as WiX does, so the late
+	// removal needs no note.
 	if code := run([]string{"convert", wxs}, &stdout, &stderr); code != 0 {
 		t.Fatalf("convert: exit %d: %s", code, stderr.String())
 	}
 
-	if want := wxs + ":3: TODO: WiX generated the Guid of Main, notes.txt, Readme, the component in line 16;"; !strings.Contains(stderr.String(), want) {
-		t.Errorf("stderr %q, want %q", stderr.String(), want)
+	if want := "convert computed the guids of 4 components"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout lacks %q:\n%s", want, stdout.String())
+	}
+
+	if strings.Contains(stderr.String(), "WiX generated the Guid") {
+		t.Errorf("stderr names a component without a code: %s", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := run([]string{"convert", "--arch", "ia64", wxs}, &stdout, &stderr); code != 1 {
+		t.Errorf("--arch ia64: exit %d", code)
 	}
 
 	if code := run([]string{"convert", "--msi", filepath.Join(dir, "notes.txt"), wxs}, &stdout, &stderr); code != 1 {

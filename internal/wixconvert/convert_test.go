@@ -323,15 +323,32 @@ func TestConvertBuiltCodes(t *testing.T) {
 		t.Errorf("unmatched components in lines %v, want [17 20 27]", lines)
 	}
 
-	// Without the package, the late removal names every component, also
-	// the shortcut component.
+	// Without the package, convert computes the code of every component,
+	// also of the shortcut components, and the late removal needs no note.
 	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of a.txt, Main, notes.txt, readme.txt, Menu and 2 more components; " +
-		"msi-builder generates other codes"}
+	if n := strings.Count(string(res.YAML), "guid: '{"); n != 7 {
+		t.Errorf("%d computed codes, want 7:\n%s", n, res.YAML)
+	}
+
+	if slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool { return strings.HasPrefix(n.Message, "WiX generated the Guid") }) {
+		t.Errorf("notes %v name a component without a code", res.Notes)
+	}
+
+	// Without the platform, the HKCU key paths of the shortcut components
+	// stay open, since their bitness follows -arch.
+	src := strings.Replace(codesSource, "ProgramFiles64Folder", "ProgramFiles6432Folder", 1)
+
+	res, err = wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of a.txt, Main, notes.txt, readme.txt, Menu and 2 more components, " +
+		"which convert cannot compute"}
 
 	if !slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool {
 		return n.Line == want.Line && strings.HasPrefix(n.Message, want.Message)
@@ -476,8 +493,8 @@ func TestConvertBuiltCodesFiles(t *testing.T) {
 }
 
 // globNotes returns the lines of the Files glob notes and fails on any
-// other note about codes but the late removal of the files in lines 8 and
-// 10.
+// other note about codes but the late removal of the file in line 8: convert
+// computes the code of the one in line 10.
 func globNotes(t *testing.T, notes []wixconvert.Note, built bool) []int {
 	t.Helper()
 
@@ -489,7 +506,7 @@ func globNotes(t *testing.T, notes []wixconvert.Note, built bool) []int {
 			strings.HasPrefix(note.Message, "hello.msi has no component for a file of this Files glob"):
 			lines = append(lines, note.Line)
 		case strings.Contains(note.Message, "no matching component"), strings.HasPrefix(note.Message, "WiX generated the Guid"):
-			if built || !strings.Contains(note.Message, "the component in line 8, helper.exe;") {
+			if built || !strings.Contains(note.Message, "the component in line 8, which convert cannot compute") {
 				t.Errorf("unexpected note %v", note)
 			}
 		}
