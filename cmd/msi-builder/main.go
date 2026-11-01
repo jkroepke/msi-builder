@@ -2,6 +2,7 @@
 //
 //	msi-builder build [-o out.msi] [--var NAME=VALUE]... [--env] msi.yaml
 //	msi-builder validate [--var NAME=VALUE]... [--env] msi.yaml
+//	msi-builder render [--var NAME=VALUE]... [--env] msi.yaml
 //	msi-builder inspect [--table NAME] package.msi
 //	msi-builder convert [-o msi.yaml] app.wxs
 //	msi-builder sign [signing options] [-o out.msi] package.msi
@@ -121,6 +122,7 @@ and builds the same packages on Linux, macOS and Windows.`,
 	root.AddCommand(
 		newBuildCmd(),
 		newValidateCmd(),
+		newRenderCmd(),
 		newInspectCmd(),
 		newConvertCmd(),
 		newSignCmd(),

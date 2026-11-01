@@ -4,9 +4,10 @@
 # TODO(line 53): the standard action RemoveExistingProducts in InstallExecuteSequence runs only when NOT UPGRADINGPRODUCTCODE; msi-builder schedules the standard actions itself, without conditions
 # TODO(line 27): the action OverridePerMachineFolder, which sets WixPerMachineFolder for WixUI_Advanced, was left out: msi-builder sets the install folder of each scope itself
 # TODO(line 31): the action OverrideAgain, which sets WixPerMachineFolder for WixUI_Advanced, was left out: msi-builder sets the install folder of each scope itself
-schema: msi-builder/v1
 vars:
   MainLevel: "1"
+---
+schema: msi-builder/v1
 product:
   name: Hello
   manufacturer: Example
