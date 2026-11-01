@@ -124,3 +124,38 @@ func notNeeded(action string) string {
 		return "it has no launch conditions"
 	}
 }
+
+// launchConditionsAction schedules LaunchConditions in both install
+// sequences when the package has launch conditions: at 100, or after
+// AppSearch and the actions that apply its results when they do not fit
+// between 50 and 100, so that the gap does not limit how many properties a
+// package can search, or when AppSearch was moved, so that the launch
+// conditions still see what it found; or where standardActions moves it.
+func (b *build) launchConditionsAction() {
+	if !b.hasRows("LaunchCondition") {
+		return
+	}
+
+	for _, table := range []string{seqInstallExecute, seqInstallUI} {
+		_, _, searchMoved := b.cfg.StandardPlacement(table, actAppSearch)
+		_, _, launchMoved := b.cfg.StandardPlacement(table, actLaunchConditions)
+
+		if b.scheduled(table, actAppSearch) && !b.scheduled(table, actLaunchConditions) && !launchMoved &&
+			(searchMoved || standardNumber(table, actAppSearch)+b.anchoredTo(table, actAppSearch) >= standardNumber(table, actLaunchConditions)) {
+			b.schedule(table, actLaunchConditions, standardCondition(actLaunchConditions), "", actAppSearch, 0)
+		}
+
+		b.standardAt(table, actLaunchConditions)
+	}
+}
+
+// userPath returns the YAML path of the placement behind an action in a
+// table: a custom action's, or that of a standard action standardActions
+// moves.
+func (b *build) userPath(table, action string) string {
+	if _, path, moved := b.cfg.StandardPlacement(table, action); moved {
+		return path
+	}
+
+	return b.placementPath(table, action)
+}

@@ -107,7 +107,7 @@ func (c *converter) standardAction(entry, seq *elem) {
 		}
 	case entry.is("Show"):
 		c.todof(nil, "", entry.line, "<Show Dialog=%q> schedules a dialog; use the ui keys", entry.attr("Dialog"))
-	case movableActions[entry.name] && !entry.has("Suppress") && (seq.name == "InstallExecuteSequence" || seq.name == "InstallUISequence"):
+	case movable(entry, seq):
 		c.moveStandard(entry, sequenceNames[seq.name])
 	default:
 		c.standardActionNote(entry, seq)
@@ -124,6 +124,15 @@ const (
 	actAppSearch           = "AppSearch"
 	actLaunchConditions    = "LaunchConditions"
 )
+
+// movable reports whether standardActions can take a sequence entry: one
+// of the three movable actions, not suppressed, in the execute or UI
+// sequence.
+func movable(entry, seq *elem) bool {
+	name := sequenceNames[seq.name]
+
+	return movableActions[entry.name] && !entry.has("Suppress") && (name == seqExecute || name == seqUI)
+}
 
 // moveStandard takes the place a sequence gives FindRelatedProducts,
 // AppSearch or LaunchConditions into standardActions. An entry without a

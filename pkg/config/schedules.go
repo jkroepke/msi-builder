@@ -126,38 +126,7 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 		}
 	}
 
-	// A moved standard action takes its placement instead of its default
-	// number.
-	for _, moved := range cfg.StandardActions {
-		table := sequenceTables[name]
-		if place, path, ok := cfg.StandardPlacement(table, moved.Action); ok && wellMoved(cfg, moved.Action, place) && paths[moved.Action] == "" {
-			paths[moved.Action] = path
-			actions = append(actions, sequence.Action{Name: moved.Action, Before: place.Before, After: place.After, Sequence: place.At})
-		}
-	}
-
-	// Next to a move, the unmoved actions it can meet keep the numbers the
-	// builder gives them.
-	if movesIn(cfg, sequenceTables[name]) {
-		for _, sibling := range []struct {
-			action string
-			runs   bool
-		}{{actFindRelatedProducts, upgrades(cfg)}, {actAppSearch, searches(cfg)}} {
-			action := sibling.action
-			if _, _, moved := cfg.StandardPlacement(sequenceTables[name], action); sibling.runs && !moved && paths[action] == "" {
-				std, _ := sequence.LookupStandard(action)
-				actions = append(actions, sequence.Action{Name: action, Sequence: std.Number(sequenceTables[name])})
-			}
-		}
-	}
-
-	// The builder puts LaunchConditions after a moved AppSearch, unless it
-	// is moved itself.
-	if _, _, searchMoved := cfg.StandardPlacement(sequenceTables[name], actAppSearch); searchMoved && paths[actAppSearch] != "" &&
-		paths[actLaunchConditions] == "" && hasLaunchConditions(cfg) {
-		paths[actLaunchConditions] = paths[actAppSearch]
-		actions = append(actions, sequence.Action{Name: actLaunchConditions, After: actAppSearch})
-	}
+	actions = append(actions, movedActions(cfg, sequenceTables[name], paths)...)
 
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.
@@ -196,6 +165,62 @@ func movesIn(cfg *Config, table string) bool {
 	}
 
 	return false
+}
+
+// movedActions returns the actions standardActions adds to the numbering of
+// a table and records their paths: each moved standard action at its
+// placement, next to a move the unmoved FindRelatedProducts and AppSearch
+// at the numbers the builder gives them, and the LaunchConditions the
+// builder puts after a moved AppSearch.
+func movedActions(cfg *Config, table string, paths map[string]string) []sequence.Action {
+	var extra []sequence.Action
+
+	// A moved standard action takes its placement instead of its default
+	// number.
+	for _, moved := range cfg.StandardActions {
+		if place, path, ok := cfg.StandardPlacement(table, moved.Action); ok && wellMoved(cfg, moved.Action, place) && paths[moved.Action] == "" {
+			paths[moved.Action] = path
+			extra = append(extra, sequence.Action{Name: moved.Action, Before: place.Before, After: place.After, Sequence: place.At})
+		}
+	}
+
+	// Next to a move, the unmoved actions it can meet keep the numbers the
+	// builder gives them.
+	extra = append(extra, unmovedSiblings(cfg, table, paths)...)
+
+	// The builder puts LaunchConditions after a moved AppSearch, unless it
+	// is moved itself.
+	if _, _, searchMoved := cfg.StandardPlacement(table, actAppSearch); searchMoved && paths[actAppSearch] != "" &&
+		paths[actLaunchConditions] == "" && hasLaunchConditions(cfg) {
+		paths[actLaunchConditions] = paths[actAppSearch]
+		extra = append(extra, sequence.Action{Name: actLaunchConditions, After: actAppSearch})
+	}
+
+	return extra
+}
+
+// unmovedSiblings returns, next to a move in a table, the unmoved
+// FindRelatedProducts and AppSearch the package runs at their default
+// numbers.
+func unmovedSiblings(cfg *Config, table string, paths map[string]string) []sequence.Action {
+	if !movesIn(cfg, table) {
+		return nil
+	}
+
+	var siblings []sequence.Action
+
+	for _, sibling := range []struct {
+		action string
+		runs   bool
+	}{{actFindRelatedProducts, upgrades(cfg)}, {actAppSearch, searches(cfg)}} {
+		action := sibling.action
+		if _, _, moved := cfg.StandardPlacement(table, action); sibling.runs && !moved && paths[action] == "" {
+			std, _ := sequence.LookupStandard(action)
+			siblings = append(siblings, sequence.Action{Name: action, Sequence: std.Number(table)})
+		}
+	}
+
+	return siblings
 }
 
 // wellMoved reports whether a moved standard action's placement passed
