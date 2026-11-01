@@ -283,11 +283,12 @@ func TestMsiexecFirewallWixBlackBox(t *testing.T) {
 			"'{0} protocol={1} localport={2}' -f $_.DisplayName, $f.Protocol, ($f.LocalPort -join ',') }").CombinedOutput()
 	t.Logf("CA-10 WiX rules:\n%s", out)
 
-	if code != 0 {
-		t.Errorf("exit code %d, want 0 with IgnoreFailure\n%s", code, readLog(log))
+	// A failure here is an observation, not a test failure: the rule
+	// without Protocol has no IgnoreFailure, and what WiX makes of it is
+	// the question.
+	if code == 0 {
+		msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
 	}
-
-	msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
 }
 
 // TestMsiexecFirewallServiceStopped stops the Windows Defender Firewall
@@ -315,6 +316,16 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 		t.Fatalf("unexpected MpsSvc security descriptor %s", original)
 	}
 
+	// Registered first, so that it runs last: the packages and rules are
+	// removed once the service runs again.
+	var cleanups []func()
+
+	t.Cleanup(func() {
+		for _, cleanup := range cleanups {
+			cleanup()
+		}
+	})
+
 	t.Cleanup(func() {
 		out, err := exec.CommandContext(context.Background(), "sc.exe", "start", "mpssvc").CombinedOutput()
 		t.Logf("sc start mpssvc: %v\n%s", err, out)
@@ -333,6 +344,10 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 		"Stop-Service mpssvc -Force; (Get-Service mpssvc).Status").CombinedOutput()
 	t.Logf("CA-10 stop mpssvc: %v\n%s", err, out)
 
+	if strings.TrimSpace(string(out)) != "Stopped" {
+		t.Fatalf("MpsSvc did not stop: %v\n%s", err, out)
+	}
+
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
 
 	for _, tc := range []struct {
@@ -347,7 +362,7 @@ func TestMsiexecFirewallServiceStopped(t *testing.T) {
 			src := fmt.Sprintf(firewallCA10Config, tc.name, tc.upgradeCode, "tcp", "    port: '12345'\n", "", tc.ignore)
 			path := buildConfig(t, dir, "stopped", src, map[string][]byte{"app.exe": app})
 
-			t.Cleanup(func() {
+			cleanups = append(cleanups, func() {
 				_ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn").Run()
 
 				fwDelete(tc.name)

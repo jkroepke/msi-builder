@@ -46,6 +46,15 @@ firewall:
 	adds := map[string][]action{}
 	removeRollbacks := map[string]int{}
 
+	// Each add has a rollback of its own, which deletes the rule.
+	for name := range actions {
+		if id, ok := strings.CutPrefix(name, "FwAdd"); ok && !strings.HasPrefix(id, "Rollback") {
+			if rb, ok := actions["FwAddRollback"+id]; !ok || !strings.Contains(rb.target, "delete rule") {
+				t.Errorf("%s has no delete rollback: %+v", name, rb)
+			}
+		}
+	}
+
 	for name, act := range actions {
 		rule := ""
 

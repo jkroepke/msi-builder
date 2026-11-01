@@ -2200,8 +2200,8 @@ with TCP or UDP, so a rule with `protocol: any` and a `port` is added twice
 under its name, once for TCP and once for UDP, and removed together; without
 a port, `any` is one rule for every protocol (MSISPEC CA-10).
 
-A rule whose add fails, because `netsh` rejects an argument that a property
-filled in at runtime or cannot reach the firewall, fails the install with
+A rule whose add fails, for example because `netsh` rejects an argument that
+a property filled in at runtime, fails the install with
 1603 and rolls it back. With `ignoreFailure: true` the install goes on and
 the rule is missing; use it for a rule the program can do without, such as
 one that only lets other machines connect. The removal never fails on a rule
