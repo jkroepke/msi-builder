@@ -212,25 +212,44 @@ func TestUnmarshalKeylessBinary(t *testing.T) {
 	}
 }
 
-// A binary key column cannot name its own stream either.
+// A binary column with the key flag cannot name its own stream either,
+// whether it is a leading key or a key flag after a non-key column.
 func TestUnmarshalBinaryKeyCells(t *testing.T) {
 	t.Parallel()
 
-	tbl := &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("D", "V0", false)}}
-	tbl.Add("a", []byte("first"))
+	for _, tc := range []struct {
+		edits map[int]catalogEdit
+		name  string
+		want  string
+	}{
+		{name: "leading", edits: map[int]catalogEdit{2: {key: 1}}, want: "table T: binary column D cannot be a key"},
+		{name: "after a non-key column", edits: map[int]catalogEdit{3: {key: 1}}, want: "table T: key column D must come before the other columns"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	database, err := Unmarshal(patchedCatalog(t, tbl, map[int]catalogEdit{2: {key: 1}}))
-	if err != nil {
-		t.Fatal(err)
-	}
+			tbl := &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("V", "S16", false), Col("D", "V0", false)}}
+			tbl.Add("a", "x", []byte("first"))
 
-	want := []string{"table T: binary column D cannot be a key", "table T: the binary cells of column D are not read, the key cannot name their streams"}
-	if !slices.Equal(database.Problems, want) || database.Table("T").Rows[0][1] != nil {
-		t.Errorf("problems %q, rows %v; want %q", database.Problems, database.Table("T").Rows, want)
-	}
+			if tc.name == "leading" {
+				tbl = &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("D", "V0", false)}}
+				tbl.Add("a", []byte("first"))
+			}
 
-	if len(database.Streams) != 1 || database.Streams[0].Name != "T.a" {
-		t.Errorf("streams %v, want T.a kept", database.Streams)
+			database, err := Unmarshal(patchedCatalog(t, tbl, tc.edits))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			want := []string{tc.want, "table T: the binary cells of column D are not read, the key cannot name their streams"}
+			if !slices.Equal(database.Problems, want) || database.Table("T").Rows[0][len(tbl.Columns)-1] != nil {
+				t.Errorf("problems %q, rows %v; want %q", database.Problems, database.Table("T").Rows, want)
+			}
+
+			if len(database.Streams) != 1 || database.Streams[0].Name != "T.a" {
+				t.Errorf("streams %v, want T.a kept", database.Streams)
+			}
+		})
 	}
 }
 
