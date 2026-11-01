@@ -346,3 +346,37 @@ func TestScopePagePreselect(t *testing.T) {
 		t.Errorf("targets %q and %q", targets["SetInstallScopePreferMachine"], targets["SetInstallScopePreferUser"])
 	}
 }
+
+// TestScopePageLongDirSetter checks that the setter before CostFinalize of
+// a folder whose id leaves no room for "SetInstallScopeDir_" gets a
+// generated name and still sets that folder last before CostFinalize.
+func TestScopePageLongDirSetter(t *testing.T) {
+	t.Parallel()
+
+	long := "INSTALL" + strings.Repeat("D", 48)
+	res := buildScope(t, "perUserOrMachine", "x64", "installDir: { id: "+long+" }\nui: { enabled: true }\n")
+
+	setter := ""
+
+	for _, row := range rows(t, res.Database, "CustomAction") {
+		if fmt.Sprint(row[2]) == long && fmt.Sprint(row[3]) == "[InstallScopeDir_"+long+"]" {
+			setter = fmt.Sprint(row[0])
+		}
+	}
+
+	if !strings.HasPrefix(setter, "SetScope") || len(setter) > config.MaxIdentifierLength {
+		t.Fatalf("setter of %s is %q, want a generated SetScope name of at most %d characters", long, setter, config.MaxIdentifierLength)
+	}
+
+	numbers := map[string]int{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			numbers[fmt.Sprint(row[0])] = n
+		}
+	}
+
+	if numbers[setter] != numbers["CostFinalize"]-1 {
+		t.Errorf("%s at %d, CostFinalize at %d; want it right before CostFinalize", setter, numbers[setter], numbers["CostFinalize"])
+	}
+}
