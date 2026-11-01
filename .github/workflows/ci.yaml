@@ -210,7 +210,6 @@ jobs:
         shell: bash
         env:
           MSI_BUILDER_SNAPSHOT_DIR: ${{ runner.temp }}/install-snapshots
-          MSI_BUILDER_STOP_FIREWALL: '1'
         run: go test ./internal/builder/nativetest/ -v -timeout 25m -shuffle=on
 
       # Windows on Arm installs the run action probe, the remembered install
