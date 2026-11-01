@@ -1335,8 +1335,13 @@ Only files that end in `.exe` take `close`, and a folder source does not.
 Set `MSIRESTARTMANAGERCONTROL: Disable` with `close`. Restart Manager
 otherwise asks every process that holds a package file to shut down in a
 silent install, also an unrelated one that only has the file open, and
-waits for the user in a basic UI (reported by the close-apps evaluation, 2026-10-25);
-`close` covers the programs the package knows about. Not adopted from WiX:
+waits for the user in a basic UI (reported by the close-apps evaluation, 2026-10-25;
+the silent shutdown of an unrelated holder was observed in PROP-04);
+`close` covers the programs the package knows about. With `Disable`, a file
+that a program `close` does not end still holds is replaced at the next
+restart: a silent `/fa` repair then returned 1641 and restarted the machine
+although `/norestart` was given (PROP-04), so pass `REBOOT=ReallySuppress`
+to such a repair. Not adopted from WiX:
 closing a program by name wherever it runs, end-session messages
 (`WM_QUERYENDSESSION`), registering programs for a restart after the
 install, and a reboot prompt for programs that refuse to exit.

@@ -356,8 +356,8 @@ func testService(t *testing.T) []byte {
 // failure. It skips the test when the process is not elevated. A reboot
 // request (3010) fails the test: the examples stop their own services, so
 // a file that is still in use when RemoveFiles runs is a packaging bug.
-// REBOOT=ReallySuppress keeps a repair from restarting the machine, which
-// /norestart alone does not (PROP-04).
+// /norestart alone did not keep a /fa repair from restarting the machine
+// (PROP-04); REBOOT=ReallySuppress is documented to, untested.
 func msiexecQuiet(t *testing.T, log string, args ...string) {
 	t.Helper()
 

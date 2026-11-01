@@ -18,7 +18,8 @@ Both calls passed `/qn /norestart`; the server-side command lines differ:
 - install: `Command Line: REBOOT=ReallySuppress CURRENTDIRECTORY=...`
 - repair: `Command Line: REINSTALL=ALL REINSTALLMODE=a CURRENTDIRECTORY=...`
 
-`/norestart` is turned into `REBOOT=ReallySuppress` on `/i` only.
+`/norestart` was turned into `REBOOT=ReallySuppress` on `/i` but not on
+`/fa`.
 
 ## `0`
 
@@ -79,4 +80,5 @@ events 1038 and 1005 at the same time; 6006 at 14:29:19 and 6005 at
 
 The same probe on the GitHub `windows-latest` runner ended four times with
 "The hosted runner lost communication with the server" and no job log,
-which this restart explains.
+which is consistent with this restart; which value the runner was on is
+not known.

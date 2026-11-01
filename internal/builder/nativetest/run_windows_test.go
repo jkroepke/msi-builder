@@ -51,9 +51,10 @@ func buildRunProbe(t *testing.T, arch string) string {
 }
 
 // msiexecCode runs msiexec with a verbose log and returns its exit code.
-// /norestart sets REBOOT=ReallySuppress only on /i: a /fa repair that had
-// to schedule a file replacement returned 1641 and restarted the machine
-// (PROP-04), so REBOOT=ReallySuppress is passed as well.
+// /norestart set REBOOT=ReallySuppress on /i but not on /fa: a /fa repair
+// that scheduled a file replacement returned 1641 and restarted the machine
+// (PROP-04), so REBOOT=ReallySuppress is passed as well; that it stops the
+// restart is Microsoft's documentation, untested.
 func msiexecCode(t *testing.T, log string, args ...string) int {
 	t.Helper()
 
