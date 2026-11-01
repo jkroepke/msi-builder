@@ -2138,6 +2138,47 @@ were not tested.
 Standard actions are added automatically for the tables a package uses. An
 action used only as an anchor is added at its default number.
 
+**Moving standard actions.** `standardActions` moves one of the three
+standard actions that run before costing, `FindRelatedProducts`,
+`AppSearch` and `LaunchConditions`, in the `execute` and `ui` sequences:
+
+```yaml
+customActions:
+  - id: SetAllUsersFromPrevious
+    setProperty: { name: ALLUSERS, value: "1" }
+    schedule:
+      - { sequence: execute, after: AppSearch, condition: PREVMACHINE }
+      - { sequence: ui, after: AppSearch, condition: PREVMACHINE }
+
+standardActions:
+  - action: FindRelatedProducts
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious }
+      - { sequence: ui, after: SetAllUsersFromPrevious }
+```
+
+FindRelatedProducts only finds products installed in the context it runs
+in, and after the `ui` sequence ran it the `execute` sequence skips it. A
+dual-scope package that picks the context from a previous install (here a
+search of a value only the per-machine install writes) therefore moves it
+behind the action that sets `ALLUSERS`; at its default number (25, before
+AppSearch) it misses a previous install in the other context, and both
+versions stay installed (UPG-14).
+
+Each placement has exactly one of `before`, `after` or `at` (a number below
+CostInitialize, 800) and no `condition` or `when`: the action keeps its own
+condition (specification section 16, "Decisions not adopted"). A moved
+action runs after the other actions that share its anchor, so `after:
+AppSearch` follows the actions that apply the search results. When AppSearch
+moves and LaunchConditions does not, LaunchConditions follows AppSearch and
+those actions. The build fails when a move leaves the action at or after
+CostInitialize, when the package does not run the action (FindRelatedProducts
+needs `upgrade`, AppSearch a property search, LaunchConditions a launch
+condition), and when LaunchConditions ends up before FindRelatedProducts
+while `upgrade.downgrade` is `error`, whose launch condition tests what
+FindRelatedProducts sets; with other launch conditions that order is a
+warning. The other standard actions keep their numbers.
+
 **Restart.** `scheduleReboot` asks for a restart at the end of the
 installation, after Windows features, drivers or system files changed that
 only take effect then:

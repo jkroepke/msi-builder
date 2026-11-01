@@ -188,7 +188,7 @@ msi-builder does the same by default:
 | `ProductSearch UpgradeCode` | an `upgrade.related` row with `onlyDetect: true` that sets the property |
 | `Launch` (v3 `Condition` under `Product`) | `launchConditions` |
 | `CustomAction`, `SetProperty`, `Custom` | `customActions` |
-| `InstallExecuteSequence`, `InstallUISequence` | `customActions[].schedule` |
+| `InstallExecuteSequence`, `InstallUISequence` | `customActions[].schedule`; a moved `FindRelatedProducts`, `AppSearch` or `LaunchConditions` becomes `standardActions` |
 | `ScheduleReboot` | `scheduleReboot` |
 | `ProgressText` for a custom action | `customActions[].progress` |
 | `WixUI`, `WixVariable` `WixUILicenseRtf`, `WixUIBannerBmp`, `WixUIDialogBmp` | `ui` |
@@ -792,6 +792,40 @@ when both are given:
 | `WIX_UPGRADE_DETECTED` | `upgrade` |
 | `REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE` | `uninstall` |
 | `Installed AND NOT REMOVE~="ALL"` | `maintenance` (repair and change) |
+
+A `FindRelatedProducts`, `AppSearch` or `LaunchConditions` element with
+`Before`, `After` or `Sequence` in `InstallExecuteSequence` or
+`InstallUISequence` becomes a `standardActions` entry. Packages that pick
+the install context from a previous install move `FindRelatedProducts`
+behind the action that sets `ALLUSERS`, because it only finds products in
+the context it runs in (UPG-14):
+
+```xml
+<SetProperty Id="ALLUSERS" Action="SetAllUsersFromPrevious" Value="1" After="AppSearch" Sequence="both" Condition="PREVMACHINE" />
+<InstallExecuteSequence>
+  <FindRelatedProducts After="SetAllUsersFromPrevious" />
+</InstallExecuteSequence>
+<InstallUISequence>
+  <FindRelatedProducts After="SetAllUsersFromPrevious" />
+</InstallUISequence>
+```
+
+```yaml
+customActions:
+  - id: SetAllUsersFromPrevious
+    setProperty: { name: ALLUSERS, value: "1" }
+    schedule:
+      - { sequence: ui, after: AppSearch, condition: PREVMACHINE }
+      - { sequence: execute, after: AppSearch, condition: PREVMACHINE }
+standardActions:
+  - action: FindRelatedProducts
+    schedule:
+      - { sequence: ui, after: SetAllUsersFromPrevious }
+      - { sequence: execute, after: SetAllUsersFromPrevious }
+```
+
+Other standard actions keep their place, and a condition on a standard
+action has no counterpart; convert notes both.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where
