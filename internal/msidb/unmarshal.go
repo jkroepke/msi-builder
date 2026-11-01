@@ -500,6 +500,14 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 			return nil, fmt.Errorf("msidb: table %s has no columns", name)
 		}
 
+		// What Validate refuses in a table's name and columns, such as a
+		// column name twice or no primary key, is a problem: Marshal could
+		// not write the table back, and msi.dll still reads some of these
+		// catalogs (MSIDB-21).
+		if err := tbl.checkSchema(); err != nil {
+			addProblem(database, strings.TrimPrefix(err.Error(), "msidb: "))
+		}
+
 		if err := decodeRows(tbl, tableStreams[name], longRefs, readRef, str, refs, binaryStream, database); err != nil {
 			return nil, err
 		}
@@ -650,7 +658,8 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 		}
 	}
 
-	for rowIdx := 1; rowIdx < count; rowIdx++ {
+	// A table without a key has no key order; checkSchema reported it.
+	for rowIdx := 1; keys > 0 && rowIdx < count; rowIdx++ {
 		cmp := 0
 
 		for k := 0; k < keys && cmp == 0; k++ {
