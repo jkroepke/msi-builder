@@ -296,6 +296,7 @@ func (c *converter) emitMoved(reanchor func(string, []any)) {
 	emitted := c.emittedActions()
 	kept := make(map[string][]*omap)
 
+	c.reanchorMoved(reanchor)
 	c.decideMoves(emitted)
 
 	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
@@ -305,9 +306,6 @@ func (c *converter) emitMoved(reanchor func(string, []any)) {
 		}
 
 		why := c.movedIdle(name)
-		if why == "" {
-			reanchor(name, placements)
-		}
 
 		var schedule []any
 
@@ -355,6 +353,10 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 		return false, why
 	}
 
+	if c.anchoredBack(name, placement) {
+		return true, ""
+	}
+
 	if silent, reason := c.searchNextToLaunch(name, placement); silent || reason != "" {
 		return silent, reason
 	}
@@ -364,6 +366,32 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 	}
 
 	return false, c.movedAnchorFails(placement, emitted)
+}
+
+// anchoredBack reports whether a placement is anchored to another moved
+// action whose kept move in the same sequence is anchored back to it, such
+// as AppSearch before LaunchConditions and LaunchConditions after AppSearch:
+// both state the same order, which the move of the later action keeps
+// alone, as taking both is a cycle.
+func (c *converter) anchoredBack(name string, placement *omap) bool {
+	seq := placement.str("sequence")
+	order := []string{actFindRelatedProducts, actAppSearch, actLaunchConditions}
+
+	for _, key := range []string{keyBefore, keyAfter} {
+		anchor := placement.str(key)
+		if !movableActions[anchor] || slices.Index(order, anchor) < slices.Index(order, name) || !c.movesIn(anchor, seq) {
+			continue
+		}
+
+		for _, entry := range c.moved[anchor] {
+			other, ok := entry.(*omap)
+			if ok && other.str("sequence") == seq && (other.str(keyBefore) == name || other.str(keyAfter) == name) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // searchNextToLaunch checks an AppSearch move next to LaunchConditions,
@@ -382,6 +410,16 @@ func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, stri
 		return false, "LaunchConditions follows a moved AppSearch"
 	default:
 		return false, ""
+	}
+}
+
+// reanchorMoved moves the placements on left-out setters to the setters'
+// anchors, before decideMoves, so that it sees what is emitted.
+func (c *converter) reanchorMoved(reanchor func(string, []any)) {
+	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
+		if placements := c.moved[name]; len(placements) > 0 && c.movedIdle(name) == "" {
+			reanchor(name, placements)
+		}
 	}
 }
 

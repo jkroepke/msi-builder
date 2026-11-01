@@ -2799,3 +2799,59 @@ func TestConvertCollisionAfterDroppedMove(t *testing.T) {
 		t.Errorf("a refused move was kept:\n%s", out)
 	}
 }
+
+// Placements on left-out setters are re-anchored before convert decides
+// which moves it keeps, and of two moves anchored to each other only the
+// later action's is kept.
+func TestConvertMovesDecidedAfterReanchor(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		sequence, want, unwanted string
+	}{
+		"re-anchored": {
+			`<SetProperty Id="WixPerMachineFolder" Value="[ProgramFiles64Folder]Hello" After="FindRelatedProducts" Sequence="execute" />
+    <InstallExecuteSequence>
+      <AppSearch After="SetWixPerMachineFolder" />
+      <FindRelatedProducts Sequence="50" />
+    </InstallExecuteSequence>`,
+			"  - action: FindRelatedProducts\n    schedule:\n      - {sequence: execute, at: 50}\n" +
+				"  - action: AppSearch\n    schedule:\n      - {sequence: execute, after: FindRelatedProducts}\n",
+			"msi-builder cannot take",
+		},
+		"anchored to each other": {
+			`<Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <AppSearch Before="LaunchConditions" />
+      <LaunchConditions After="AppSearch" />
+    </InstallExecuteSequence>`,
+			"standardActions:\n  - action: LaunchConditions\n    schedule:\n      - {sequence: execute, after: AppSearch}\n",
+			"action: AppSearch",
+		},
+	} {
+		src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    ` + test.sequence + `
+  </Package>
+</Wix>`
+
+		res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		out := string(res.YAML)
+		if !strings.Contains(out, test.want) || strings.Contains(out, test.unwanted) {
+			t.Errorf("%s: want %q without %q:\n%s", name, test.want, test.unwanted, out)
+		}
+	}
+}
