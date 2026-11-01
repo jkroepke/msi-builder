@@ -211,6 +211,61 @@ WiX preprocessor:
 | `<?ifndef Version?><?error?>` | Nothing: a variable that is not set is an error |
 | `<?include?>` | Not available; merge the file in, or generate the YAML file in your build |
 
+`msi-builder convert` writes preprocessor blocks as these template actions:
+
+```xml
+<?if $(var.Platform) = arm64 ?>
+<?define Arch = "arm64" ?>
+<?else ?>
+<?define Arch = "x64" ?>
+<?endif ?>
+<Component Id="MainExe">
+  <?ifdef Debug ?>
+  <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="debug" Type="integer" Value="1" />
+  <?endif ?>
+</Component>
+<?foreach Lang in en;de ?>
+<Component Id="Lang_$(var.Lang)"><File Source="lang\$(var.Lang).txt" /></Component>
+<?endforeach ?>
+```
+
+```text
+vars:
+  Arch: '{{ if eq .Platform "arm64" }}arm64{{ else }}x64{{ end }}'
+---
+components:
+  - id: MainExe
+    registry:
+      {{ if has "Debug" }}
+      - root: HKLM
+        key: Software\Example\Hello
+        name: debug
+        type: dword
+        value: "1"
+      {{ end }}
+  {{ range $Lang := split ";" "en;de" }}
+  - id: {{ print `Lang_` $Lang | quote }}
+    files:
+      - source: {{ print `lang/` $Lang `.txt` | quote }}
+  {{ end }}
+```
+
+Inside `{{ range }}`, the dot is the list item, so the other variables are
+read as `{{ $.NAME }}`. `=` and `!=` compare case-sensitively, `~=` ignores
+case, and `<`, `>`, `<=` and `>=` compare as whole numbers when one side is
+a number and as text otherwise (convert's reading of WiX's rules; not
+checked against WiX).
+`<?ifndef X?><?define X = ...?><?endif?>` becomes a plain default for `X`
+in the vars header, and an `<?error?>` in a block becomes `fail`, which
+stops the build with its message. A block whose branches hold anything but
+components, files, registry values and keys, environment variables, plain
+properties and component references, such as directories or custom
+actions, is converted with its first branch only and a `# TODO`. So is a
+block whose branches define the same component ID or hold a key path, an
+`<?ifdef?>` of a variable that the file defines (`has` is true for every
+variable in the vars header), and a block whose condition reads a
+variable that the file defines again later.
+
 `[INSTALLFOLDER]`, `[#hello.exe]` and other names in brackets work as they
 do in WiX: Windows Installer fills them in at install time.
 

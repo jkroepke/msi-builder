@@ -75,7 +75,7 @@ func (cc *compConv) serviceChild(svc *omap, kid *elem) {
 	conv := cc.c
 
 	switch kid.qname() {
-	case "ServiceDependency":
+	case elemServiceDependency:
 		if kid.yes("Group") {
 			conv.todof(svc, "", kid.line, "a dependency on a load order group has no counterpart")
 
@@ -304,11 +304,11 @@ func (c *converter) serviceInstallers(name string) ([]*comp, []*comp) {
 	var withOwn, without []*comp
 
 	for _, comp := range c.comps {
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceInstall", name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, name)) {
 			continue
 		}
 
-		if slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceControl", name)) {
+		if slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceControl, name)) {
 			withOwn = append(withOwn, comp)
 		} else {
 			without = append(without, comp)
@@ -326,12 +326,12 @@ func (c *converter) borrowedControl(name string) *elem {
 	var installer *elem
 
 	for _, comp := range c.comps {
-		i := slices.IndexFunc(comp.e.kids, c.namedKid("ServiceControl", name))
+		i := slices.IndexFunc(comp.e.kids, c.namedKid(elemServiceControl, name))
 		if i < 0 {
 			continue
 		}
 
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceInstall", name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, name)) {
 			return comp.e.kids[i]
 		}
 
@@ -668,9 +668,9 @@ func (cc *compConv) writesFolder(search *elem) bool {
 			}
 
 			switch {
-			case kid.is("RegistryKey") && walk(kid, regRoot, regKey):
+			case kid.is(elemRegistryKey) && walk(kid, regRoot, regKey):
 				return true
-			case kid.is("RegistryValue") && strings.TrimSuffix(kid.attr("Value"), `\`) == folder &&
+			case kid.is(elemRegistryValue) && strings.TrimSuffix(kid.attr("Value"), `\`) == folder &&
 				slices.Equal(want, []string{strings.ToUpper(regRoot), strings.ToLower(strings.Trim(regKey, `\`)), strings.ToLower(kid.attr("Name"))}):
 				return true
 			}
@@ -731,7 +731,7 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 		program = p
 	}
 
-	if f := elm.attr("File"); f != "" {
+	if f := elm.attr(elemFile); f != "" {
 		program = "[#" + f + "]"
 	}
 
@@ -812,7 +812,7 @@ func (c *converter) compID(comp *comp) string {
 		// Skip the IDs that components took from the source.
 		for comp.id == "" || c.compByID[comp.id] != nil {
 			c.anonymous++
-			comp.id = "Component" + strconv.Itoa(c.anonymous)
+			comp.id = elemComponent + strconv.Itoa(c.anonymous)
 		}
 
 		if comp.out != nil {
@@ -946,7 +946,7 @@ func (c *converter) constProperty(name string) (string, bool) {
 		}
 	}
 
-	if found == nil || !found.has("Value") || len(found.kids) > 0 || c.propertyChanged(name) {
+	if found == nil || !found.has("Value") || len(found.kids) > 0 || len(found.opens) > 0 || c.propertyChanged(name) {
 		return "", false
 	}
 
@@ -955,8 +955,9 @@ func (c *converter) constProperty(name string) (string, bool) {
 	return value, !formattedLeft(value)
 }
 
-// varRef matches a {{ .NAME }} action that msi-builder fills in on load.
-var varRef = regexp.MustCompile(`\{\{ \.[A-Za-z_][A-Za-z0-9_]* \}\}`)
+// varRef matches a {{ .NAME }} action that msi-builder fills in on load,
+// or {{ $.NAME }} and {{ $NAME }} inside a loop.
+var varRef = regexp.MustCompile(`\{\{ (?:\$\.|\$|\.)[A-Za-z_][A-Za-z0-9_]* \}\}`)
 
 // formattedLeft reports whether text still holds formatted text or a WiX
 // bind or localization variable once the {{ .NAME }} actions are left out.

@@ -90,6 +90,12 @@ func (c *converter) componentKeyPath(comp *comp) (string, error) {
 		return "", errUnresolved
 	}
 
+	if branchedInside(comp.e) {
+		// Which element is the key path, and its name, may differ
+		// between the builds of a template.
+		return "", errUnresolved
+	}
+
 	key := keyElem(comp.e)
 
 	switch {
@@ -104,6 +110,20 @@ func (c *converter) componentKeyPath(comp *comp) (string, error) {
 	}
 
 	return c.registryKeyPath(comp, key)
+}
+
+// branchedInside reports whether an element in comp sits in a kept
+// preprocessor block that comp does not.
+func branchedInside(comp *elem) bool {
+	found := false
+
+	walkElems(comp, func(elm *elem) {
+		found = found || slices.ContainsFunc(elm.pos, func(p ppPos) bool {
+			return p.block.keep && !slices.Contains(comp.pos, p)
+		})
+	})
+
+	return found
 }
 
 // keyPathless are the elements in a component without a File that cannot
@@ -148,9 +168,9 @@ func loneRegistryValue(elm *elem) *elem {
 // fileKeyPath returns the key path string of a component whose key path is
 // the File key: its folder and its long name, lower case.
 func (c *converter) fileKeyPath(comp *comp, key *elem) (string, error) {
-	name := c.literal(key.attr("Name"))
+	name := c.literalStatic(key.attr("Name"))
 	if name == "" {
-		source := c.literal(cmp.Or(key.attr("Source"), key.attr("src")))
+		source := c.literalStatic(cmp.Or(key.attr("Source"), key.attr("src")))
 		name = baseName(sourcePath(source))
 	}
 
@@ -224,13 +244,18 @@ func (c *converter) wixFolder(dirID string) (string, error) {
 		folder := c.dirs[dirID]
 
 		start, err := c.folderStart(folder, dirID)
+		if err == nil && unresolved(start) {
+			// A folder that a template picks differs between builds.
+			return "", errUnresolved
+		}
+
 		if err != nil || start != "" {
 			slices.Reverse(names)
 
 			return strings.Join(append([]string{start}, names...), `\`), err
 		}
 
-		name := c.literal(folder.wixName)
+		name := c.literalStatic(folder.wixName)
 		if unresolved(name) {
 			return "", errUnresolved
 		}
@@ -254,7 +279,7 @@ func (c *converter) wixFolder(dirID string) (string, error) {
 // is a seeded or standard one, and "" for another folder.
 func (c *converter) folderStart(folder *dir, dirID string) (string, error) {
 	if folder != nil && folder.seed != "" {
-		seed, err := config.NormalizeGUID(c.literal(folder.seed))
+		seed, err := config.NormalizeGUID(c.literalStatic(folder.seed))
 		if err != nil {
 			return "", errUnresolved
 		}
@@ -390,7 +415,7 @@ func (c *converter) dropSharedCodes() {
 // unresolved reports whether text still holds a WiX variable after the
 // defines were filled in.
 func unresolved(text string) bool {
-	return strings.Contains(text, "$(") || strings.Contains(text, "!(")
+	return strings.Contains(text, "$(") || strings.Contains(text, "!(") || strings.Contains(text, "{{")
 }
 
 // computedHeader names the codes convert computed in the header.

@@ -5,9 +5,18 @@ Convert a WiX source file to a YAML file
 Convert reads a WiX source file (.wxs, WiX v3 or later) and writes the
 msi.yaml that describes the same package, as far as msi-builder can express
 it. It is a starting point for a port, not a byte-for-byte translation:
-everything it cannot convert, such as preprocessor conditions, includes,
-bind variables, hand-built dialogs and extensions without a counterpart,
-becomes a "# TODO" comment in the YAML file and a line on stderr.
+everything it cannot convert, such as includes, bind variables, hand-built
+dialogs and extensions without a counterpart, becomes a "# TODO" comment in
+the YAML file and a line on stderr.
+
+Preprocessor blocks become template actions: <?if?>, <?ifdef?>, <?elseif?>
+and <?else?> become {{ if }}, {{ if has "NAME" }} and {{ else }}, and
+<?foreach?> becomes {{ range }} over split ";". A <?define?> inside a block
+becomes a var whose value tests the block, and an <?error?> becomes fail.
+Convert writes a block as a template when every element in it is a
+component, a file, registry value or key, environment variable, plain
+property, or a reference that puts components in a feature or group; for
+any other block, it converts only the first branch and leaves a "# TODO".
 
 A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
 gives it: convert computes it from the key file or key registry value as

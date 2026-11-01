@@ -130,6 +130,27 @@ versioning after 1.0.
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
   from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
+  Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
+  branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
+  a block only when every element directly in it is one whose output stays
+  in one entry (`directAllowed`) and no ID repeats in branches that apply
+  together, else it falls back to the first branch. Kept entries carry
+  `opens`; `omap.node` writes them as marker comments, which
+  `applyBlocks` turns into `{{ if }}`/`{{ else }}`/`{{ range }}`/`{{ end }}`
+  lines, closing at the next line not indented deeper. IDs keep
+  `$(var.X)` until `expandLeftMap` fills them in inside their loops. A
+  block is also unkept when a file or component in it is referenced from
+  outside its branch (`checkReferences`); when the converter needs one
+  value of a variable a kept block defines (`literal` calls `needFixed`),
+  `Convert` runs again with those blocks forced to their first branch.
+  Defines follow WiX order through `defineEval`: a define takes the value
+  each variable has at that point, one that reads a variable no define has
+  set yet reads `{{ .X }}` (--var stands in for -d), and a header var
+  always exists, so `has` is true in every build: an `<?ifdef X?>` of a
+  variable the file defines, or a default whose variable another define
+  sets, falls back. A hand-written WiX semantics simulator that compares
+  rendered properties for every -d assignment (differential fuzzing) found
+  the order bugs fastest; keep repros of new finds in `preprocess_test.go`.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a
