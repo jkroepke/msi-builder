@@ -194,6 +194,32 @@ func TestConvertChosenBranch(t *testing.T) {
 			want: "pro", without: "basic", vars: map[string]string{"Flavor": "a"},
 			note: "<?if $(var.Edition) = basic?> is not converted as a template: only the branch on line 8, which a build without -d variables takes, was converted",
 		},
+		"variable a guessed branch skips": {
+			body: `<?define Tier = "1" ?>
+    <?if $(var.Edition) = pro ?>
+    <SetProperty Id="EDITION" Action="SetEd" Value="pro" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <?define Tier = "2" ?>
+    <SetProperty Id="EDITION" Action="SetEd" Value="basic" After="CostInitialize" Sequence="execute" />
+    <?endif ?>
+    <?if $(var.Tier) = 2 ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="tier2" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="tier1" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			want: "tier1", without: "tier2",
+			note: "<?if $(var.Tier) = 2?> is not evaluated: only the branch on line 14, the first not known to be false, was converted",
+		},
+		"platform through a define": {
+			body: `<?define Plat = "$(sys.BUILDARCH)" ?>
+    <?if $(var.Plat) = x86 ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="x86" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="native" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			arch: "x64", want: "native", without: "x86",
+			note: "<?if $(var.Plat) = x86?> is not converted as a template: only the branch on line 8, which a build for --arch x64 without -d variables takes, was converted",
+		},
 		"no platform": {
 			body: arch, want: "x86", without: "native",
 			note: "<?if $(sys.BUILDARCH) = x86?> is not evaluated: only its first branch was converted",
@@ -393,5 +419,43 @@ func TestConvertBuiltCodesExclusiveBranches(t *testing.T) {
 	res := convertWithVars(t, src, wixconvert.Options{Built: built}, map[string]string{"A": "1"}, map[string]string{"A": "0"})
 	if n := strings.Count(string(res.YAML), "000000000001"); n != 1 {
 		t.Errorf("the built code is pinned %d times, want once:\n%s", n, res.YAML)
+	}
+}
+
+// With --msi, a component of its own Id in a template block keeps the
+// built code also when convert cannot fill in its key file's name.
+func TestConvertBuiltCodesTemplateKeyFile(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?define N = "extra" ?>
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="Hello" /></StandardDirectory>
+    <Feature Id="Main">
+      <?if $(var.A) = 1 ?>
+      <Component Id="C" Directory="INSTALLFOLDER"><File Name="$(var.N).txt" Source="x.txt" /></Component>
+      <?endif ?>
+      <Component Id="App" Directory="INSTALLFOLDER" Guid="00000000-0000-4000-8000-000000000009"><File Source="hello.exe" /></Component>
+    </Feature>
+  </Package>
+</Wix>
+`
+
+	built := &wixconvert.BuiltPackage{
+		Name: "hello.msi",
+		Components: []wixconvert.BuiltComponent{
+			{ID: "C", Code: "{00000000-0000-4000-8000-000000000001}", Directory: "INSTALLFOLDER", KeyFile: "extra.txt"},
+		},
+		Directories: []wixconvert.BuiltDirectory{
+			{ID: "TARGETDIR", Name: "SourceDir"},
+			{ID: "ProgramFiles64Folder", Parent: "TARGETDIR", Name: "PFiles64"},
+			{ID: "INSTALLFOLDER", Parent: "ProgramFiles64Folder", Name: "Hello"},
+		},
+	}
+
+	res := convertWithVars(t, src, wixconvert.Options{Built: built}, map[string]string{"A": "1"}, map[string]string{"A": "0"})
+	if !strings.Contains(string(res.YAML), "000000000001") {
+		t.Errorf("the built code is not pinned:\n%s", res.YAML)
 	}
 }

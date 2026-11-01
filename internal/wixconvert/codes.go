@@ -238,17 +238,31 @@ func (c *converter) free(row *BuiltComponent) bool {
 }
 
 // builtByIDIn returns the component of the built package with the Id of
-// comp. For a component in a template block, whose Id may repeat in
-// branches that never apply together, the row must be free and have its
-// key file: it belongs to the branch the package was built with.
+// comp. For a component in a template block whose Id repeats in branches
+// that never apply together, the row must be free and have its key file:
+// it belongs to the branch the package was built with.
 func (c *converter) builtByIDIn(comp *comp, id, keyFile string) *BuiltComponent {
 	row := c.builtByID(id)
-	if row != nil && len(comp.e.opens) > 0 &&
+	if row != nil && len(comp.e.opens) > 0 && c.repeatedID(id) &&
 		(c.claimed[row.ID] || keyFile != "" && !strings.EqualFold(row.KeyFile, keyFile)) {
 		return nil
 	}
 
 	return row
+}
+
+// repeatedID reports whether more than one component of the source has
+// the Id.
+func (c *converter) repeatedID(id string) bool {
+	count := 0
+
+	for _, other := range c.comps {
+		if other.e.attr("Id") == id {
+			count++
+		}
+	}
+
+	return count > 1
 }
 
 // builtByID returns the component of the built package with an Id and a

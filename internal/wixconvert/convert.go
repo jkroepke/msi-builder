@@ -112,7 +112,7 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 // convertAll converts the file; with noDual, a WiX v3 package without a
 // scope does not become a dual package. A block that turns out to need one
 // value for all builds, such as a variable that a feature level reads, is
-// converted again with its first branch only.
+// converted again with one branch only (ppBlock.chosen).
 func convertAll(data []byte, opts Options, noDual bool) (*Result, *converter, error) {
 	forced := make(map[int]bool)
 
@@ -160,7 +160,7 @@ func validationErrors(res *Result) int {
 }
 
 // convertOnce converts the file once, with the blocks in forced read by
-// their first branch.
+// one branch (ppBlock.chosen).
 func convertOnce(data []byte, opts Options, forced map[int]bool, noDual bool) (*converter, []byte, error) {
 	doc, err := parse(bytes.NewReader(data))
 	if err != nil {
@@ -298,7 +298,7 @@ type converter struct {
 	// kept blocks.
 	ppFails []string
 	// forced are the blocks, by index, that an earlier conversion found
-	// it must read by their first branch; unkeep are the ones this
+	// it must read by one branch (ppBlock.chosen); unkeep are the ones this
 	// conversion finds.
 	forced, unkeep map[int]bool
 	// condVars caches conditionalVars.

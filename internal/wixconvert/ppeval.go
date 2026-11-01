@@ -51,11 +51,13 @@ type ppSim struct {
 	guessedBlocks map[*ppBlock]bool
 	// archRead are the blocks whose condition reads the platform.
 	archRead map[*ppBlock]bool
+	// archVars are the variables whose value read the platform.
+	archVars map[string]bool
 	arch     string
 	frames   []*ppFrame
-	// readGuess is set when the condition being evaluated read a
-	// guessed value.
-	readGuess bool
+	// readGuess and readArch are set when the condition or define being
+	// evaluated read a guessed value or the platform.
+	readGuess, readArch bool
 }
 
 // chooseBranches sets on each block the branch that a build without -d
@@ -70,7 +72,7 @@ func (c *converter) chooseBranches() {
 	sim := &ppSim{
 		arch: c.arch, values: make(map[string]string), unknown: make(map[string]bool), guessed: make(map[string]bool),
 		chosen: make(map[*ppBlock]int), guessedBlocks: make(map[*ppBlock]bool), archRead: make(map[*ppBlock]bool),
-		defined: make(map[string]bool),
+		defined: make(map[string]bool), archVars: make(map[string]bool),
 	}
 
 	for _, proc := range c.doc.procs {
@@ -90,29 +92,48 @@ func (c *converter) chooseBranches() {
 	}
 }
 
-// reading reports whether the build reads the instructions here, whether
-// it might in a loop, and whether that depends on a guess.
-func (s *ppSim) reading() (bool, bool, bool) {
-	maybe, guess := false, false
+// ppReading is whether the build reads the instructions at a point:
+// reads when it does, maybe when it might in a loop, guess when that
+// depends on a guess, and skipGuess when it skips them because of one.
+type ppReading struct {
+	reads, maybe, guess, skipGuess bool
+}
+
+// reading reports whether the build reads the instructions here.
+func (s *ppSim) reading() ppReading {
+	var here ppReading
 
 	for _, frame := range s.frames {
 		switch {
 		case !frame.active:
-			return false, false, false
+			return ppReading{}
 		case frame.unknown:
-			maybe = true
+			here.maybe = true
 		case frame.taken != frame.branch:
-			return false, false, false
+			return ppReading{skipGuess: here.guess || frame.guessed}
 		}
 
-		guess = guess || frame.guessed
+		here.guess = here.guess || frame.guessed
 	}
 
-	return !maybe, maybe, guess
+	here.reads = !here.maybe
+
+	return here
+}
+
+// skip records an instruction that sets a variable and that the build
+// does not run: a guess decided that, so the variable depends on it.
+func (s *ppSim) skip(name string, at ppReading) {
+	switch {
+	case at.maybe:
+		s.unknown[name] = true
+	case at.skipGuess:
+		s.guessed[name] = true
+	}
 }
 
 func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruction
-	reads, maybe, guess := s.reading()
+	here := s.reading()
 
 	switch proc.target {
 	case piDefine:
@@ -124,24 +145,27 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 			return
 		}
 
-		s.set(strings.TrimSpace(name), strings.Trim(strings.TrimSpace(value), `"`), reads, maybe, guess)
+		s.set(strings.TrimSpace(name), strings.Trim(strings.TrimSpace(value), `"`), here)
 	case "undef":
 		name := strings.TrimSpace(proc.text)
-		if reads {
-			delete(s.values, name)
-			delete(s.unknown, name)
-			s.guessed[name] = guess
-		} else if maybe {
-			s.unknown[name] = true
+		if !here.reads {
+			s.skip(name, here)
+
+			return
 		}
+
+		delete(s.values, name)
+		delete(s.unknown, name)
+		delete(s.archVars, name)
+		s.guessed[name] = here.guess
 	case piIf, piIfdef, piIfndef, piForeach:
 		if proc.block == nil {
 			return
 		}
 
 		frame := &ppFrame{
-			block: proc.block, taken: noBranch, active: reads || maybe,
-			unknown: maybe || proc.block.foreach, guessed: guess,
+			block: proc.block, taken: noBranch, active: here.reads || here.maybe,
+			unknown: here.maybe || proc.block.foreach, guessed: here.guess,
 		}
 
 		s.frames = append(s.frames, frame)
@@ -227,18 +251,16 @@ func (s *ppSim) definedTest(branch ppBranch) (bool, error) {
 }
 
 // set records a define, which a build may or may not run.
-func (s *ppSim) set(name, value string, reads, maybe, guess bool) {
-	if !reads {
-		if maybe {
-			s.unknown[name] = true
-		}
+func (s *ppSim) set(name, value string, here ppReading) {
+	if !here.reads {
+		s.skip(name, here)
 
 		return
 	}
 
-	s.readGuess = false
+	s.readGuess, s.readArch = false, false
 
-	expanded, err := s.expand(value, nil)
+	expanded, err := s.expand(value)
 	if err != nil {
 		s.unknown[name] = true
 
@@ -246,12 +268,13 @@ func (s *ppSim) set(name, value string, reads, maybe, guess bool) {
 	}
 
 	s.values[name] = expanded
-	s.guessed[name] = guess || s.readGuess
+	s.guessed[name] = here.guess || s.readGuess
+	s.archVars[name] = s.readArch
 	delete(s.unknown, name)
 }
 
 // expand fills the variables into text.
-func (s *ppSim) expand(text string, blk *ppBlock) (string, error) {
+func (s *ppSim) expand(text string) (string, error) {
 	var out strings.Builder
 
 	last := 0
@@ -262,7 +285,7 @@ func (s *ppSim) expand(text string, blk *ppBlock) (string, error) {
 			kind = text[loc[2]:loc[3]]
 		}
 
-		value, err := s.value(kind, text[loc[4]:loc[5]], blk)
+		value, err := s.value(kind, text[loc[4]:loc[5]])
 		if err != nil {
 			return "", err
 		}
@@ -279,7 +302,8 @@ func (s *ppSim) expand(text string, blk *ppBlock) (string, error) {
 }
 
 // value returns the value of a variable as the build sees it.
-func (s *ppSim) value(kind, name string, blk *ppBlock) (string, error) {
+// It records whether the value read a guess or the platform.
+func (s *ppSim) value(kind, name string) (string, error) {
 	switch kind {
 	case "", varVar:
 		value, ok := s.values[name]
@@ -288,6 +312,7 @@ func (s *ppSim) value(kind, name string, blk *ppBlock) (string, error) {
 		}
 
 		s.readGuess = s.readGuess || s.guessed[name]
+		s.readArch = s.readArch || s.archVars[name]
 
 		return value, nil
 	case varSys:
@@ -295,9 +320,7 @@ func (s *ppSim) value(kind, name string, blk *ppBlock) (string, error) {
 		// arm64 and BUILDARCHSHORT X86, X64 and A64 (seen on SERVER2025).
 		value, ok := map[string]string{"BUILDARCH": s.arch, "BUILDARCHSHORT": buildArchShort[s.arch]}[name]
 		if ok && s.arch != "" {
-			if blk != nil {
-				s.archRead[blk] = true
-			}
+			s.readArch = true
 
 			return value, nil
 		}
@@ -314,9 +337,15 @@ func (s *ppSim) condition(blk *ppBlock, text string) (bool, error) {
 		return false, err
 	}
 
-	eval := &ppEvaluator{sim: s, blk: blk, tokens: tokens}
+	eval := &ppEvaluator{sim: s, tokens: tokens}
+	s.readArch = false
 
 	result, err := eval.or()
+
+	if s.readArch {
+		s.archRead[blk] = true
+	}
+
 	if err == nil && len(eval.tokens) > 0 {
 		err = errPPSyntax
 	}
@@ -327,7 +356,6 @@ func (s *ppSim) condition(blk *ppBlock, text string) (bool, error) {
 // ppEvaluator evaluates an <?if?> expression with the grammar of ppParser.
 type ppEvaluator struct {
 	sim    *ppSim
-	blk    *ppBlock
 	tokens []ppToken
 }
 
@@ -451,7 +479,7 @@ func (e *ppEvaluator) operand() (ppValue, error) {
 			return ppValue{}, errPPSyntax
 		}
 
-		value, err := e.sim.value(m[1], m[2], e.blk)
+		value, err := e.sim.value(m[1], m[2])
 
 		return ppValue{text: value, isVar: true}, err
 	case ppWord, ppString:

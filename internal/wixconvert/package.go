@@ -120,7 +120,7 @@ func (c *converter) resolveDefines() {
 
 // literal fills the values of the defines into text.
 // A variable that a kept block defines has no one value: the blocks that
-// define it are converted again with their first branch only.
+// define it are converted again with one branch only (ppBlock.chosen).
 func (c *converter) literal(text string) string {
 	for _, name := range varRefs(text) {
 		c.needFixed(name)

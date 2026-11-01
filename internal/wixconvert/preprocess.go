@@ -82,7 +82,7 @@ type ppBlock struct {
 	// evaluated condition reads the platform --arch names.
 	chosen int
 	// keep is set when every branch is converted, each inside the
-	// template action that tests it. Otherwise only the first branch is.
+	// template action that tests it. Otherwise only the branch chosen is.
 	keep bool
 	// elems is set when an element sits in the block.
 	elems               bool
@@ -897,7 +897,7 @@ func definedFrom(proc procInst) []string {
 
 // needFixed records that the converter needs one value of a variable:
 // the kept blocks that define it, or a variable its defines read, must
-// be read by their first branch.
+// be read by one branch (ppBlock.chosen).
 func (c *converter) needFixed(name string) {
 	if c.conditionalVars()[name] {
 		c.needFixedAt(name, len(c.doc.procs), make(map[fixedAt]bool))
@@ -961,7 +961,7 @@ func (c *converter) lastDefine(name string, at int) int {
 }
 
 // recordUnkeep records the kept blocks in pos for the next conversion
-// to read by their first branch.
+// to read by one branch (ppBlock.chosen).
 func (c *converter) recordUnkeep(pos []ppPos) {
 	for _, inside := range pos {
 		if inside.block.keep {
@@ -1476,7 +1476,7 @@ func refsIn(text string, defs map[string][]*elem) []*elem {
 	return out
 }
 
-// unkeepApart reads by their first branch the kept blocks that used sits
+// unkeepApart reads by one branch the kept blocks that used sits
 // in and user does not.
 func unkeepApart(user, used *elem) {
 	for _, p := range used.pos {
