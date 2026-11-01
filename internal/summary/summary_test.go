@@ -180,3 +180,36 @@ func TestUnmarshalRejectsAliases(t *testing.T) {
 		t.Errorf("shared value: %v", err)
 	}
 }
+
+// TestUnmarshalHugeHeaderFields checks that a section offset, size or
+// count of 2^31 or more fails instead of wrapping into a negative int,
+// which panicked on 32-bit builds (CI runs this package as 386).
+func TestUnmarshalHugeHeaderFields(t *testing.T) {
+	t.Parallel()
+
+	good, err := Marshal(sample(), 1252)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sec := int(binary.LittleEndian.Uint32(good[0x2C:]))
+
+	for name, patch := range map[string]struct {
+		at    int
+		value uint32
+	}{
+		"offset 2^31":     {0x2C, 0x80000000},
+		"offset near max": {0x2C, 0xFFFFFF00},
+		"size 2^31":       {sec, 0x80000000},
+		"size max":        {sec, 0xFFFFFFFF},
+		"count 2^31":      {sec + 4, 0x80000000},
+		"count max":       {sec + 4, 0xFFFFFFFF},
+	} {
+		data := bytes.Clone(good)
+		binary.LittleEndian.PutUint32(data[patch.at:], patch.value)
+
+		if _, err := Unmarshal(data); err == nil || !strings.Contains(err.Error(), "out of range") {
+			t.Errorf("%s: %v, want an out-of-range error", name, err)
+		}
+	}
+}

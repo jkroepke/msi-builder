@@ -505,6 +505,10 @@ func (b *build) verify(target spool.Target, size int64, want *msidb.Database) er
 		}
 	}
 
+	if err := compareStorages(want.Storages, got.Storages); err != nil {
+		return fmt.Errorf("read back: %w", err)
+	}
+
 	if code, ok := summary.Get(got.Summary, summary.PIDRevision).(string); !ok || code != b.packageCode {
 		return fmt.Errorf("summary package code %q, want %q", code, b.packageCode)
 	}
@@ -513,6 +517,98 @@ func (b *build) verify(target spool.Target, size int64, want *msidb.Database) er
 		if err := b.verifyCabinet(file, cabinet); err != nil {
 			return fmt.Errorf("cabinet %s: %w", cabinet.name, err)
 		}
+	}
+
+	return nil
+}
+
+// compareStorages checks that the package holds the storages written, such
+// as the embedded language transforms, each with its CLSID and its streams
+// by name, size and content.
+func compareStorages(want, got []cfb.Storage) error {
+	if len(got) != len(want) {
+		return fmt.Errorf("%d storages, wrote %d", len(got), len(want))
+	}
+
+	byName := make(map[string]cfb.Storage, len(got))
+	for _, storage := range got {
+		byName[storage.Name] = storage
+	}
+
+	for _, wrote := range want {
+		read, ok := byName[wrote.Name]
+		if !ok {
+			return fmt.Errorf("storage %q is missing", wrote.Name)
+		}
+
+		if err := compareStorage(wrote, read); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// compareStorage checks one storage's CLSID and streams.
+func compareStorage(wrote, read cfb.Storage) error {
+	if read.CLSID != wrote.CLSID {
+		return fmt.Errorf("storage %q has CLSID %x, wrote %x", wrote.Name, read.CLSID, wrote.CLSID)
+	}
+
+	streams := make(map[string]cfb.Source, len(read.Streams))
+	for _, stream := range read.Streams {
+		streams[stream.Name] = stream
+	}
+
+	if len(streams) != len(wrote.Streams) {
+		return fmt.Errorf("storage %q has %d streams, wrote %d", wrote.Name, len(streams), len(wrote.Streams))
+	}
+
+	for _, stream := range wrote.Streams {
+		got, ok := streams[stream.Name]
+		if !ok || got.Size != stream.Size {
+			return fmt.Errorf("storage %q stream %q: read back %d bytes (present %v), wrote %d", wrote.Name, stream.Name, got.Size, ok, stream.Size)
+		}
+
+		// Transform streams are small, so they are compared byte by byte;
+		// the written ones are in memory (TransformStorage) and reopen.
+		if err := sameContent(stream, got); err != nil {
+			return fmt.Errorf("storage %q stream %q: %w", wrote.Name, stream.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// sameContent compares the bytes of two stream sources.
+func sameContent(wrote, read cfb.Source) error {
+	if wrote.Open == nil || read.Open == nil {
+		return errors.New("stream has no reader")
+	}
+
+	load := func(src cfb.Source) ([]byte, error) {
+		reader, err := src.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open: %w", err)
+		}
+
+		defer func() { _ = reader.Close() }()
+
+		return io.ReadAll(reader)
+	}
+
+	want, err := load(wrote)
+	if err != nil {
+		return err
+	}
+
+	got, err := load(read)
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Equal(want, got) {
+		return errors.New("read back other bytes than written")
 	}
 
 	return nil

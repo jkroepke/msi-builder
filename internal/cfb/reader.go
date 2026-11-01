@@ -99,6 +99,16 @@ func (f *File) Reader(name string) (*StreamReader, error) {
 	return f.readerFor(ent)
 }
 
+// EntryReader returns a reader over a stream entry of the file, root-level
+// or inside a storage, that reads from the underlying file on demand.
+func (f *File) EntryReader(ent *Entry) (*StreamReader, error) {
+	if ent == nil || ent.Type != 2 {
+		return nil, errors.New("cfb: entry is not a stream")
+	}
+
+	return f.readerFor(ent)
+}
+
 // readerFor builds the reader of any stream entry, root-level or nested.
 func (f *File) readerFor(ent *Entry) (*StreamReader, error) {
 	name := ent.Name
