@@ -296,8 +296,11 @@ upgrade:
   `components[].scope` and drops the setters with a note, also in a
   package that already has `ALLUSERS=2`, and moves actions placed after a
   dropped setter to its place. A per-machine package keeps its scope and
-  its conditions, since `ALLUSERS=1` always holds there. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the
-  command line still pick the context (INST-07).
+  its conditions, since `ALLUSERS=1` always holds there. So does a WiX v3
+  package without `InstallScope` whose action always sets `ALLUSERS=1`,
+  even when its components test the context; `convert` drops that setter
+  with a note. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line
+  still pick the context (INST-07).
 - WiX sets `WIX_UPGRADE_DETECTED` during an upgrade, msi-builder sets
   `OLDERVERSIONBEINGUPGRADED`. If your conditions use the WiX name, keep it
   with `upgrade.property: WIX_UPGRADE_DETECTED`, and

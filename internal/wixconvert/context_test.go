@@ -143,7 +143,7 @@ func TestConvertContextSetters(t *testing.T) {
 
 // TestConvertMachineSetter checks a WiX v3 package without a scope that
 // always sets ALLUSERS=1, the WiX v3 way to install per machine: it stays
-// per machine, the setter is left out with a note, and its HKLM data
+// per machine, also when a component tests the context, the setter is left out with a note, and its HKLM data
 // validates.
 func TestConvertMachineSetter(t *testing.T) {
 	t.Parallel()
@@ -166,11 +166,22 @@ func TestConvertMachineSetter(t *testing.T) {
   </Product>
 </Wix>`
 
-	yaml := convertValid(t, src)
+	for name, doc := range map[string]string{
+		"plain": src,
+		// A condition on the context always holds per machine.
+		"conditioned": strings.Replace(src, `<Component Id="Machine" Guid="*">`,
+			`<Component Id="Machine" Guid="*"><Condition>ALLUSERS</Condition>`, 1),
+	} {
+		yaml := convertValid(t, doc)
 
-	if strings.Contains(yaml, "scope:") || strings.Contains(yaml, "name: ALLUSERS") ||
-		!strings.Contains(yaml, "which always sets ALLUSERS=1, was left out") {
-		t.Errorf("want a per-machine package without the setter:\n%s", yaml)
+		if strings.Contains(yaml, "scope:") || strings.Contains(yaml, "name: ALLUSERS") ||
+			!strings.Contains(yaml, "which always sets ALLUSERS=1, was left out") {
+			t.Errorf("%s: want a per-machine package without the setter:\n%s", name, yaml)
+		}
+
+		if name == "conditioned" && !strings.Contains(yaml, "condition: ALLUSERS") {
+			t.Errorf("%s: the condition was lost:\n%s", name, yaml)
+		}
 	}
 }
 

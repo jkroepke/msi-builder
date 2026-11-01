@@ -127,7 +127,7 @@ func (c *converter) choosesContext() int {
 // WiX v3 package without a scope and without ALLUSERS is per user too. A
 // per-machine package stays: there a condition on ALLUSERS=1 always holds.
 func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) string {
-	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers
+	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !c.setsMachine()
 	if !perUser {
 		return scope
 	}
