@@ -135,7 +135,14 @@ versioning after 1.0.
   from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
   for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
-  from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
+  from the observed behaviour only: never read WiX source for it. A package
+  that chooses its install context with context conditions or
+  `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a dual scope (`context.go`),
+  because execute-sequence setters leave the install inconsistent (INST-07).
+  A WiX v3 package without a scope only does when it reads
+  `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
+  per-machine packages per-user in review, so they stay perMachine.
+  The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
   Nameless and `.` Directories are settled before the directories link
   (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases

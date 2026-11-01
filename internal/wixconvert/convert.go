@@ -17,6 +17,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -86,31 +87,81 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	// A block that turns out to need one value for all builds, such as a
-	// variable that a feature level reads, is converted again with its
-	// first branch only.
+	res, conv, err := convertAll(data, opts, false)
+	if err != nil || !conv.guessedDual {
+		return res, err
+	}
+
+	// A WiX v3 package without a scope became a dual package because it
+	// chooses its context; when that package does not validate, keep the
+	// perMachine one that a bootstrapper installs, as before, unless it
+	// validates worse.
+	dualErrors := validationErrors(res)
+	if dualErrors == 0 {
+		return res, nil
+	}
+
+	machine, _, err := convertAll(data, opts, true)
+	if err != nil || validationErrors(machine) > dualErrors {
+		return res, nil //nolint:nilerr // the dual result stands
+	}
+
+	return machine, nil
+}
+
+// convertAll converts the file; with noDual, a WiX v3 package without a
+// scope does not become a dual package. A block that turns out to need one
+// value for all builds, such as a variable that a feature level reads, is
+// converted again with its first branch only.
+func convertAll(data []byte, opts Options, noDual bool) (*Result, *converter, error) {
 	forced := make(map[int]bool)
 
 	for {
-		conv, text, err := convertOnce(data, opts, forced)
+		conv, text, err := convertOnce(data, opts, forced, noDual)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if len(conv.unkeep) == 0 {
 			notes := append([]Note(nil), conv.notes...)
 			slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
 
-			return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, nil
+			return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, conv, nil
 		}
 
 		maps.Copy(forced, conv.unkeep)
 	}
 }
 
+// validationErrors returns the number of errors config.Validate reports
+// for a converted file, or a large number when it does not parse. The
+// variables the file references get the placeholder 1.0.0, which fits a
+// version as well as a name.
+func validationErrors(res *Result) int {
+	vars := make(map[string]string, len(res.Vars))
+	for _, name := range res.Vars {
+		vars[name] = "1.0.0"
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{Vars: vars})
+	if err != nil {
+		return math.MaxInt
+	}
+
+	count := 0
+
+	for _, d := range config.Validate(cfg) {
+		if d.Severity == config.SeverityError {
+			count++
+		}
+	}
+
+	return count
+}
+
 // convertOnce converts the file once, with the blocks in forced read by
 // their first branch.
-func convertOnce(data []byte, opts Options, forced map[int]bool) (*converter, []byte, error) {
+func convertOnce(data []byte, opts Options, forced map[int]bool, noDual bool) (*converter, []byte, error) {
 	doc, err := parse(bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err
@@ -133,6 +184,7 @@ func convertOnce(data []byte, opts Options, forced map[int]bool) (*converter, []
 	conv.fsys = opts.FS
 	conv.arch = opts.Arch
 	conv.bcgg = opts.BCGG
+	conv.noDual = noDual
 
 	if err := conv.index(); err != nil {
 		return nil, nil, err
@@ -279,6 +331,9 @@ type converter struct {
 	// floorSeen is set once a hand-made major upgrade became
 	// upgrade.minVersion.
 	floorSeen bool
+	// guessedDual is set when a WiX v3 package without a scope became a
+	// dual package; noDual keeps such a package perMachine.
+	guessedDual, noDual bool
 }
 
 type dir struct {

@@ -408,6 +408,17 @@ func (b *build) useRunDLL() bool {
 	return true
 }
 
+// machineOnly adds the per-machine test to a condition of the firewall
+// actions in a dual package, whose rule components install only per
+// machine, as a perMachine custom action does (CA-09, INST-08).
+func (b *build) machineOnly(cond string) string {
+	if b.cfg.Package.Scope.Dual() {
+		return cond + " AND " + condPerMachine
+	}
+
+	return cond
+}
+
 // firewall writes the netsh actions of the firewall helper (section 17.3,
 // design section 4.11): on install and repair every rule is deleted by name
 // before any is added, with a rollback that deletes again; on removal the
@@ -460,8 +471,8 @@ func (b *build) firewall() error { //nolint:cyclop,funlen // one pass over the f
 		fwRule := rule{
 			id:            ruleID,
 			del:           netsh + `delete rule name="` + cfgRule.Name + `" dir=in`,
-			install:       "$" + cfgRule.Component + "=3",
-			remove:        "$" + cfgRule.Component + "=2",
+			install:       b.machineOnly("$" + cfgRule.Component + "=3"),
+			remove:        b.machineOnly("$" + cfgRule.Component + "=2"),
 			ignoreFailure: cfgRule.IgnoreFailure,
 		}
 

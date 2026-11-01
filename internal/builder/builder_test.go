@@ -970,6 +970,131 @@ features:
 	}
 }
 
+// TestDualScopeFirewall checks that a dual package's firewall carrier
+// installs only per machine and that its netsh actions test the context
+// too (INST-08).
+func TestDualScopeFirewall(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	exe := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
+	if err := os.WriteFile(filepath.Join(dir, "hello.exe"), exe, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Parse([]byte(`schema: msi-builder/v1
+product: { name: Hello, manufacturer: Example, version: 1.0.0, upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301 }
+package: { platform: x64, scope: perMachineOrUser }
+features:
+  - id: Main
+    components:
+      - files: [{ source: hello.exe }]
+    firewall: [{ name: web, program: '[#hello.exe]', protocol: tcp, port: '80' }]
+`), config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.BaseDir = dir
+
+	database, err := msidb.Unmarshal(mustBuild(t, cfg).Package)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := cell(t, database, "Component", "Condition", func(r []any) bool { return r[0] == "Main_Firewall" }); got != "ALLUSERS=1" {
+		t.Errorf("carrier condition %v, want ALLUSERS=1", got)
+	}
+
+	actions := 0
+
+	for _, row := range rows(t, database, "InstallExecuteSequence") {
+		name := fmt.Sprint(row[0])
+		if !strings.HasPrefix(name, "Fw") {
+			continue
+		}
+
+		actions++
+
+		if cond := fmt.Sprint(row[1]); !strings.HasSuffix(cond, " AND ALLUSERS=1") {
+			t.Errorf("%s: condition %q does not test ALLUSERS=1", name, cond)
+		}
+	}
+
+	if actions != 5 {
+		t.Errorf("%d netsh actions, want 5", actions)
+	}
+}
+
+// TestEnvironmentParts checks that several parts of one variable in a
+// component get Environment rows of their own (ENVVAR-04), and that the
+// first keeps the key it had before.
+func TestEnvironmentParts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	exe := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
+	if err := os.WriteFile(filepath.Join(dir, "hello.exe"), exe, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	build := func(environment string) map[string]string {
+		t.Helper()
+
+		cfg, err := config.Parse([]byte(`schema: msi-builder/v1
+product: { name: Hello, manufacturer: Example, version: 1.0.0, upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301 }
+package: { platform: x64, scope: perUserOrMachine }
+components:
+  - files: [{ source: hello.exe }]
+    environment: [`+environment+`]
+`), config.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cfg.BaseDir = dir
+
+		database, err := msidb.Unmarshal(mustBuild(t, cfg).Package)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		values := map[string]string{}
+		for _, row := range rows(t, database, "Environment") {
+			values[fmt.Sprint(row[0])] = fmt.Sprint(row[1], " ", row[2])
+		}
+
+		return values
+	}
+
+	one := build("{ name: PATH, value: '[INSTALLDIR]', action: append }")
+	both := build("{ name: PATH, value: '[INSTALLDIR]', action: append }, { name: PATH, value: '[INSTALLDIR]bin', action: append }")
+
+	// scope auto: one row per context and part.
+	if len(one) != 2 || len(both) != 4 {
+		t.Fatalf("rows %v and %v, want 2 and 4", one, both)
+	}
+
+	for key, value := range one {
+		if both[key] != value {
+			t.Errorf("row %s changed from %q to %q", key, value, both[key])
+		}
+	}
+
+	parts := map[string]int{}
+	for _, value := range both {
+		parts[value]++
+	}
+
+	for _, want := range []string{`=-*PATH [~];[INSTALLDIR]bin`, `=-PATH [~];[INSTALLDIR]bin`} {
+		if parts[want] != 1 {
+			t.Errorf("no row %q in %v", want, both)
+		}
+	}
+}
+
 func TestServiceRecoverySteps(t *testing.T) {
 	t.Parallel()
 
