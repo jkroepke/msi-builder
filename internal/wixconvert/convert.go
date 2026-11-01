@@ -419,6 +419,8 @@ func (c *converter) index() error {
 		c.choosePlatform()
 	}
 
+	c.platformFolded()
+
 	return nil
 }
 

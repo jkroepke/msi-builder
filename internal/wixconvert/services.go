@@ -454,7 +454,7 @@ func (cc *compConv) removeFileFolder(row *omap, elm *elem) {
 	}
 
 	if d := elm.attr(attrDirectory); d != "" && d != cc.cp.dir {
-		row.set("directory", conv.dirRef(d))
+		row.set("directory", conv.stdID(conv.dirRef(d)))
 	}
 }
 

@@ -408,6 +408,16 @@ func (c *converter) foldAliasDirs() {
 	c.dirOrder = kept
 }
 
+// platformFolded maps the folders that nameless Directories became, such
+// as ProgramFiles6432Folder, to the folder of the platform, which is known
+// only now.
+func (c *converter) platformFolded() {
+	for id, target := range c.folded {
+		c.folded[id] = c.stdID(target)
+		c.renames[id] = c.stdID(target)
+	}
+}
+
 // dirSetters returns, by ID, the elements that set a directory or name it
 // in the UI.
 func (c *converter) dirSetters() map[string][]*elem {

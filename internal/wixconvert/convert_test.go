@@ -1150,7 +1150,9 @@ func TestConvertFoldedFolderNotes(t *testing.T) {
     </Directory>
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="PFALIAS">
-        <Component Id="Logs"><CreateFolder /><RemoveFile Id="L" Name="*.log" On="uninstall" /></Component>
+        <Component Id="Logs"><CreateFolder /><RemoveFile Id="L" Name="*.log" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\\Example" Name="Dir" Value="[PFALIAS]" />
+        </Component>
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="CommonAppDataFolder">
@@ -1172,7 +1174,7 @@ func TestConvertFoldedFolderNotes(t *testing.T) {
 	}
 
 	out := string(res.YAML)
-	for _, want := range []string{"the Directory VOL1 has no Name", "RemoveFolderEx on VOL2 was not converted", "RemoveFile on PFALIAS",
+	for _, want := range []string{"the Directory VOL1 has no Name", "RemoveFolderEx on VOL2 was not converted", "RemoveFile on PFALIAS", "standard folder ProgramFiles64Folder", "value: '[ProgramFiles64Folder]'",
 		"the install half of RemoveFile On=\"install\"", "the install half of RemoveFile On=\"both\"", "name: '*.bak'"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the YAML lacks %q:\n%s", want, out)
