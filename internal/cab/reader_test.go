@@ -215,11 +215,14 @@ func TestLegacyNames(t *testing.T) {
 		t.Error("a name flagged UTF-8 with invalid UTF-8 was accepted")
 	}
 
-	// These five bytes are undefined in code page 1252; decoding them to one
-	// replacement character would merge distinct names.
+	// Code page 1252 leaves five bytes without a printable character;
+	// Windows decodes each to the C1 control of the same value (the tables of
+	// internal/codepage are dumped from MultiByteToWideChar), so distinct
+	// names stay distinct instead of merging into one replacement character.
 	for _, raw := range []string{"a\x81", "a\x8D", "a\x8F", "a\x90", "a\x9D"} {
-		if files, err := Read(cabinet(raw, AttrArchive)); err == nil {
-			t.Errorf("Read(%q) = %q, want an error for a byte undefined in code page 1252", raw, files[0].Name)
+		files, err := Read(cabinet(raw, AttrArchive))
+		if want := "a" + string(rune(raw[1])); err != nil || files[0].Name != want {
+			t.Errorf("Read(%q) = %v, %v, want %q", raw, files, err, want)
 		}
 	}
 
