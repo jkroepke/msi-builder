@@ -114,7 +114,11 @@ versioning after 1.0.
   `opens`; `omap.node` writes them as marker comments, which
   `applyBlocks` turns into `{{ if }}`/`{{ else }}`/`{{ range }}`/`{{ end }}`
   lines, closing at the next line not indented deeper. IDs keep
-  `$(var.X)` until `expandLeftMap` fills them in inside their loops.
+  `$(var.X)` until `expandLeftMap` fills them in inside their loops. A
+  block is also unkept when a file or component in it is referenced from
+  outside its branch (`checkReferences`); when the converter needs one
+  value of a variable a kept block defines (`literal` calls `needFixed`),
+  `Convert` runs again with those blocks forced to their first branch.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a

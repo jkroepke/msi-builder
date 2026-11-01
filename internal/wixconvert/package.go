@@ -37,13 +37,27 @@ func (c *converter) resolveDefines() {
 
 	for _, define := range c.defines {
 		if !conditional[define[0]] {
-			c.defined[define[0]] = c.literal(define[1])
+			c.defined[define[0]] = c.literalStatic(define[1])
 		}
 	}
 }
 
 // literal fills the values of the defines into text.
+// A variable that a kept block defines has no one value: the blocks that
+// define it are converted again with their first branch only.
 func (c *converter) literal(text string) string {
+	for _, m := range preprocessorVar.FindAllStringSubmatch(text, -1) {
+		if m[1] != "env" && m[1] != varSys {
+			c.needFixed(varName(m[2]))
+		}
+	}
+
+	return c.literalStatic(text)
+}
+
+// literalStatic fills in the values of the defines that no kept block
+// sets, and leaves the others.
+func (c *converter) literalStatic(text string) string {
 	if c.defined == nil {
 		c.resolveDefines()
 	}

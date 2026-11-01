@@ -164,9 +164,11 @@ func parse(r io.Reader) (*document, error) {
 		return nil, err
 	}
 
+	// A file that is only well-formed one branch at a time, such as one
+	// with a root element per branch, is read by its first branches.
 	doc, err := parseData(data, false)
-	if err != nil || !doc.mixed {
-		return doc, err
+	if err == nil && !doc.mixed {
+		return doc, nil
 	}
 
 	return parseData(data, true)

@@ -177,6 +177,30 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<?ifdef Debug ?><?if $(sys.BUILDARCH) = x64 ?><?error no debug on x64 ?><?endif ?><?endif ?>`,
 			note: "<?error no debug on x64?> has no counterpart",
 		},
+		"feature level read from a block": {
+			body: `<?if $(var.Edition) = full ?><?define ToolsLevel = "1" ?><?else ?><?define ToolsLevel = "1000" ?><?endif ?>
+    <Feature Id="Main" Level="$(var.ToolsLevel)"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>`,
+			note: "<?if $(var.Edition) = full?> is not evaluated: only its first branch was converted",
+		},
+		"shortcut to a file in a branch": {
+			body: `<?ifdef Tools ?><Component Id="Tool" Directory="INSTALLFOLDER"><File Id="tool.exe" Source="tool.exe" /></Component><?endif ?>
+    <Component Id="Links" Directory="INSTALLFOLDER"><File Source="a.exe" /><Shortcut Id="L" Name="Tool" Target="[#tool.exe]" /></Component>`,
+			note: "<?ifdef Tools?> is not evaluated: only its first branch was converted",
+		},
+		"service control in a branch": {
+			body: `<Component Id="Svc" Directory="INSTALLFOLDER"><File Source="svc.exe" /><ServiceInstall Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" /></Component>
+    <?ifdef AutoStart ?><Component Id="Ctl" Directory="INSTALLFOLDER"><ServiceControl Id="SC" Name="HelloSvc" Start="install" /><CreateFolder /></Component><?endif ?>`,
+			note: "<?ifdef AutoStart?> is not evaluated: only its first branch was converted",
+		},
+		"component without an Id in a loop": {
+			body: `<?foreach L in en;de ?><Component Directory="INSTALLFOLDER"><File Source="$(var.L).txt" /></Component><?endforeach ?>`,
+			note: "<?foreach L in en;de?> is not expanded: its body was converted once",
+		},
+		"define that extends a passed variable": {
+			body: `<?ifdef Extra ?><?define Flags = "$(var.Flags) extra" ?><?endif ?><Property Id="FLAGS" Value="$(var.Flags)" />`,
+			note: "<?ifdef Extra?> is not evaluated: only its first branch was converted",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -236,5 +260,30 @@ func TestConvertPreprocessorExtendDefine(t *testing.T) {
 		if cfg.Product.Name != want {
 			t.Errorf("%s: name %q, want %q", vars, cfg.Product.Name, want)
 		}
+	}
+}
+
+// TestConvertPreprocessorRoots checks a file with one root element per
+// branch, which is only well-formed one branch at a time.
+func TestConvertPreprocessorRoots(t *testing.T) {
+	t.Parallel()
+
+	src := `<?ifdef V4 ?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301" />
+</Wix>
+<?else ?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Other" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301" />
+</Wix>
+<?endif ?>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(res.YAML), "name: Hello") {
+		t.Errorf("the first branch was not converted:\n%s", res.YAML)
 	}
 }

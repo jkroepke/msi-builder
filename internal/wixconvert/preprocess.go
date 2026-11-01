@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -179,7 +180,11 @@ func relOpens(elm, container *elem) []openRef {
 // planBlocks decides which blocks are converted as templates and leaves
 // out the branches of the others but the first.
 func (c *converter) planBlocks() {
-	for _, blk := range c.doc.blocks {
+	for i, blk := range c.doc.blocks {
+		if c.forced[i] {
+			blk.keep = false
+		}
+
 		if blk.foreach && blk.keep {
 			c.planForeach(blk)
 		}
@@ -187,6 +192,7 @@ func (c *converter) planBlocks() {
 
 	c.checkDirect(c.doc.root, nil)
 	c.checkCollisions()
+	c.checkReferences()
 	c.translateKept()
 	c.prune(c.doc.root)
 	c.markProcs()
@@ -256,6 +262,33 @@ func (c *converter) planForeach(blk *ppBlock) {
 	}
 
 	blk.list = strings.TrimSpace(list)
+
+	if !c.loopNamesAll(c.doc.root, blk) {
+		blk.keep = false
+	}
+}
+
+// loopNamesAll reports whether every element in the loop that the output
+// names reads the loop variable in its name: WiX names each round's
+// element apart, and a name the converter makes up would repeat.
+func (c *converter) loopNamesAll(elm *elem, blk *ppBlock) bool {
+	inLoop := slices.ContainsFunc(elm.pos, func(p ppPos) bool { return p.block == blk })
+	if inLoop && elm.ns == nsCore {
+		ref := "$(var." + blk.loopVar + ")"
+
+		switch elm.name {
+		case elemComponent, attrProperty:
+			if !strings.Contains(elm.attr("Id"), ref) {
+				return false
+			}
+		case elemFile:
+			if !strings.Contains(elm.attr("Id")+elm.attr("Name")+elm.attr("Source"), ref) {
+				return false
+			}
+		}
+	}
+
+	return !slices.ContainsFunc(elm.kids, func(kid *elem) bool { return !c.loopNamesAll(kid, blk) })
 }
 
 func isName(s string) bool {
@@ -643,7 +676,12 @@ func (c *converter) ppFail(proc procInst) bool {
 
 // conditionalVars are the variables that a define in a kept block sets.
 func (c *converter) conditionalVars() map[string]bool {
+	if c.condVars != nil {
+		return c.condVars
+	}
+
 	names := make(map[string]bool)
+	c.condVars = names
 
 	for _, proc := range c.doc.procs {
 		if proc.skipped || proc.target != piDefine || len(c.opensOf(proc.pos)) == 0 {
@@ -656,6 +694,30 @@ func (c *converter) conditionalVars() map[string]bool {
 	}
 
 	return names
+}
+
+// needFixed records that the converter needs one value of a variable:
+// the kept blocks that define it must be read by their first branch.
+func (c *converter) needFixed(name string) {
+	if !c.conditionalVars()[name] {
+		return
+	}
+
+	for _, proc := range c.doc.procs {
+		if proc.skipped || defineName(proc) != name {
+			continue
+		}
+
+		for _, pos := range proc.pos {
+			if pos.block.keep {
+				if c.unkeep == nil {
+					c.unkeep = make(map[int]bool)
+				}
+
+				c.unkeep[slices.Index(c.doc.blocks, pos.block)] = true
+			}
+		}
+	}
 }
 
 // defineFrame is a kept <?if?> whose branches set variables.
@@ -738,25 +800,34 @@ func (e *defineEval) define(proc procInst) {
 	}
 
 	value = strings.Trim(strings.TrimSpace(value), `"`)
+	self := varName(strings.TrimSpace(name))
 
 	var text strings.Builder
 
 	last := 0
 
 	for _, loc := range preprocessorVar.FindAllStringSubmatchIndex(value, -1) {
-		known, ok := e.env[varName(value[loc[4]:loc[5]])]
+		ref := varName(value[loc[4]:loc[5]])
+
+		known, ok := e.env[ref]
+		if !ok && ref == self {
+			// It extends a value that comes from --var, which the
+			// header var would replace.
+			e.conv.needFixed(self)
+		}
+
 		if !ok || loc[2] >= 0 && value[loc[2]:loc[3]] != "var" {
 			continue
 		}
 
-		text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literal(value[last:loc[0]])))
+		text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literalStatic(value[last:loc[0]])))
 		text.WriteString(known)
 
 		last = loc[1]
 	}
 
-	text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literal(value[last:])))
-	e.env[varName(strings.TrimSpace(name))] = text.String()
+	text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literalStatic(value[last:])))
+	e.env[self] = text.String()
 }
 
 // mergeBranches returns the values after a block: one template per
@@ -892,4 +963,93 @@ func (c *converter) redefinedAfter(blk *ppBlock) bool {
 // holdsKeyPath reports whether elm or an element in it is a key path.
 func holdsKeyPath(elm *elem) bool {
 	return elm.yes("KeyPath") || slices.ContainsFunc(elm.kids, holdsKeyPath)
+}
+
+// bracketRefs matches the file, component and folder references of
+// formatted text: [#file], [!file], [$component].
+var bracketRefs = regexp.MustCompile(`\[[#!$]([^\]]+)\]`)
+
+// checkReferences leaves out the other branches of a block whose file or
+// component another element refers to from outside the branch: the
+// converter resolves such references, so they would name an entry that
+// a build leaves out. A ServiceControl in a branch that controls a
+// service installed outside it counts too.
+func (c *converter) checkReferences() {
+	defs, controls := keptTargets(c.doc.root)
+
+	walkElems(c.doc.root, func(elm *elem) {
+		for _, name := range elm.order {
+			if name == "Id" || elm.is(refComponent) {
+				continue
+			}
+
+			value := elm.attrs[name]
+			for _, used := range append(defs[value], refsIn(value, defs)...) {
+				unkeepApart(elm, used)
+			}
+		}
+
+		for _, used := range refsIn(elm.text, defs) {
+			unkeepApart(elm, used)
+		}
+
+		if elm.is(elemServiceInstall) {
+			for _, ctl := range controls[elm.attr("Name")] {
+				unkeepApart(elm, ctl)
+			}
+		}
+	})
+}
+
+// keptTargets returns the files and components in kept blocks by Id, and
+// the service controls in kept blocks by service name.
+func keptTargets(root *elem) (map[string][]*elem, map[string][]*elem) {
+	defs := make(map[string][]*elem)
+	controls := make(map[string][]*elem)
+
+	walkElems(root, func(elm *elem) {
+		if !slices.ContainsFunc(elm.pos, func(p ppPos) bool { return p.block.keep }) || elm.ns != nsCore {
+			return
+		}
+
+		switch {
+		case elm.is(elemFile), elm.is(elemComponent):
+			if id := elm.attr("Id"); id != "" {
+				defs[id] = append(defs[id], elm)
+			}
+		case elm.is(elemServiceControl):
+			controls[elm.attr("Name")] = append(controls[elm.attr("Name")], elm)
+		}
+	})
+
+	return defs, controls
+}
+
+func walkElems(elm *elem, fn func(*elem)) {
+	fn(elm)
+
+	for _, kid := range elm.kids {
+		walkElems(kid, fn)
+	}
+}
+
+// refsIn returns the defined elements that bracket references in text name.
+func refsIn(text string, defs map[string][]*elem) []*elem {
+	var out []*elem
+
+	for _, m := range bracketRefs.FindAllStringSubmatch(text, -1) {
+		out = append(out, defs[m[1]]...)
+	}
+
+	return out
+}
+
+// unkeepApart reads by their first branch the kept blocks that used sits
+// in and user does not.
+func unkeepApart(user, used *elem) {
+	for _, p := range used.pos {
+		if p.block.keep && !slices.Contains(user.pos, p) {
+			p.block.keep = false
+		}
+	}
 }

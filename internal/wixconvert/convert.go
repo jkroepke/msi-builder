@@ -69,34 +69,62 @@ type Options struct {
 // Convert reads a .wxs file and returns the msi.yaml that describes the
 // same package as far as msi-builder can express it.
 func Convert(r io.Reader, opts Options) (*Result, error) {
-	doc, err := parse(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read: %w", err)
+	}
+
+	// A block that turns out to need one value for all builds, such as a
+	// variable that a feature level reads, is converted again with its
+	// first branch only.
+	forced := make(map[int]bool)
+
+	for {
+		conv, text, err := convertOnce(data, opts, forced)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(conv.unkeep) == 0 {
+			notes := append([]Note(nil), conv.notes...)
+			slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
+
+			return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, nil
+		}
+
+		maps.Copy(forced, conv.unkeep)
+	}
+}
+
+// convertOnce converts the file once, with the blocks in forced read by
+// their first branch.
+func convertOnce(data []byte, opts Options, forced map[int]bool) (*converter, []byte, error) {
+	doc, err := parse(bytes.NewReader(data))
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if !doc.root.is("Wix") {
-		return nil, fmt.Errorf("the root element is <%s>, not <Wix>", doc.root.qname())
+		return nil, nil, fmt.Errorf("the root element is <%s>, not <Wix>", doc.root.qname())
 	}
 
 	conv := newConverter(doc)
 	conv.built = opts.Built
 	conv.exists = opts.Exists
+	conv.forced = forced
 
 	if err := conv.index(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	conv.emit()
 
 	text, err := conv.render(opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	notes := append([]Note(nil), conv.notes...)
-	slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
-
-	return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, nil
+	return conv, text, nil
 }
 
 // dirFileSource returns the FileSource of a Directory or DirectoryRef,
@@ -178,7 +206,13 @@ type converter struct {
 	ppUsed map[string]bool
 	// ppFails are the template lines of the <?error?> instructions in
 	// kept blocks.
-	ppFails     []string
+	ppFails []string
+	// forced are the blocks, by index, that an earlier conversion found
+	// it must read by their first branch; unkeep are the ones this
+	// conversion finds.
+	forced, unkeep map[int]bool
+	// condVars caches conditionalVars.
+	condVars    map[string]bool
 	sequences   []*elem
 	setters     []*elem
 	structure   map[string]func(c *converter, e *elem, sc scope)
