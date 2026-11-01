@@ -260,6 +260,10 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)-y" ?><?ifdef A ?><?define X = "3" ?><?endif ?><Property Id="Q" Value="$(var.Y)" />`,
 			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
 		},
+		"variable read back through another define": {
+			body: `<?ifdef B ?><?define Y = "$(var.X)-y" ?><?else ?><?define Y = "y" ?><?endif ?><?ifndef X ?><?define X = "$(var.Y)" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
+			note: "the variable X reads itself through the defines before it; pass it with --var or write its value",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",

@@ -71,14 +71,30 @@ func (c *converter) emitVars() {
 	conditional := c.conditionalValues(c.conditionalVars())
 
 	for _, define := range c.defines {
-		if v, ok := conditional[define[0]]; ok {
-			c.out.child("vars").set(define[0], braceSafe(v))
-
-			continue
+		value, ok := conditional[define[0]]
+		if !ok {
+			value = c.expand(c.pkg, c.defined[define[0]])
 		}
 
-		c.out.child("vars").set(define[0], braceSafe(c.expand(c.pkg, c.defined[define[0]])))
+		c.out.child("vars").set(define[0], braceSafe(value))
+		c.checkSelfRead(define[0], value)
 	}
+}
+
+// checkSelfRead notes a var whose value reads the var itself, through a
+// variable that a define set from it before: WiX reads the value each
+// variable has at its define, the vars header the final one.
+func (c *converter) checkSelfRead(name, value string) {
+	if !strings.Contains(value, "{{ ."+name+" }}") {
+		return
+	}
+
+	line := 0
+	if last := c.lastDefine(name, len(c.doc.procs)); last >= 0 {
+		line = c.doc.procs[last].line
+	}
+
+	c.todof(nil, "", line, "the variable %s reads itself through the defines before it; pass it with --var or write its value", name)
 }
 
 // resolveDefines fills the values of earlier defines into each define.
