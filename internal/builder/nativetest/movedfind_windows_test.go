@@ -178,8 +178,13 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 				t.Errorf("v1 is registered in %s after the v2 install, want %s", oldAfter, tc.oldAfter)
 			}
 
-			machineApp := filepath.Join(os.Getenv("ProgramW6432"), "MsiBuilder"+name, "app.exe")
-			userApp := filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "MsiBuilder"+name, "app.exe")
+			programFiles, localAppData := os.Getenv("ProgramW6432"), os.Getenv("LOCALAPPDATA")
+			if programFiles == "" || localAppData == "" {
+				t.Fatalf("ProgramW6432 %q or LOCALAPPDATA %q is empty", programFiles, localAppData)
+			}
+
+			machineApp := filepath.Join(programFiles, "MsiBuilder"+name, "app.exe")
+			userApp := filepath.Join(localAppData, "Programs", "MsiBuilder"+name, "app.exe")
 			want, other := userApp, machineApp
 
 			if tc.appIn == "machine" {
@@ -192,9 +197,16 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 				t.Errorf("app.exe after the v2 install: %v (server INSTALLDIR %q)", err, serverProperties(text)["INSTALLDIR"])
 			}
 
-			if tc.oldAfter == "none" {
-				if _, err := os.Stat(other); err == nil {
-					t.Errorf("app.exe is also in %s after v1 was removed", other)
+			// v1 installed app.exe in Program Files: it stays there with v1
+			// and goes with it.
+			_, otherErr := os.Stat(other)
+			if tc.oldAfter == "none" && otherErr == nil {
+				t.Errorf("app.exe is still in %s after v1 was removed", other)
+			}
+
+			if tc.oldAfter == "machine" {
+				if _, err := os.Stat(machineApp); err != nil {
+					t.Errorf("v1's app.exe after the v2 install: %v", err)
 				}
 			}
 		})

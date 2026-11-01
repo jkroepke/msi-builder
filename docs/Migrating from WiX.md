@@ -921,8 +921,9 @@ A `FindRelatedProducts`, `AppSearch` or `LaunchConditions` element with
 `InstallUISequence` becomes a `standardActions` entry. Packages that pick
 the install context from a previous install move `FindRelatedProducts`
 behind the action that sets `ALLUSERS`, because it only finds products in
-the context it runs in (section 8.10 of the specification). Convert drops
-the `ALLUSERS` setter itself from a dual-scope package, with a note, and
+the context it runs in (section 8.10 of the specification). In a
+`Scope="perUserOrMachine"` package, convert drops the `ALLUSERS` setter
+itself, with a note, and
 keeps the move, now behind AppSearch: setting `ALLUSERS` after the package
 opened registers it per machine but keeps the per-user folders (UPG-15,
 INST-07), so the scope page or `ALLUSERS=1` on the command line choose the

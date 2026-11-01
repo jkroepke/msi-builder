@@ -1205,8 +1205,9 @@ dump. ENVVAR-04: the four parts came out as
 restored the machine `PATH` exactly and the user `PATH` without its
 trailing `;`. INST-08: see the case table above.
 
-- Not covered: setters in the UI sequence, the wizard's scope page with a
-  setter, Server 2016.
+- Not covered: the wizard's scope page with a setter, Server 2016. An
+  `ALLUSERS=1` setter in the UI sequence as well (`/qr`) gave the same
+  result in UPG-15: registered per machine with the per-user INSTALLDIR.
 
 ## Context actions (CA-09)
 

@@ -2341,8 +2341,11 @@ move the folders, which were resolved for the per-user context when the
 package opened: without the INSTALLDIR setter the package is registered
 per machine with its files in `[LocalAppDataFolder]Programs` (UPG-15,
 INST-07), and validate warns about the `ALLUSERS` setter. The second setter
-puts the files in Program Files; other per-user folders, such as the Start
-menu, stay. The scope page and `ALLUSERS=1` on the command line choose the
+puts the files of this x64 package in Program Files (an x86 package needs
+the 32-bit folder, not tested); it also replaces an INSTALLDIR given on the
+command line or remembered from the previous install whenever the search
+finds one. Other per-user folders, such as the Start menu, are expected to
+stay (not tested). The scope page and `ALLUSERS=1` on the command line choose the
 context before the folders are resolved and are the better way where the
 installer can use them.
 

@@ -334,8 +334,11 @@ go test ./... -shuffle=on -race
   tests contend on, and the combined run was more than six times as slow.
 - To learn what Windows does before writing a test, a temporary nativetest
   that collects its observations and reports them with one `t.Errorf` runs
-  on the `windows-latest` runner: push the branch and start CI with
-  `workflow_dispatch` on it, then read the job log. Replace the probe with a
+  on the `windows-latest` runner. Pull requests stay drafts until they are
+  ready, and a probe runs in a temporary `.github/workflows/probe.yaml` that
+  runs only the probe tests (`go test ./internal/builder/nativetest -run
+  TestX -count=1 -v`), not the full CI; read its job log, and delete
+  `probe.yaml` before marking the pull request ready. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
   A repair while another process holds an installed file open lost the
   hosted runner every time (PROP-04, no job log at all), so probe Restart

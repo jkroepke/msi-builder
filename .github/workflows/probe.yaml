@@ -1,8 +1,8 @@
 name: Probe
 
-# Runs only the Windows probe this pull request needs (UPG-15), so a draft
-# pull request does not use the full CI. Removed before the pull request is
-# marked ready.
+# Runs only the Windows probe this pull request needs (UPG-15) while the
+# pull request is a draft and the full CI is not needed. Removed before the
+# pull request is marked ready.
 
 on:
   workflow_dispatch:
