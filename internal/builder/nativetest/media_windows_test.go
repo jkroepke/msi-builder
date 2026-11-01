@@ -222,7 +222,8 @@ func TestMsiexecInstallsLargePackage(t *testing.T) {
 
 	files := make([]probeFile, 0, 3)
 
-	for i, size := range []int64{1 << 30, 1 << 30, 900 << 20} {
+	// Sizes differ, so that no file is a copy of another (CAB-14).
+	for i, size := range []int64{1 << 30, 1<<30 + 4096, 900 << 20} {
 		files = append(files, probeFile{
 			name: fmt.Sprintf("big%d.bin", i),
 			size: size,
@@ -278,4 +279,77 @@ func freeBytes(t *testing.T, dir string) int64 {
 	}
 
 	return int64(free)
+}
+
+// TestMsiexecInstallsSharedData installs packages in which identical files
+// share their cabinet bytes (CAB-14): a.bin, c.bin and e.bin hold the same
+// 300000 bytes and f.bin and g.bin other ones, with stored files between
+// them, so that every copy points back at a folder before the one the
+// extraction is in, and the empty h.bin after the last copy makes an empty
+// last folder. MSZIP and LZX, embedded and beside the package.
+//
+//nolint:paralleltest // msiexec runs one installation at a time
+func TestMsiexecInstallsSharedData(t *testing.T) {
+	if testing.Short() {
+		t.Skip("installing needs msiexec time and elevation")
+	}
+
+	content := func(seed byte, size int) func() io.Reader {
+		data := make([]byte, size)
+		state := uint32(seed) + 1
+
+		for i := range data {
+			state = state*1664525 + 1013904223
+			data[i] = byte(state >> 24)
+		}
+
+		return func() io.Reader { return bytes.NewReader(data) }
+	}
+
+	same, other := content(1, 300000), content(2, 70000)
+	files := []probeFile{
+		{name: "a.bin", size: 300000, data: same},
+		{name: "b.bin", size: 50000, data: content(3, 50000)},
+		{name: "c.bin", size: 300000, data: same},
+		{name: "d.bin", size: 40000, data: content(4, 40000)},
+		{name: "e.bin", size: 300000, data: same},
+		{name: "f.bin", size: 70000, data: other},
+		{name: "g.bin", size: 70000, data: other},
+		// After the last copy, an empty file is an empty last folder.
+		{name: "h.bin", size: 0, data: content(5, 0)},
+	}
+
+	var stored int64
+
+	for _, file := range files {
+		stored += file.size
+	}
+
+	// Without sharing, the random bytes would not compress.
+	stored -= 2*300000 + 70000
+
+	opts := builder.Options{BuildTime: time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)}
+
+	for _, tc := range []struct {
+		name, pkg string
+	}{
+		{"mszip embedded", "  compression: mszip"},
+		{"lzx15 embedded", "  compression: lzx:15"},
+		{"lzx external", "  compression: lzx\n  embedCabinets: false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { //nolint:paralleltest // see above
+			path, res := buildProbe(t, tc.pkg, files, opts)
+
+			size := res.Size
+			for _, cabinet := range res.Cabinets {
+				size += cabinet.Size
+			}
+
+			if size > stored+200000 {
+				t.Fatalf("package and cabinets take %d bytes for %d stored bytes", size, stored)
+			}
+
+			installProbe(t, path, files)
+		})
+	}
 }

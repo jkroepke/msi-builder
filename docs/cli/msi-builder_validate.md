@@ -22,9 +22,9 @@ msi-builder validate [flags] msi.yaml
 ## Flags
 
 ```text
-      --env              let environment variables fill ${NAME} references
+      --env              let environment variables fill {{ .NAME }}
   -h, --help             help for validate
-      --var NAME=VALUE   set a variable referenced as ${NAME}; repeatable
+      --var NAME=VALUE   set a variable read as {{ .NAME }}; repeatable
 ```
 
 ## See also

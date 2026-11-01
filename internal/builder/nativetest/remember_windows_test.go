@@ -13,15 +13,15 @@ import (
 // rememberConfig is a package with installDir.remember. ${SCOPE},
 // ${PLATFORM}, ${PARENT} and ${UI} choose the variant.
 const rememberConfig = `schema: msi-builder/v1
-product: { name: MsiBuilderRemember, manufacturer: msi-builder tests, version: "${VERSION}", upgradeCode: 804ffd51-5f96-4893-a2cd-9b7891066cf4 }
+product: { name: MsiBuilderRemember, manufacturer: msi-builder tests, version: {{ .VERSION | quote }}, upgradeCode: 804ffd51-5f96-4893-a2cd-9b7891066cf4 }
 package: { platform: ${PLATFORM}, scope: ${SCOPE} }
 installDir: { remember: true${PARENT} }
 ${UI}
 components:
   - files:
-      - source: ${SOURCE}
+      - source: {{ .SOURCE | quote }}
         name: tool.exe
-        version: ${FILEVERSION}
+        version: {{ .FILEVERSION | quote }}
 `
 
 const (
@@ -78,7 +78,7 @@ func buildRemember(t *testing.T, dir string, tc rememberCase, version string) st
 	replace := []string{"${SCOPE}", tc.scope, "${PLATFORM}", tc.platform, "${PARENT}", parent, "${UI}", tc.ui}
 	if tc.platform == "x86" {
 		// A 32-bit package gets the 32-bit PING.EXE.
-		replace = append(replace, "${SOURCE}", filepath.Join(os.Getenv("SystemRoot"), "SysWOW64", "PING.EXE"))
+		replace = append(replace, "{{ .SOURCE | quote }}", filepath.Join(os.Getenv("SystemRoot"), "SysWOW64", "PING.EXE"))
 	}
 
 	versionDir := filepath.Join(dir, version)

@@ -8,7 +8,6 @@
 package wixconvert
 
 import (
-	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -43,7 +42,7 @@ type Result struct {
 	YAML []byte
 	// Notes are the TODO comments in YAML, in source order.
 	Notes []Note
-	// Vars are the ${NAME} variables that YAML references and does not
+	// Vars are the {{ .NAME }} variables that YAML references and does not
 	// define; the WiX file took them from wix build -d or the
 	// environment, msi-builder build takes them with --var.
 	Vars []string
@@ -95,6 +94,21 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 	slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
 
 	return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, nil
+}
+
+// dirFileSource returns the FileSource of a Directory or DirectoryRef,
+// with its variables filled in.
+func (c *converter) dirFileSource(elm *elem) string {
+	src := elm.attr("FileSource")
+	if src == "" {
+		src = elm.attr("src")
+	}
+
+	if src == "" {
+		return ""
+	}
+
+	return strings.TrimRight(sourcePath(c.expand(elm, src)), "/")
 }
 
 // converter holds the indexed source file and the output.
@@ -202,6 +216,8 @@ type dir struct {
 type comp struct {
 	e   *elem
 	out *omap
+	// files is the FileSource for its files without Source.
+	files fileSource
 	// folder is the folder source a Files glob became, whose files keep
 	// the codes WiX gave them in its guids.
 	folder *omap
@@ -359,6 +375,39 @@ type scope struct {
 	feature      *feature
 	featureGroup *featureGroup
 	dir          string
+	// files is where WiX looks for the files without Source here.
+	files fileSource
+}
+
+// fileSource is the FileSource that applies to the elements in a Directory
+// or DirectoryRef. joined marks one that the names of nested folders were
+// joined to, which convert only assumes WiX does.
+type fileSource struct {
+	path   string
+	joined bool
+}
+
+// below returns the file source of a nested folder of the given name.
+func (f fileSource) below(name string) fileSource {
+	if f.path == "" || name == "" || name == "." {
+		return f
+	}
+
+	return fileSource{path: f.path + "/" + name, joined: true}
+}
+
+// sourceIn returns the file source inside a Directory, DirectoryRef or
+// StandardDirectory: its own FileSource, or the outer one below its name.
+func (c *converter) sourceIn(elm *elem, outer fileSource) fileSource {
+	if own := c.dirFileSource(elm); own != "" {
+		return fileSource{path: own}
+	}
+
+	if !elm.is("Directory") {
+		return fileSource{}
+	}
+
+	return outer.below(c.expand(elm, elm.attr("Name")))
 }
 
 func (c *converter) walk(parent *elem, within scope) {
@@ -391,20 +440,23 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 		"StandardDirectory": func(c *converter, e *elem, sc scope) {
 			c.addDir(e, "", true)
 			sc.dir = e.attr("Id")
+			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
 		"Directory": func(c *converter, e *elem, sc scope) {
 			sc.dir = c.addDir(e, sc.dir, false).id
+			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
 		"DirectoryRef": func(c *converter, e *elem, sc scope) {
 			sc.dir = e.attr("Id")
+			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
 		"ComponentGroup": func(conv *converter, elm *elem, sc scope) {
-			inner := scope{dir: sc.dir, group: conv.group(elm.attr("Id"))}
+			inner := scope{dir: sc.dir, files: sc.files, group: conv.group(elm.attr("Id"))}
 			if folder := elm.attr(attrDirectory); folder != "" {
-				inner.dir = folder
+				inner.dir, inner.files = folder, fileSource{}
 			}
 
 			conv.walk(elm, inner)
@@ -425,10 +477,10 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 				feat.refLine = elm.line
 			}
 
-			conv.walk(elm, scope{dir: within.dir, feature: feat})
+			conv.walk(elm, scope{dir: within.dir, files: within.files, feature: feat})
 		},
 		"FeatureGroup": func(c *converter, e *elem, sc scope) {
-			c.walk(e, scope{dir: sc.dir, featureGroup: c.featureGroup(e.attr("Id"))})
+			c.walk(e, scope{dir: sc.dir, files: sc.files, featureGroup: c.featureGroup(e.attr("Id"))})
 		},
 		"FeatureGroupRef": func(conv *converter, e *elem, sc scope) {
 			switch groupID := e.attr("Id"); {
@@ -685,11 +737,14 @@ func (c *converter) addComp(elm *elem, within scope) {
 	}
 
 	if comp.dir == "" {
-		comp.dir = within.dir
+		comp.dir, comp.files = within.dir, within.files
 	}
 
 	if sub := c.expand(elm, elm.attr("Subdirectory")); sub != "" {
 		comp.dir = c.subdir(comp.dir, sub, elm.line)
+		for _, part := range strings.FieldsFunc(sub, func(r rune) bool { return r == '\\' || r == '/' }) {
+			comp.files = comp.files.below(part)
+		}
 	}
 
 	c.comps = append(c.comps, comp)
@@ -801,28 +856,33 @@ func (c *converter) render(opts Options) ([]byte, error) {
 		"Review it, resolve the TODO comments, then run msi-builder validate.",
 	}
 	if undefined := c.undefinedVars(); len(undefined) > 0 {
-		head = append(head, "WiX variables became ${NAME} references; pass them with --var NAME=value: "+strings.Join(undefined, ", ")+".")
+		head = append(head, "WiX variables became template variables; pass them with --var NAME=value: "+strings.Join(undefined, ", ")+".")
 	}
 
 	head = append(head, c.header...)
 
-	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{c.out.node()}}
-	doc.Content[0].Content[0].HeadComment = commentText(head)
+	// The vars go into a header document, which msi-builder reads before
+	// it renders the rest of the file as a template.
+	docs := make([]*yaml.Node, 0, 2)
 
-	var buf bytes.Buffer
-
-	buf.WriteString("# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json\n")
-
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-
-	if err := enc.Encode(doc); err != nil {
-		return nil, fmt.Errorf("encode: %w", err)
+	if vars := c.out.mapAt("vars"); vars != nil && !vars.empty() {
+		hdr := newMap()
+		hdr.set("vars", vars)
+		hdr.comments["vars"] = c.out.comments["vars"]
+		docs = append(docs, &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{hdr.node()}})
 	}
 
-	if err := enc.Close(); err != nil {
-		return nil, fmt.Errorf("encode: %w", err)
+	c.out.keys = slices.DeleteFunc(c.out.keys, func(key string) bool { return key == "vars" })
+	delete(c.out.values, "vars")
+	delete(c.out.comments, "vars")
+
+	docs = append(docs, &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{c.out.node()}})
+	docs[0].Content[0].Content[0].HeadComment = commentText(head)
+
+	out, err := encodeDocs(docs)
+	if err != nil {
+		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	return append([]byte("# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json\n"), out...), nil
 }

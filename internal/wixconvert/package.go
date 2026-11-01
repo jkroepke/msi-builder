@@ -10,8 +10,7 @@ import (
 )
 
 // emitVars writes the defines as vars. A define that uses an earlier one
-// takes in its value, as the WiX preprocessor does: msi-builder does not
-// expand a variable inside a vars value.
+// takes in its value, as the WiX preprocessor does.
 func (c *converter) emitVars() {
 	c.resolveDefines()
 
@@ -303,6 +302,8 @@ func (c *converter) emitUpgrade() {
 		c.emitRelated(upgrade, upgradeElem, strings.Trim(strings.ToLower(upgradeElem.attr("Id")), "{}") == upgradeCode)
 	}
 
+	c.emitProductSearches(upgrade)
+
 	if c.major == nil && len(c.upgrades) == 0 {
 		c.todof(nil, "", c.pkg.line,
 			"the WiX package has no MajorUpgrade; msi-builder adds the standard major upgrade (set upgrade: false to leave it out)")
@@ -318,6 +319,60 @@ func (c *converter) emitUpgrade() {
 
 	if strings.Contains(text, "WIX_DOWNGRADE_DETECTED") {
 		c.newerProperty(upgrade, "WIX_DOWNGRADE_DETECTED", 0)
+	}
+}
+
+// productSearch reports whether elm is a ProductSearch by UpgradeCode,
+// which WiX writes as a detect-only Upgrade row.
+func productSearch(elm *elem) bool {
+	return elm.is("ProductSearch") && elm.has("UpgradeCode") && !elm.has("Guid")
+}
+
+// productSearchOnly reports whether a Property only holds ProductSearch
+// elements by UpgradeCode: it becomes their upgrade.related rows. One with
+// a Value or another search stays a property, which no upgrade row may set
+// (ICE61), so its ProductSearch stays a TODO.
+func productSearchOnly(prop *elem) bool {
+	return !prop.has("Value") && len(prop.kids) > 0 &&
+		!slices.ContainsFunc(prop.kids, func(kid *elem) bool { return !productSearch(kid) })
+}
+
+// emitProductSearches turns the ProductSearch elements by UpgradeCode into
+// upgrade.related onlyDetect rows that set their property.
+func (c *converter) emitProductSearches(upgrade *omap) {
+	for _, prop := range c.properties {
+		if !productSearchOnly(prop) {
+			continue
+		}
+
+		for _, kid := range prop.kids {
+			row := newMap()
+			row.set("upgradeCode", c.value(kid, "UpgradeCode"))
+			row.set("minVersion", c.value(kid, "Minimum"))
+			row.set("maxVersion", c.value(kid, "Maximum"))
+
+			if !kid.has("Minimum") && !kid.has("Maximum") {
+				// An Upgrade row needs a version; this one finds every version.
+				row.set("minVersion", "0.0.0")
+			}
+
+			if kid.no("IncludeMinimum") {
+				row.set("includeMin", false)
+			}
+
+			if kid.yes("IncludeMaximum") {
+				row.set("includeMax", true)
+			}
+
+			row.set("onlyDetect", true)
+			row.set("property", prop.attr("Id"))
+
+			if kid.has("Language") {
+				c.todof(row, "", kid.line, "ProductSearch Language has no counterpart in upgrade.related")
+			}
+
+			upgrade.add("related", row)
+		}
 	}
 }
 
@@ -343,21 +398,17 @@ func (c *converter) newerProperty(upgrade *omap, prop string, line int) {
 
 // emitMajor converts a MajorUpgrade element.
 func (c *converter) emitMajor(upgrade *omap, major *elem) {
-	switch schedule := major.attr("Schedule"); schedule {
-	case "", "afterInstallValidate":
-		// WiX's default; msi-builder's afterInstallInitialize also
-		// removes the old version first, inside the transaction.
-		if schedule != "" {
-			upgrade.set("removeOld", schedule)
-		}
-	case "afterInstallInitialize", "afterInstallExecute", "afterInstallFinalize":
-		upgrade.set("removeOld", schedule)
-	default:
-		c.todof(upgrade, "", major.line, "MajorUpgrade Schedule=%q has no counterpart", schedule)
-	}
+	c.majorSchedule(upgrade, major)
 
 	if major.yes("AllowDowngrades") {
 		upgrade.set("downgrade", "allow")
+	}
+
+	// WiX leaves the same version out of the upgrade unless asked;
+	// msi-builder's default takes it in. With AllowDowngrades WiX's row
+	// has no upper bound, so the same version is upgraded too.
+	if !major.yes("AllowSameVersionUpgrades") && !major.yes("AllowDowngrades") {
+		upgrade.set("allowSameVersion", false)
 	}
 
 	if major.yes("Disallow") {
@@ -376,6 +427,22 @@ func (c *converter) emitMajor(upgrade *omap, major *elem) {
 
 	if major.has("RemoveFeatures") {
 		c.todof(upgrade, "", major.line, "MajorUpgrade RemoveFeatures has no counterpart")
+	}
+}
+
+// majorSchedule converts the MajorUpgrade Schedule to upgrade.removeOld.
+func (c *converter) majorSchedule(upgrade *omap, major *elem) {
+	switch schedule := major.attr("Schedule"); schedule {
+	case "", "afterInstallValidate":
+		// WiX's default; msi-builder's afterInstallInitialize also
+		// removes the old version first, inside the transaction.
+		if schedule != "" {
+			upgrade.set("removeOld", schedule)
+		}
+	case "afterInstallInitialize", "afterInstallExecute", "afterInstallFinalize":
+		upgrade.set("removeOld", schedule)
+	default:
+		c.todof(upgrade, "", major.line, "MajorUpgrade Schedule=%q has no counterpart", schedule)
 	}
 }
 
@@ -710,7 +777,7 @@ func (c *converter) emitProperties() {
 // upgrade row sets: msi-builder declares and secures those itself, and one
 // in properties fails ICE61.
 func upgradeOnly(elm *elem, upgradeProps map[string]bool) bool {
-	return upgradeProps[elm.attr("Id")] && !elm.has("Value") && len(elm.kids) == 0
+	return upgradeProps[elm.attr("Id")] && (!elm.has("Value") && len(elm.kids) == 0 || productSearchOnly(elm))
 }
 
 // upgradeProperties are the properties that the converted upgrade rows
@@ -770,7 +837,26 @@ func (c *converter) search(propOut *omap, elm *elem) *omap {
 
 	outer := newMap().set(kind, found)
 
+	return c.nestedSearch(propOut, elm, outer)
+}
+
+// nestedSearch returns the search nested in elm with outer as its under
+// search, or outer. A DirectorySearch without Path below another search
+// stands for the folder the outer one finds; existenceCheck says what it
+// checks.
+func (c *converter) nestedSearch(propOut *omap, elm *elem, outer *omap) *omap {
 	for _, kid := range elm.kids {
+		if kid.is("DirectorySearch") && strings.TrimSpace(kid.attr("Path")) == "" {
+			c.existenceCheck(propOut, elm, kid, outer)
+
+			if depth, err := strconv.Atoi(kid.attr("Depth")); err == nil && depth > 0 && hasNestedSearch(kid) {
+				c.todof(propOut, "", kid.line, "the DirectorySearch without Path has Depth=\"%d\"; convert left Depth out, so the "+
+					"search nested in it looks only in the folder the outer %s finds, not in its subfolders", depth, elm.qname())
+			}
+
+			return c.nestedSearch(propOut, kid, outer)
+		}
+
 		if inner := c.search(propOut, kid); inner != nil {
 			// The nested search looks below the folder this one finds.
 			attachUnder(inner, outer)
@@ -780,6 +866,59 @@ func (c *converter) search(propOut *omap, elm *elem) *omap {
 	}
 
 	return outer
+}
+
+// existenceCheck converts a DirectorySearch without Path below the search
+// elm, whose converted form is outer. Below a registry search of type
+// directory, which returns the folder only if it exists (SEARCH-07,
+// SEARCH-09), it adds nothing.
+func (c *converter) existenceCheck(propOut *omap, elm, kid *elem, outer *omap) {
+	switch {
+	case elm.is("RegistrySearch") && outer.mapAt("registry") != nil && elm.attr("Type") == keyDirectory:
+		// type: directory already returns the folder only if it exists.
+	case elm.is("RegistrySearch") && outer.mapAt("registry") != nil && slices.Contains([]string{"", "raw"}, elm.attr("Type")):
+		c.rawFolderNote(propOut, kid)
+	case elm.is("DirectorySearch"), hasNestedSearch(kid):
+		// A search nested in the folder only finds something if the folder
+		// exists, so it is the existence check.
+	default:
+		c.todof(propOut, "", kid.line, "the DirectorySearch without Path only checks that the folder the outer %s finds exists; "+
+			"properties.search has no such check, so convert left it out and the property is set even if the folder is missing",
+			elm.qname())
+	}
+}
+
+// rawFolderNote notes a DirectorySearch without Path below a raw
+// RegistrySearch. Windows Installer then returns the folder that holds
+// the path in the value, whether it exists or not (SEARCH-09).
+func (c *converter) rawFolderNote(propOut *omap, kid *elem) {
+	if hasNestedSearch(kid) {
+		// The builder searches below a registry search as a directory
+		// search: in the folder the value names, if it exists.
+		c.todof(propOut, "", kid.line, "the DirectorySearch without Path below a raw RegistrySearch stands for the folder "+
+			"that holds the path in the value; convert searches below the folder the value names instead, so check that "+
+			"the value names the folder to search in")
+
+		return
+	}
+
+	c.todof(propOut, "", kid.line, "the DirectorySearch without Path below a raw RegistrySearch returns the folder that "+
+		"holds the path in the value, without checking that it exists; convert kept the value itself, so check whether "+
+		"it names that folder, or use type: directory to get the folder only if it exists; for a value that is a path, "+
+		"the property is set whenever the value exists, so if only that matters, the raw value is enough")
+}
+
+// hasNestedSearch reports whether a search that looks below the folder
+// is nested in elm. A DirectorySearch without Path stands for the same
+// folder, so it only counts by what is nested in it.
+func hasNestedSearch(elm *elem) bool {
+	return slices.ContainsFunc(elm.kids, func(kid *elem) bool {
+		if kid.is("DirectorySearch") && strings.TrimSpace(kid.attr("Path")) == "" {
+			return hasNestedSearch(kid)
+		}
+
+		return kid.is("DirectorySearch") || kid.is("FileSearch")
+	})
 }
 
 // searchKind converts the attributes of one search element.

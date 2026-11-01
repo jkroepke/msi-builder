@@ -4,6 +4,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -101,10 +102,7 @@ func (c *converter) emitUI() {
 		// The advanced path shows the folder and the feature tree.
 		wizard.set("enabled", true).set("chooseFeatures", true).set("chooseDirectory", true)
 
-		if !c.dualScope() {
-			c.todof(wizard, "enabled", line, "WixUI_Advanced: set package.scope to perUserOrMachine or perMachineOrUser, which need "+
-				"installerVersion 5.0, for the scope page")
-		}
+		c.advancedNotes(wizard, line)
 	default:
 		wizard.set("enabled", true)
 		c.todof(wizard, "enabled", line, "the wizard %s is not a WiX standard wizard; check the ui keys", wizardID)
@@ -113,6 +111,98 @@ func (c *converter) emitUI() {
 	c.uiVariables(wizard)
 	c.uiNavigation(wizard, c.uiID())
 	c.uiLaunch(wizard)
+}
+
+// advancedNotes notes what WixUI_Advanced does that the msi-builder wizard
+// does not.
+func (c *converter) advancedNotes(wizard *omap, line int) {
+	if !c.dualScope() {
+		c.todof(wizard, "enabled", line, "WixUI_Advanced: set package.scope to perUserOrMachine or perMachineOrUser, which need "+
+			"installerVersion 5.0, for the scope page")
+	}
+
+	c.advancedFolder(line)
+}
+
+// advancedFolder moves installDir to the per-machine folder WixUI_Advanced
+// sets, also in quiet installs: [ProgramFilesFolder][ApplicationFolderName]
+// (observed on real-world packages), or the value of the one action that
+// overrides WixPerMachineFolder.
+func (c *converter) advancedFolder(line int) {
+	inst := c.out.mapAt("installDir")
+	if inst == nil || inst.get("name") == nil || c.scope == scopeUser {
+		// An install folder inside directories keeps its place there, and
+		// a per-user package never uses the per-machine folder.
+		return
+	}
+
+	value, ok := c.perMachineValue(inst, line)
+	if !ok {
+		return
+	}
+
+	parent, name, ok := c.splitFolder(value)
+	if !ok {
+		c.todof(inst, "name", line, "WixUI_Advanced installs per machine to %s; set installDir.parent and name to that folder", value)
+
+		return
+	}
+
+	if name != inst.str("name") {
+		inst.set("name", name)
+		inst.comment("name", "WixUI_Advanced installs per machine to "+value+".")
+	}
+
+	if c.defaultInstallParent(parent) {
+		inst.del("parent")
+
+		return
+	}
+
+	inst.set("parent", parent)
+
+	if parent == folderProgramFiles && c.platform != platformX86 {
+		c.todof(inst, "parent", line, "WixUI_Advanced puts this 64-bit package below Program Files (x86); keep that for "+
+			"installed versions or switch to ProgramFiles64Folder")
+	}
+}
+
+// perMachineValue returns the per-machine folder of WixUI_Advanced: its
+// default, or the value of the one action that overrides it.
+func (c *converter) perMachineValue(inst *omap, line int) (string, bool) {
+	switch sources := c.perMachineSources(); len(sources) {
+	case 0:
+		return "[" + folderProgramFiles + "][ApplicationFolderName]", true
+	case 1:
+		return sources[0].e.attr("Value"), true
+	default:
+		c.todof(inst, "name", line, "several actions set WixPerMachineFolder; set installDir.parent and name to the folder the last one sets")
+
+		return "", false
+	}
+}
+
+// splitFolder splits a folder value such as [ProgramFilesFolder]Example\Hello
+// into its standard parent folder and the names below it.
+func (c *converter) splitFolder(value string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(value, "[")
+	if !ok {
+		return "", "", false
+	}
+
+	parent, rest, ok := strings.Cut(rest, "]")
+	if !ok || !isStandardFolder(parent) {
+		return "", "", false
+	}
+
+	rest = strings.ReplaceAll(rest, "[ApplicationFolderName]", c.propertyValue("ApplicationFolderName"))
+
+	name := strings.Trim(sourcePath(rest), "/")
+	if name == "" || strings.ContainsAny(name, "[]") {
+		return "", "", false
+	}
+
+	return c.stdID(parent), name, true
 }
 
 // navRow is a NewDialog Publish row: the button that opens a dialog.
@@ -211,15 +301,21 @@ func (c *converter) uiLaunch(wizard *omap) {
 	}
 
 	launch := wizard.child("launch")
-
-	c.launchFile(wizard, launch, target)
+	launch.order("file", "arguments", "text", "checked")
 
 	if p := props["WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"]; p != nil {
 		launch.set("text", c.value(p, "Value"))
 	}
 
+	c.launchFile(wizard, launch, target)
+
 	if p := props["WIXUI_EXITDIALOGOPTIONALCHECKBOX"]; p == nil || c.value(p, "Value") != "1" {
 		launch.set("checked", false)
+	}
+
+	if launch.get("file") == nil {
+		// ui.launch needs a file; the TODO says what the checkbox did.
+		wizard.del("launch")
 	}
 }
 
@@ -232,7 +328,8 @@ func (c *converter) launchFile(wizard, launch *omap, target *elem) {
 		if m := fileTarget.FindStringSubmatch(v); m != nil {
 			launch.set("file", m[1])
 		} else {
-			c.todof(wizard, "launch", target.line, "WixShellExecTarget=%q: launch.file names a file of the package", v)
+			c.todof(wizard, "", target.line, "WixShellExecTarget=%q: ui.launch.file names a file of the package, so the launch "+
+				"checkbox was left out", v)
 		}
 	case custom != nil && custom.attr("FileRef")+custom.attr("FileKey") != "":
 		// The finish button runs a file of the package.
@@ -240,7 +337,22 @@ func (c *converter) launchFile(wizard, launch *omap, target *elem) {
 
 		launch.set("arguments", c.value(custom, "ExeCommand"))
 	default:
-		c.todof(wizard, "launch", 0, "the launch checkbox starts no file of the package that convert can tell; set launch.file")
+		what := "the launch checkbox"
+		if custom != nil {
+			what += " (action " + custom.attr("Id")
+			if cmd := c.value(custom, "ExeCommand"); cmd != "" {
+				what += ": " + cmd
+			}
+
+			what += ")"
+		}
+
+		if text := launch.str("text"); text != "" {
+			what += " " + strconv.Quote(text)
+		}
+
+		c.todof(wizard, "", 0, "%s starts no file of the package that convert can tell, so it was left out; "+
+			"ui.launch.file starts a file of the package", what)
 	}
 }
 

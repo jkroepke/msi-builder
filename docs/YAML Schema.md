@@ -54,13 +54,15 @@ must have a version resource; msi-builder reads its version from it.
 
 ## Versions from the build
 
-`${NAME}` is replaced by a variable, so one file serves every release:
+The file is a Go [text/template](https://pkg.go.dev/text/template):
+`{{ .NAME }}` is replaced by a variable before the YAML is read, so one file
+serves every release:
 
 ```yaml
 product:
   name: Hello
   manufacturer: Example
-  version: ${VERSION}
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 ```
 
@@ -68,10 +70,79 @@ product:
 msi-builder build --var VERSION=1.4.0 -o hello.msi msi.yaml
 ```
 
-With `--env`, environment variables are used too. `vars:` at the top of the
-file sets defaults, and a default may use other variables
-(`NAME: Acme ${ARCH}`); `--var` and `--env` values replace it. `[INSTALLDIR]` and other names in brackets are not
-variables: Windows Installer fills them in at install time.
+Put a value that starts with `{{` in single quotes, as above: YAML editors
+read an unquoted `{{ … }}` as a mapping. Single quotes keep the
+backslashes of a Windows path; double quotes would read `\t` or `\n` in
+it as escapes. A value that may hold a `'` goes through `quote` instead
+(below). With `--env`, environment variables are
+used too. A variable that is set nowhere is an error that says how to set
+it. `[INSTALLDIR]` and other names in brackets are not variables: Windows
+Installer fills them in at install time.
+
+### Defaults for variables
+
+Defaults go into a vars header: a first document that holds only `vars`
+and ends with a `---` line. A default may use other variables, and `--var`
+and `--env` values replace it:
+
+```text
+vars:
+  ARCH: x64
+  NAME: Acme {{ .ARCH }}
+---
+schema: msi-builder/v1
+product:
+  name: '{{ .NAME }}'
+```
+
+### Parts that depend on the build
+
+`{{ if }}` and `{{ range }}` include parts only some builds need, such as a
+file only the arm64 package installs:
+
+```text
+vars:
+  ARCH: x64
+---
+package:
+  platform: '{{ .ARCH }}'
+components:
+  - files:
+      - source: hello.exe
+{{- if eq .ARCH "arm64" }}
+      - source: hello-arm64.dll
+{{- end }}
+```
+
+```shell
+msi-builder build --var ARCH=arm64 --var VERSION=1.4.0 msi.yaml
+msi-builder render --var ARCH=arm64 --var VERSION=1.4.0 msi.yaml   # print the rendered YAML
+```
+
+- `{{ if has "DEBUG" }}` tests whether a variable is set.
+- `{{ range split ";" .LANGS }}` loops over a list such as
+  `--var LANGS=en;de`.
+- `{{ .NAME | quote }}` writes any value as a YAML string, quotes and
+  backslashes included. Use it for text you do not control, which may
+  hold `'`, `: `, a leading `[` or a line break.
+- `{{ "{{" }}` writes a literal `{{`, also in a comment.
+- The [sprig functions](https://masterminds.github.io/sprig/) work as
+  in Helm charts, such as `{{ .NAME | lower }}`, `{{ semverCompare
+  ">=2.0" .VERSION }}` or `{{ .TEXT | nindent 4 }}`. `has`, `quote` and
+  `split` are msi-builder's own, as above. Functions that change from
+  run to run, such as `now`, `uuidv4` and the random ones, are left out,
+  so a build is repeatable. `env` is an error: pass `--env` and write
+  `{{ .NAME }}`. A variable that is not set fails before `default` sees
+  it, so defaults go into the vars header.
+- Put `{{- if ... }}`, `{{- else }}` and `{{- end }}` at the start of their
+  own line: `{{-` removes the line break before it, and the YAML
+  indentation stays intact. Avoid `-}}`, which also removes the next
+  line's indentation.
+
+A YAML error names a line of the rendered file, which `msi-builder render`
+prints; a template error names a line of the file itself. A template is
+code: only build files from a source you trust. The details are in the
+[design document](design/yaml-schema.md#31-variables-and-templates).
 
 ## Recipes
 
@@ -687,6 +758,26 @@ components:
       - { root: HKLM, key: Software\Example Corp\Hello, name: Path, value: '[INSTALLDIR]' }
 ```
 
+A custom action that runs as LocalSystem (`impersonate: false`) needs
+`scope: perMachine` too: it then runs only when the user installs for all
+users, and every per-user install leaves it out, an administrator's too:
+
+```yaml
+package:
+  platform: x64
+  scope: perMachineOrUser
+
+customActions:
+  - id: RegisterMachine
+    run: { command: '"[#hello.exe]" --register' }
+    execute: deferred
+    impersonate: false
+    scope: perMachine
+    return: check
+    schedule:
+      - { sequence: execute, after: InstallFiles, when: install }
+```
+
 ### Ask for a restart
 
 ```yaml
@@ -706,7 +797,7 @@ and `components` (or `features`) are needed.
 | Key | What it sets | Default |
 |---|---|---|
 | `schema` | Always `msi-builder/v1` | required |
-| `vars` | Defaults for `${NAME}` variables | none |
+| `vars` | Defaults for `{{ .NAME }}` variables, in a header document | none |
 | `product` | Name, manufacturer, version, upgrade code | required |
 | `package` | Platform, install scope, compression | required (`platform`) |
 | `installDir` | The program's folder | `Program Files\<product name>` |

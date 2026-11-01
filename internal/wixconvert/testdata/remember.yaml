@@ -13,6 +13,7 @@ package:
   scope: perUser
   installerVersion: "5.0"
 upgrade:
+  allowSameVersion: false
   downgradeMessage: A newer version of [ProductName] is already installed.
 installDir:
   # WiX ID AppDataHello; the install folder must be an upper-case public property,

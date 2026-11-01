@@ -10,6 +10,7 @@ product:
 package:
   platform: x64
 upgrade:
+  allowSameVersion: false
   downgradeMessage: A newer version of [ProductName] is already installed.
 installDir:
   id: INSTALLFOLDER

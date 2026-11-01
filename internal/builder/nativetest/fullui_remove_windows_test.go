@@ -24,7 +24,7 @@ const removeUIConfig = `schema: msi-builder/v1
 product:
   name: MsiBuilderRemoveUI
   manufacturer: msi-builder tests
-  version: ${VERSION}
+  version: {{ .VERSION | quote }}
   language: 1033
   upgradeCode: 2d7c1b94-6e3a-4f05-8b21-9a4c3e7f0d58
 
@@ -35,7 +35,7 @@ package:
 
 components:
   - files:
-      - source: ${SOURCE}
+      - source: {{ .SOURCE | quote }}
         name: tool.exe
   - id: Config
     directory: CommonAppDataFolder/MsiBuilderRemoveUI

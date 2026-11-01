@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
 # Converted from v3.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
-# WiX variables became ${NAME} references; pass them with --var NAME=value: BinDir, Edition, ProductVersion.
+# WiX variables became template variables; pass them with --var NAME=value: BinDir, Edition, ProductVersion.
 # TODO(line 19): <?if $(var.Edition) = "full"?> is not evaluated: only its first branch was converted
 # TODO(line 21): the <?else?> branch was left out; convert it by hand if your build takes it
 # TODO(line 90): the standard action InstallServices runs only when NOT (NO_SERVICE = 1); msi-builder has no conditions on standard actions, so put the condition on the components whose resources it handles (components[].condition)
@@ -9,7 +9,7 @@ schema: msi-builder/v1
 product:
   name: Hello Tools
   manufacturer: Example
-  version: ${ProductVersion}
+  version: {{ .ProductVersion | quote }}
   upgradeCode: '{6A3F1B2C-1D2E-4F50-9A8B-7C6D5E4F3A21}'
   description: Hello tools
 package:
@@ -19,6 +19,7 @@ package:
   embedCabinets: false
   cabinet: tools.cab
 upgrade:
+  allowSameVersion: false
   downgradeMessage: A newer version of [ProductName] is already installed.
   related:
     - upgradeCode: '{6A3F1B2C-1D2E-4F50-9A8B-7C6D5E4F3A21}'
@@ -56,7 +57,7 @@ features:
     conditions:
       - condition: NOT INSTALLDOCS
         default: disabled
-      - condition: EDITION = "${Edition}"
+      - condition: {{ print `EDITION = "` .Edition `"` | quote }}
         default: off
     components: [Readme, ToolCfgKey, ToolsMenuLinks]
 components:
@@ -78,14 +79,14 @@ components:
       - root: HKCU
         key: Software\Example\Hello Tools
         name: Version
-        value: ${ProductVersion}
+        value: {{ .ProductVersion | quote }}
     condition: EDITION = "full"
   # The RemoveFolder of this component was left out: msi-builder writes one for every folder in the user profile.
   - id: ToolExe
     directory: BIN
     guid: '{2C1D6E4F-8A9B-4C3D-9E2F-1A0B3C4D5E62}'
     files:
-      - source: ${BinDir}/tool.exe
+      - source: {{ print .BinDir `/tool.exe` | quote }}
         name: hello-tool.exe
         id: tool.exe
     registry:
@@ -106,7 +107,7 @@ components:
     directory: BIN
     guid: '{2C1D6E4F-8A9B-4C3D-9E2F-1A0B3C4D5E63}'
     files:
-      - source: ${BinDir}/tool.cfg
+      - source: {{ print .BinDir `/tool.cfg` | quote }}
         id: tool.cfg
     registry:
       - id: ToolCfgKey

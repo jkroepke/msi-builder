@@ -214,6 +214,8 @@ Silent-failure cases a producer has to guard against itself:
 | CAB-09 | Partial | [ci](msitest/results/CAB-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40940932552: cabinet.dll's FDI extracts a cabinet of 65535 entries, and the writer refuses 65536; FCI and smart-cabbed duplicates not run |
 | CAB-10 | Confirmed (external) | [results](#packages-above-2-gb-cab-10-cab-13); embedded variant not run |
 | CAB-13 | Confirmed | [results](#packages-above-2-gb-cab-10-cab-13) |
+| CAB-14 | Confirmed | [results](#shared-cabinet-data-cab-14) |
+| CAB-15 | Confirmed | [ci](msitest/results/CAB-15/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI run 41242586230: FDI refuses an MSZIP stream longer than `cbUncomp` and one without a final block, extracts a cabinet whose empty folder has offset 0, and makecab/expand.exe use code page 1252 bytes for `résumé.txt` on a 1252 machine; `cab.Read` and `cab.Walk` agree |
 | CAB-11 | Not run | msi-rs regression case; test a candidate writer |
 | CAB-12 | Not run | msi-rs regression case; test a candidate writer |
 | MSZIP-01 | Confirmed | [wrong history](msitest/results/MSZIP-01/go-wrongdict/log.md): 69170 of 102400 bytes differ, exit 0 |
@@ -262,6 +264,7 @@ Silent-failure cases a producer has to guard against itself:
 | SEARCH-06 | Confirmed | [ci](msitest/results/SEARCH-06/ci/log.md); GitHub `windows-latest` and `windows-11-arm` runners, 2026-10-29, CI runs 40962873234 (raw search) and 40966065131 (directory search): every variant (perUser, x86, x64 in `ProgramFilesFolder`, arm64, both dual scopes in both contexts, the per-user ones also as a standard user) writes the value to the root and view of its scope and platform and upgrades into the custom folder; `HKCU\Software` is shared by both views |
 | SEARCH-07 | Confirmed | [probe](msitest/results/SEARCH-07/probe/log.md); GitHub `windows-latest` runner, 2026-10-29, CI runs 40962873234 (probe) and 40966065131 (msi-builder's directory search): a raw search applies a missing folder as it is, which works on the system drive but fails with 1327 and 1603 on an unmounted drive; a directory search finds only an existing folder, so both missing cases install into the default folder |
 | SEARCH-08 | Confirmed | [ci](msitest/results/SEARCH-08/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI run 41231619181: `CompLocator` `Type` 0 returns the folder of a folder-keyed component and `Type` 1 its parent; `Type` 0 finds nothing for a file key path; an HKLM registry key path finds nothing with either type (HKCU not tested); `removeFolders` on a search of the package's own folder-keyed component removed only the install folder and kept a foreign file in its parent |
+| SEARCH-09 | Confirmed | [ci](msitest/results/SEARCH-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI run 41244973608: a directory `RegLocator` (`Type` 16) finds an existing folder with or without a trailing backslash in the data and returns it with one; a missing folder and a file path find nothing; a path-less `DrLocator` under a directory `RegLocator` gives the same results, under a raw one (`Type` 18) it returns the containing folder whether the folder exists or not |
 | UPG-01 | Confirmed | [higher](msitest/results/UPG-01/higher/log.md) removes; equal, lower and fourth-field-only stay side by side |
 | UPG-02 | Confirmed | [LaunchCondition](msitest/results/UPG-02/launchcondition/log.md) and [type 19](msitest/results/UPG-02/type19/log.md): 1603, newer stays |
 | UPG-03 | Confirmed | [log](msitest/results/UPG-03/same-productcode/log.md); 1638 |
@@ -291,6 +294,7 @@ Silent-failure cases a producer has to guard against itself:
 | CA-06 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40925575633 (PR #117): `add rule name=all` fails in any case and quoted; `delete rule name=all` deletes every rule the other filters select, `"all"` and `\"all\"` included; unscoped with `dir=in` it deleted every inbound rule (208, two of them probe rules); names with spaces around `all` are ordinary names; [details](#reserved-firewall-rule-name-ca-06) |
 | CA-07 | Confirmed | [ci](msitest/results/CA-07/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40940932552: `localport=80,443,8000-8010` from the package and from a property is stored as written; uninstall removes the rule |
 | CA-08 | Confirmed | GitHub `windows-latest` runner, 2026-10-30, CI runs 41053365815 and 41058632106 (`TestMsiexecProgressText`, `TestFullUIProgressText`): the full-UI progress page shows a deferred action's `ActionText` description with `[ProductName]` resolved; the verbose log writes descriptions formatted; the German transform replaces the row; a `/qn` log has no description for an immediate action; [details](#progress-texts-ca-08) |
+| CA-09 | Confirmed | [ci](msitest/results/CA-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI runs 41236083486 and 41239378858 (PR #183): in `ALLUSERS=2` packages a no-impersonate action conditioned `ALLUSERS=1` runs as LocalSystem per machine (install, repair, uninstall) and not per user, also not in an administrator's per-user install; unconditioned it runs per user as the installing user, administrator or standard user, in both dual scopes; ICE105 warns about it in `perUserOrMachine` with or without the condition and is silent in `perMachineOrUser`, and treats a `System64Folder` Directory row the same way |
 | SHORTCUT-01 | Confirmed | [hkcu-folder](msitest/results/SHORTCUT-01/hkcu-folder/log.md), [file-component](msitest/results/SHORTCUT-01/file-component/log.md), [file-component-folder](msitest/results/SHORTCUT-01/file-component-folder/log.md), [advertised](msitest/results/SHORTCUT-01/advertised/log.md), [per-user](msitest/results/SHORTCUT-01/per-user/log.md); every layout installs and removes both shortcuts, the Start menu subfolder goes without a `RemoveFile` row; [details](#shortcuts-shortcut-01) |
 | SHORTCUT-02 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40882369236 (PR #98): the engine converts `PropVariantValue` to the property's type and formats it; a CLSID needs braces; an unknown name or a bad value is warning 1946 and the install goes on; [details](#shortcut-properties-shortcut-02) |
 | SHORTCUT-03 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI runs 40900720903 and 40908162979 (PR #105): WriteIniValues writes the `.url` as ANSI with CRLF, the shell reads the address, the `RemoveFile` row deletes it at uninstall after the shell added a section; [details](#shortcut-targets-shortcut-03-shortcut-04) |
@@ -848,6 +852,58 @@ in `internal/builder/nativetest/media_windows_test.go`.
 - Not run: Windows Server 2016, a single file near 0x7FFF8000 bytes, LZX or
   MSZIP at this size, an install from a network share.
 
+## Shared cabinet data (CAB-14)
+
+Run on 2026-10-31 by the `windows-latest` CI runners (Windows Server 2025
+Datacenter, image windows-2025-vs2026), elevated, for msi-builder PR #188
+(workflow run 41239773952, commit 0438551): `TestNativeFDIExtractsCopies`
+in `internal/cab/native_windows_test.go` and
+`TestMsiexecInstallsSharedData` in
+`internal/builder/nativetest/media_windows_test.go`.
+
+- cabinet.dll's FDI extracted cabinets of six files and an empty seventh,
+  in five folders: a shared 98381-byte file in a folder of its own, two
+  copies of it pointing back at that folder from later positions, the
+  stored files between and after them in folders of their own, and the
+  empty file as an empty last folder. Stored, MSZIP, LZX:21 and LZX:15
+  data all came out byte for byte with each copy's own name, date and
+  attributes, and FDI read no more than the cabinet, twice the shared
+  folder and 64 KiB (the test's bound; the byte counts were not logged).
+- Windows Installer installed packages whose `a.bin`, `c.bin` and `e.bin`
+  share 300000 bytes and `f.bin` and `g.bin` 70000, with stored files
+  between them and an empty `h.bin` last, silently with exit 0, as MSZIP
+  and LZX:15 embedded and LZX:21 external; every installed file had its
+  source's size and SHA-256, and the uninstall removed the folder.
+- The same run built CAB-10 again with three distinct files (1 GiB,
+  1 GiB + 4 KiB and 900 MiB, so that none is a copy) and installed it.
+- Not run: Windows Server 2016, Windows on Arm, a package with thousands of
+  copies.
+
+The preliminary experiment below, which is not CAB-14, chose the layout.
+
+Preliminary experiment run on 2026-10-31 by the `windows-latest` CI runner (Windows
+Server 2025) for the cabinet sharing change (workflow run 41237366216,
+commit 574447a, a temporary test that was then removed): cabinet.dll's FDI
+extracted cabinets of four files in one folder, an 8 MiB and two 1 MiB
+random files and a 1 MiB placeholder whose `CFFILE` was then patched to
+the `cbFile` and `uoffFolderStart` of one of the 1 MiB files. The read
+callback counted the cabinet bytes FDI read (11.5 MB for the unpatched
+cabinets).
+
+| Layout (CFFILE order) | Extra bytes read, stored / MSZIP / LZX:21 / LZX:18 | Files correct |
+|---|---|---|
+| copy right after its original, both at the start, then 8 MiB and 1 MiB | 1.05 MB each | yes |
+| 8 MiB, original, copy, 1 MiB | 9.44 MB each | yes |
+| original, 8 MiB, copy, 1 MiB | 9.44 MB each | yes |
+| 8 MiB, 1 MiB, original, copy | 9.44 MB each | yes |
+
+- FDI accepts records that share bytes in every compression type.
+- A copy behind the decoded position makes FDI decode the folder again
+  from its start; when a file follows the copy, FDI also decodes everything
+  up to that file again, even though the copy was at the start of the
+  folder. msi-builder therefore gives the shared file a folder of its own
+  and starts a new folder after a copy (MSISPEC section 5).
+
 ## Signed external cabinets (SIG-08, SIG-09)
 
 Run on 2026-10-29 by the `windows-latest` CI runner (Windows Server 2025
@@ -1086,6 +1142,26 @@ full-UI test package with two more actions: `SetMarker`, an immediate
   script was written.
 - Not covered: basic UI (`/qb`).
 
+## Context actions (CA-09)
+
+Run on 2026-10-31 in CI runs 41236083486 and 41239378858 on the
+`Build & Test (windows-latest, native)` job (Windows Server 2025 x64, the
+runner's administrator with a full token, and the throwaway standard user
+`msitest`) by `internal/builder/nativetest/contextactions_windows_test.go`.
+Details: [log](msitest/results/CA-09/ci/log.md).
+
+| Install | Server `ALLUSERS` | `scope: perMachine`, no impersonation | `scope: perUser` | no scope |
+| --- | --- | --- | --- | --- |
+| administrator, per machine (install, repair, uninstall) | `1` | `nt authority\system` | not run | administrator |
+| administrator, per user (install, repair, uninstall) | empty | not run | administrator | administrator |
+| standard user, per user (exit 0) | empty | not run | the user | the user |
+| unconditioned copy, administrator per user (`perUserOrMachine`, and `perMachineOrUser` switched to per user) | empty | administrator | administrator | administrator |
+| unconditioned copy, standard user per user (both dual scopes, exit 0) | empty | the user | the user | the user |
+
+- ICE105 posted one warning, `3073 contains msidbCustomActionTypeNoImpersonate execution option. This is invalid for a per user application. [CustomAction.Action]`, for the `perUserOrMachine` package with and without the condition, and nothing for `perMachineOrUser`.
+- A `System64Folder` Directory row (`TestICEActionFolder`) drew `ICE105 warning: System64Folder invalid directory for a per user application. [Directory.Directory]` in `perUserOrMachine` and nothing in `perMachineOrUser`.
+- Not covered: the wizard's scope page (the condition is evaluated in the server, where INST-02 and ENVVAR-03 showed `ALLUSERS` after a switch), an install elevated by `AlwaysInstallElevated`, Server 2016.
+
 ## Closing running programs (CLOSE-01)
 
 Run on 2026-10-30 in the `Build & Test (windows-latest, native)` job
@@ -1115,6 +1191,27 @@ with `MSIRESTARTMANAGERCONTROL=Disable`. The test starts the helpers itself
 - Not covered: a full-UI install (the files-in-use dialog), a standard user's
   install, another user's session, a 32-bit or Arm64 package, a major
   upgrade, Windows Server 2016.
+
+## Custom action DLL review fixes (SEC-06, CLOSE-02, FILE-14)
+
+Run on 2026-10-31 in the `Build & Test (windows-latest, native)` job
+(Windows Server 2025 x64, elevated) of PR #192, run 41241097934 (commit
+64c4046), by `TestMsiexecGrantThroughJunction`, `TestMsiexecClosesAliases`
+and `TestMsiexecRemoveFoldersKeepsLeft` in `internal/builder/nativetest`.
+The CA-03 probe's `ProbeLongUtf8` passed in the same job and on the
+`windows-11-arm` runner (Arm64 package natively): the piece after the
+64 KiB cut was logged as `BuilderRun: äsplit-tail`.
+
+| Case | Result |
+| --- | --- |
+| SEC-06: folder grant for Guests on `...\MsiBuilderGrantLink\link\child`, `link` a junction to `bait` | exit 1603, the grant refused with the path it leads to; `bait\child`'s DACL kept its ACEs (only the `AI` flag dropped, as in SEC-02's rollbacks), no Guests ACE |
+| CLOSE-02: `cli.exe` with `close: true`, copies started through a junction in `ProgramData` and through `C:\PROGRA~1\MSIBUI~1\cli.exe` | uninstall exit 0, both copies ended with 1602. `QueryFullProcessImageNameW` reported the resolved `C:\Program Files\...` path for the junction start and `C:\PROGRA~1\MSIBUI~1\cli.exe` for the short-name start, so only the latter needed the file ID |
+| FILE-14: `removeFolders` on `DATA_DIR`, an action that recreates `DATA_DIR` after the move and fails | exit 1603; the log said `cannot be restored, it stays in C:\BuilderRemoveFolders.<token>\1` and where the original path is kept; `HKU\S-1-5-18\Software\msi-builder\RemoveFoldersLeft\<token>` held `1` = `C:\ProgramData\MsiBuilderRemoveLeft\data\` and `ProductCode`; the moved file was in the backup folder |
+
+- Not covered: a failed commit delete and a stale record (same helper, not
+  forced), a `subst` drive, a junction inside a granted folder, the output
+  drain after the grace period (needs five seconds of logging), a 32-bit
+  package, Windows Server 2016.
 
 ## Feature conditions (INST-05)
 

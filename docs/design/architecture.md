@@ -57,21 +57,21 @@ flowchart LR
 | Package | Responsibility | Spec | Depends on |
 |---|---|---|---|
 | `internal/cfb` | Compound File Binary v3/v4 writer and reader: sectors, FAT, DIFAT, mini stream, red-black directory tree, name comparison | §2 | stdlib |
-| `internal/cab` | Cabinet writer and reader: one folder per cabinet, stored, MSZIP blocks with carried DEFLATE history or LZX frames (`internal/lzx`), checksums on every block | §5 | stdlib (`compress/flate`), `internal/lzx` |
+| `internal/cab` | Cabinet writer and reader: one folder per cabinet unless identical files share bytes (the shared file and the file after it or after a copy start new folders), stored, MSZIP blocks with carried DEFLATE history or LZX frames (`internal/lzx`), checksums on every block | §5 | stdlib (`compress/flate`), `internal/lzx` |
 | `internal/summary` | `\u0005SummaryInformation` property-set writer and reader (PIDs 1–19, VT_I2/I4/LPSTR/FILETIME) | §4 | `internal/codepage` |
-| `internal/msidb` | The database: column types, typed rows, stream-name encoding, string pool with code pages, catalog, column-major table streams, binary streams, embedded streams; plus a reader that decodes a package back into tables | §3 | `cfb`, `summary`, `internal/codepage` (`golang.org/x/text`) |
+| `internal/msidb` | The database: column types, typed rows, stream-name encoding, string pool with code pages, catalog, column-major table streams, binary streams, embedded streams; plus a reader that decodes a package back into tables | §3 | `cfb`, `summary`, `internal/codepage` |
 | `internal/schema` | Column definitions and `_Validation` metadata of every standard table the builder can write | §6 | `msidb` |
 | `internal/pe` | PE version resource reader: file version, translations, "is this a PE file", PE checksum presence | §11.5 | stdlib |
 | `internal/condition` | Parser for the condition grammar, used to reject conditions the engine would ignore | §8.8 | stdlib |
 | `internal/sequence` | Numbering of sequence tables: fixed standard actions plus before/after chains, overlap and window checks | §9.2, §11.7 | stdlib |
 | `internal/builder` | The config-to-tables layer: identities, directories and short names, components and GUIDs, files, media and cabinets, registry, services, environment, upgrades, custom actions, helpers, `_Validation`, summary; then the package bytes and a verification pass | §6–§11 | everything above, plus `config`, `internal/artwork`, `internal/cadll`, `internal/rtf` and `go.yaml.in/yaml/v3` |
-| `pkg/config` | YAML decoding, defaults and validation into a `*config.Config` | | `internal/condition`, `go.yaml.in/yaml/v3` |
-| `internal/codepage` | ANSI code page encoders for the string pool and summary | §3, §4 | `golang.org/x/text` |
+| `pkg/config` | Template rendering (`config.Render`: the vars header and Go `text/template` with sprig's functions), YAML decoding, defaults and validation into a `*config.Config` | | `internal/condition`, `go.yaml.in/yaml/v3`, `github.com/Masterminds/sprig/v3` |
+| `internal/codepage` | ANSI code page encoders for the string pool and summary, from tables dumped from Windows | §3, §4 | none |
 | `internal/cadll` | The custom action DLL of `run` actions and permission grants: freestanding C (`src/builderrun.c`), cross-built by `build.sh` (`go generate`) with clang 18 and lld for x86, x64 and arm64, committed, pinned by `SHA256SUMS` and embedded with `go:embed`; the builder copies the platform's DLL into the `Binary` table | §9.4 | stdlib |
 | `internal/artwork` | Draws the wizard bitmaps (our own artwork, generated in code) and decodes a theme's BMP, PNG or JPEG pictures | | stdlib |
 | `internal/rtf` | Converts a plain-text license to RTF and checks an RTF license for the ScrollableText control | | stdlib |
 | `pkg/builder` | Public build API: `Build`, `Options`, `Result`, `File`, converted to and from `internal/builder` | | `internal/builder`, `config` |
-| `cmd/msi-builder` | CLI: `build`, `validate`, `inspect`, `sign`, `verify`, `completion`, `version` | | `builder`, `config`, `msidb`, `cfb`, `sign`, `spf13/cobra` |
+| `cmd/msi-builder` | CLI: `build`, `validate`, `render`, `inspect`, `convert`, `sign`, `verify`, `completion`, `version` | | `builder`, `config`, `msidb`, `cfb`, `sign`, `spf13/cobra` |
 
 `pkg/config` (PR #2) stays as it is: the builder consumes a validated `*config.Config`
 and never reads YAML.
@@ -147,6 +147,9 @@ func Entries(fsys fs.FS) ([]Entry, error)
 
 - One folder, blocks of 32768 bytes, history carried across blocks, the
   stored fallback, "CK" prefix, checksum on every block (MSZIP-01, CAB-04).
+- A file whose bytes later entries share (`Entry.Copy`: identical files of
+  at least 32768 bytes, section 5) gets a folder of its own, and the entry
+  after a copy starts a new one (CAB-14).
 - Dates in UTC from the given instant, default 1980-01-01.
 - Limits: 65535 files, 0x7FFFFFFF bytes, name ≤ 255 bytes.
 - Test vectors: A.4 checksum and the 118-byte stored cabinet; a three-block
@@ -195,7 +198,10 @@ with a nil `Open`, so the inspector and the verifier see cabinets by name and
 size without loading them.
 
 Code pages: 0 (ASCII), 65001 (UTF-8) and the ANSI pages through
-`golang.org/x/text/encoding`; unmappable text is an error, never `?`.
+tables dumped from Windows' `MultiByteToWideChar` and
+`WideCharToMultiByte` (`internal/codepage/tables`, compared with the
+runner on every Windows CI run); unmappable text and bytes Windows refuses
+are an error, never `?`.
 
 ### 1.5 `schema`
 
@@ -433,8 +439,9 @@ generated from the command tree.
 | 11 | `sign`: Authenticode signing, verification and RFC 3161 timestamps (MSISPEC §12) | done |
 | 12 | Uncompressed files beside the package | later |
 
-Out of scope for good: MSIX (nfpm), patches, transforms, merge modules,
-bundles, advertised installs and shortcuts, script custom actions.
+Out of scope for good: MSIX (nfpm), patches, standalone transforms (`.mst`),
+merge modules, bundles, advertised installs and shortcuts, script custom
+actions.
 
 ## 4. Decisions worth recording
 

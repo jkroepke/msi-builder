@@ -18,29 +18,29 @@ import (
 	"github.com/jkroepke/msi-builder/pkg/config"
 )
 
-// fuzzTemplate takes every fuzzed value through ${VAR} substitution, so that
-// the values need no YAML quoting and the substitution itself is exercised.
+// fuzzTemplate takes every fuzzed value through the template's quote, so
+// that the values need no YAML quoting and quote itself is exercised.
 const fuzzTemplate = `schema: msi-builder/v1
 product:
-  name: '${NAME}'
-  manufacturer: '${MANUFACTURER}'
-  version: '${VERSION}'
+  name: {{ .NAME | quote }}
+  manufacturer: {{ .MANUFACTURER | quote }}
+  version: {{ .VERSION | quote }}
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
-  description: '${TEXT}'
+  description: {{ .TEXT | quote }}
 package:
   platform: x64
-  codepage: ${CODEPAGE}
+  codepage: {{ .CODEPAGE }}
   summary:
-    title: '${TEXT}'
+    title: {{ .TEXT | quote }}
 upgrade: {}
 directories:
   - id: ProgramFiles64Folder
     children:
       - id: INSTALLDIR
-        name: '${DIRNAME}'
+        name: {{ .DIRNAME | quote }}
 features:
   - id: Main
-    title: '${TEXT}'
+    title: {{ .TEXT | quote }}
     components: [Main, Reg]
 components:
   - id: Main
@@ -49,19 +49,19 @@ components:
       - source: app.exe
       - source: data.bin
         id: Payload
-        name: '${FILENAME}'
+        name: {{ .FILENAME | quote }}
   - id: Reg
     directory: INSTALLDIR
     registry:
       - root: HKLM
-        key: 'Software\${REGKEY}'
-        name: '${PROPNAME}'
-        value: '${TEXT}'
+        key: {{ printf "Software\\%s" .REGKEY | quote }}
+        name: {{ .PROPNAME | quote }}
+        value: {{ .TEXT | quote }}
 properties:
-  FUZZPROP: '${TEXT}'
+  FUZZPROP: {{ .TEXT | quote }}
 launchConditions:
-  - condition: '${CONDITION}'
-    message: '${TEXT}'
+  - condition: {{ .CONDITION | quote }}
+    message: {{ .TEXT | quote }}
 `
 
 type fuzzInput struct {
@@ -129,6 +129,11 @@ func FuzzBuild(f *testing.F) {
 				"CONDITION": cond, "CODEPAGE": codepage,
 			},
 			data: data,
+		}
+
+		if strings.Trim(codepage, "0123456789") != "" || codepage == "" {
+			// The code page is an unquoted number in the template.
+			t.Skip()
 		}
 
 		res, err := buildFuzzInput(t, input)

@@ -23,9 +23,10 @@ syntax; v3 names are mentioned where they differ.
    with `Package` (v3 `Product`); port fragments from other files by hand.
 2. Work through these comments with the table and the sections below,
    and check the result with `msi-builder validate`. WiX variables become
-   `${NAME}` references, which the comment at the top of the file lists;
-   pass each one, such as `msi-builder validate --var Version=1.4.0 msi.yaml`,
-   or give it a default under `vars:`.
+   `{{ .NAME }}` template variables, which the comment at the top of the
+   file lists; pass each one, such as
+   `msi-builder validate --var Version=1.4.0 msi.yaml`, or give it a default
+   in the vars header.
 3. Build it, and compare the tables of both packages with
    `msi-builder inspect`, which reads any `.msi`, also one built by WiX:
    `msi-builder inspect --table Registry old.msi`.
@@ -94,13 +95,14 @@ schema: msi-builder/v1
 product:
   name: Hello
   manufacturer: Example
-  version: ${VERSION}
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 
 package:
   platform: x64            # wix build -arch x64
 
 upgrade:
+  allowSameVersion: false  # WiX's AllowSameVersionUpgrades="no" default
   downgradeMessage: A newer version of [ProductName] is already installed.
 
 installDir:
@@ -164,7 +166,7 @@ msi-builder does the same by default:
 | `SetDirectory` | `customActions[].setDirectory` |
 | `Feature` | `features` |
 | `Component` | `components` |
-| `File` | `components[].files` |
+| `File` | `components[].files`; a File without `Source` takes the `FileSource` of its Directory |
 | Heat harvesting, `Files` (v5) | A folder `source` ending in `/` |
 | `CreateFolder` | `components[].createFolder` |
 | `RemoveFile`, `RemoveFolder` | `components[].removeFiles` |
@@ -173,7 +175,7 @@ msi-builder does the same by default:
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
 | `Environment` | `components[].environment` |
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
-| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value |
+| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
 | `ServiceControl` for another service | `components[].serviceControl` |
@@ -182,7 +184,8 @@ msi-builder does the same by default:
 | `PermissionEx` (SDDL), `Permission` | `permissions.sddl`, `folderPermissions.sddl` |
 | `util:PermissionEx` | `permissions.grant`, `folderPermissions.grant`; on a registry key, `permissions.sddl` |
 | `Property` | `properties` |
-| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search` |
+| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search`; a `DirectorySearch` without `Path` in a `RegistrySearch` with `Type="directory"` adds nothing, because that search already finds only a folder that exists. In a `Type="raw"` search, or one without `Type`, it returns the folder that holds the path in the value without checking that it exists (SEARCH-09). Convert keeps the value and adds a note, which says that for a value that is a path the property is set whenever the value exists, so the raw value is enough when only that matters. A search nested in it looks in that folder, while convert searches in the folder the value names, so convert notes that too |
+| `ProductSearch UpgradeCode` | an `upgrade.related` row with `onlyDetect: true` that sets the property |
 | `Launch` (v3 `Condition` under `Product`) | `launchConditions` |
 | `CustomAction`, `SetProperty`, `Custom` | `customActions` |
 | `InstallExecuteSequence`, `InstallUISequence` | `customActions[].schedule` |
@@ -194,15 +197,19 @@ msi-builder does the same by default:
 
 ## Variables and versions
 
-WiX preprocessor variables become `${NAME}` variables:
+msi-builder reads the file as a Go template, which takes the place of the
+WiX preprocessor:
 
 | WiX | msi-builder |
 |---|---|
-| `$(var.Version)` with `wix build -d Version=1.4.0` | `${VERSION}` with `msi-builder build --var VERSION=1.4.0` |
-| `$(env.VERSION)` | `${VERSION}` with `--env` |
-| `<?define Port = 8080 ?>` | `vars:` at the top of the file |
+| `$(var.Version)` with `wix build -d Version=1.4.0` | `{{ .VERSION }}` with `msi-builder build --var VERSION=1.4.0` |
+| `$(env.VERSION)` | `{{ .VERSION }}` with `--env` |
+| `<?define Port = 8080 ?>` | `vars:` in the header document (see [YAML Schema](YAML%20Schema.md#defaults-for-variables)) |
 | `!(bind.FileVersion.hello.exe)` | Pass the version as a variable |
-| `<?if?>`, `<?include?>` | Not available; use component `condition`s, or generate the YAML file in your build |
+| `<?if $(var.Arch) = arm64 ?>`, `<?foreach?>` | `{{ if eq .Arch "arm64" }}`, `{{ range split ";" .Langs }}` (see [YAML Schema](YAML%20Schema.md#parts-that-depend-on-the-build)) |
+| `<?ifdef Debug ?>` | `{{ if has "Debug" }}`; `{{ if .Debug }}` is an error when `Debug` is not set |
+| `<?ifndef Version?><?error?>` | Nothing: a variable that is not set is an error |
+| `<?include?>` | Not available; merge the file in, or generate the YAML file in your build |
 
 `[INSTALLFOLDER]`, `[#hello.exe]` and other names in brackets work as they
 do in WiX: Windows Installer fills them in at install time.
@@ -226,7 +233,7 @@ do in WiX: Windows Installer fills them in at install time.
 product:
   name: Hello
   manufacturer: Example
-  version: ${VERSION}
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
   arp:
     icon: hello.ico
@@ -238,11 +245,11 @@ icons:
 
 upgrade:
   removeOld: afterInstallValidate   # MajorUpgrade Schedule
-  allowSameVersion: true            # the default
+  allowSameVersion: true            # AllowSameVersionUpgrades="yes"
   downgradeMessage: A newer version of [ProductName] is already installed.
   related:                          # Upgrade / UpgradeVersion
     - upgradeCode: 513044d7-fae5-4715-984a-14f911d06fcc
-      maxVersion: ${VERSION}
+      maxVersion: '{{ .VERSION }}'
       includeMax: false
       property: OLDX86FOUND
 ```
@@ -258,6 +265,10 @@ upgrade:
   never removes a newer version. `downgrade: allow` and `downgrade: ignore`
   install the older version next to the newer one.
 - `IgnoreRemoveFailure="yes"` is `ignoreRemoveFailure: true`.
+- WiX's `AllowSameVersionUpgrades` defaults to `no`, msi-builder's
+  `allowSameVersion` to `true`. convert writes `allowSameVersion: false` for
+  every `MajorUpgrade` without `AllowSameVersionUpgrades="yes"` or
+  `AllowDowngrades="yes"`, so the same version is still not taken as an upgrade.
 - A hand-made major upgrade without `MajorUpgrade`, an `UpgradeVersion` of
   the package's own `UpgradeCode` with a `Minimum` below this version and a
   `Maximum` at it, with `RemoveExistingProducts` scheduled, is `minVersion`
@@ -495,6 +506,9 @@ when the component is installed. `RemoveRegistryKey` with
 removed, and the install does not create it. A `type: key` entry with
 `removeOnUninstall: true` deletes the key at uninstall too, but also
 creates it at install.
+A `RegistryKey` with `ForceDeleteOnUninstall="yes"` and no values, also none in
+nested keys, only deletes the key, so convert writes it as such a
+`removeRegistry` entry.
 
 ## Environment variables
 
@@ -727,6 +741,10 @@ element in a sequence becomes a `schedule` placement of that entry:
 | `BinaryRef` + `ExeCommand` | `exe` with a `binaries` entry |
 | `Error` | `error` |
 | `Execute`, `Impersonate`, `Return`, `HideTarget` | `execute`, `impersonate`, `return`, `hideTarget` |
+| `Impersonate="no"` on a deferred action in a per-user package | dropped with a note: a per-user package cannot run an action without impersonation (ICE105), and CA-09 saw per-user installs of dual-scope packages run such an action as the installing user; `Impersonate="no"` on an immediate action is dropped silently, since an immediate action always runs as the installing user |
+| `Impersonate="no"` on a deferred action in a dual-scope package | `impersonate: false` with `scope: perMachine`: the action runs only in per-machine installs (CA-09); one whose conditions all say `NOT ALLUSERS` becomes an impersonated `scope: perUser` action, since CA-09 saw a per-user install run it as the installing user anyway; one also scheduled outside `InstallExecuteSequence` keeps `impersonate: false` without a scope and gets a note to split it, since a scope needs the execute sequence; one whose condition tests `ALLUSERS` among other terms keeps it and gets `scope: perMachine` with a note, since a per-user test then never holds |
+| A `Custom` condition that only names the context (such as `ALLUSERS=1`, `ALLUSERS`, `NOT ALLUSERS` or `ALLUSERS=""`) in a dual-scope package, on every placement and all in `InstallExecuteSequence` | `scope: perMachine` or `scope: perUser`; otherwise the condition stays |
+| `CustomAction Directory` naming a folder ICE105 rejects (`SystemFolder`, `WindowsFolder`, `TempFolder`, …) in a per-user or dual-scope package | A `run` action runs without a working directory and an `exec` action keeps it, both with a note: msi-builder refuses these folders as an action's directory there |
 | `ProgressText` for the action (in `UI`) | `progress`; a `Template` has no counterpart |
 
 | WiX `Custom` | `schedule` entry |
@@ -808,6 +826,14 @@ ui:
 (seen in a real-world port, also with `/qn`). msi-builder installs per
 user to `%LOCALAPPDATA%\Programs\<folder>`. A per-user msi-builder upgrade of
 such an installation should therefore move the files there.
+
+Per machine, `WixUI_Advanced` installs to
+`[ProgramFilesFolder][ApplicationFolderName]`, also with `/qn` (seen in real-world
+packages), or to the value of an action that sets `WixPerMachineFolder`. It
+does not use the name of the install folder's Directory. convert takes
+`installDir.name` and `parent` from that folder. In a 64-bit package
+`ProgramFilesFolder` is `Program Files (x86)`, and convert adds a note to keep
+it for installed versions or switch to `ProgramFiles64Folder`.
 
 The wizard pages are msi-builder's own, with its own bitmaps. It has no
 setup type page (Typical, Custom, Complete) like `WixUI_Mondo`, and dialogs

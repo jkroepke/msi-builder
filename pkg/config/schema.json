@@ -10,7 +10,7 @@
     },
     "vars": {
       "type": "object",
-      "description": "Defaults for ${NAME} substitution. A value may use other variables; --var and --env values override it.",
+      "description": "Defaults for the variables the template reads as {{ .NAME }}, in a vars header: a first document that ends with a --- line. A value may use other variables; --var and --env values override it.",
       "additionalProperties": {
         "type": [
           "string",
@@ -595,6 +595,18 @@
           "impersonate": {
             "$ref": "#/$defs/bool",
             "default": true
+          },
+          "scope": {
+            "description": "In a perUserOrMachine or perMachineOrUser package only: run the action only in this context (the execute sequence only). A perMachine action may run without impersonation.",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^([Pp][Ee][Rr][Mm][Aa][Cc][Hh][Ii][Nn][Ee]|[Pp][Ee][Rr][Uu][Ss][Ee][Rr])$"
+              },
+              {
+                "$ref": "#/$defs/var"
+              }
+            ]
           },
           "return": {
             "anyOf": [
@@ -1254,10 +1266,26 @@
       }
     }
   },
-  "required": [
-    "schema",
-    "product",
-    "package"
+  "anyOf": [
+    {
+      "required": [
+        "schema",
+        "product",
+        "package"
+      ],
+      "not": {
+        "required": [
+          "vars"
+        ]
+      }
+    },
+    {
+      "description": "A vars header: a first document that holds only vars and ends with a --- line.",
+      "required": [
+        "vars"
+      ],
+      "maxProperties": 1
+    }
   ],
   "additionalProperties": false,
   "$defs": {
@@ -1545,8 +1573,8 @@
     },
     "var": {
       "type": "string",
-      "description": "A value with a ${NAME} variable. It is checked after substitution, by msi-builder validate.",
-      "pattern": "\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}"
+      "description": "A value with a {{ }} template action, such as \"{{ .VERSION }}\". It is checked after rendering, by msi-builder validate.",
+      "pattern": "\\{\\{.*\\}\\}"
     },
     "version": {
       "anyOf": [
@@ -1720,7 +1748,7 @@
                     },
                     "description": {
                       "type": "string",
-                      "description": "The type's name in Explorer."
+                      "description": "The type's name in Explorer, written as it is: [PROPERTY] references are not formatted."
                     },
                     "iconIndex": {
                       "type": "integer",

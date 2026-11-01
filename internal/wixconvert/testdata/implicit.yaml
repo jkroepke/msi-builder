@@ -10,6 +10,7 @@ product:
 package:
   platform: x64
 upgrade:
+  allowSameVersion: false
   downgradeMessage: A newer version is installed.
 installDir:
   # WiX ID Hello_Dir; the install folder must be an upper-case public property,

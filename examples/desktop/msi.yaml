@@ -12,7 +12,7 @@ schema: msi-builder/v1
 product:
   name: Example Viewer
   manufacturer: Example
-  version: ${VERSION}
+  version: '{{ .VERSION }}'
   upgradeCode: 7c1e4b52-93a0-4d6f-8e25-b4f0a9d3c871
 
 package:
