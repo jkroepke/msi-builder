@@ -260,6 +260,13 @@ func (v *validator) standardActions(cfg *Config) {
 
 			v.standardPlacement(cfg, placePath, moved.Action, place)
 
+			// The scope page runs FindRelatedProducts and LaunchConditions
+			// of the UI sequence after the context is chosen (UI-11).
+			if place.Sequence == "ui" && cfg.Package.Scope.Dual() && cfg.UI.Enabled && moved.Action != "AppSearch" {
+				v.errorf(placePath+".sequence", "the scope page of a dual-scope wizard runs %s of the ui sequence after it, "+
+					"where it sees the chosen context; move it in the execute sequence only", moved.Action)
+			}
+
 			if why := idle(cfg, moved.Action, place.Sequence); why != "" {
 				v.errorf(placePath, "%s does not run in this package (%s), so there is nothing to move", moved.Action, why)
 			}

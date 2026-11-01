@@ -17,4 +17,4 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - shell: bash
-        run: go test ./internal/builder/nativetest/ -v -count=1 -timeout 25m -run 'TestProbe'
+        run: go test ./internal/builder/nativetest/ -v -count=1 -timeout 25m -run 'TestFullUIScopeUpdate|TestMsiexecRegistryFileFolder|TestFullUIInstallScope|TestFullUIRememberInstallDir'

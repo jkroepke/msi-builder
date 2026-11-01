@@ -2731,6 +2731,9 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
         <DirectorySearch Depth="2" />
       </RegistrySearch>
     </Property>
+    <Property Id="TOOLEXE">
+      <RegistrySearch Root="HKLM" Key="SOFTWARE\Example\Tool" Name="File" Type="file"><FileSearch Name="tool.exe" /></RegistrySearch>
+    </Property>
     <Property Id="TOOLDIR">
       <RegistrySearch Root="HKLM" Key="SOFTWARE\Example\Tool" Name="Dir" Type="raw">
         <DirectorySearch Depth="3"><FileSearch Name="tool.exe" /></DirectorySearch>
@@ -2782,7 +2785,7 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
 		"<MIME> in an Extension has no counterpart",
 		`the DirectorySearch without Path has Depth="3"`,
 		"the DirectorySearch without Path below a raw RegistrySearch stands for the folder that holds the path in the value",
-		"only checks that the folder the outer RegistrySearch finds exists",
+		"type: file\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the YAML lacks %q:\n%s", want, out)
@@ -2790,9 +2793,9 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
 	}
 
 	if strings.Contains(out, "extension: hlv") || strings.Count(out, "extension: hls") != 1 ||
-		strings.Count(out, "only checks that the folder") != 1 || strings.Contains(out, "    type: directory\n") ||
+		strings.Contains(out, "only checks that the folder") || strings.Count(out, "type: file\n") != 2 || strings.Contains(out, "    type: directory\n") ||
 		strings.Contains(out, "condition and features of the component") || strings.Contains(out, `Depth="2"`) {
-		t.Errorf("want hlv left out, one hls, one existence note and no directory type:\n%s", out)
+		t.Errorf("want hlv left out, one hls, two file types and no existence note or directory type:\n%s", out)
 	}
 
 	cfg, err := config.Parse(res.YAML, config.Options{})

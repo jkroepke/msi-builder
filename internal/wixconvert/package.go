@@ -987,8 +987,9 @@ func (c *converter) nestedSearch(propOut *omap, elm *elem, outer *omap) *omap {
 // SEARCH-09), it adds nothing.
 func (c *converter) existenceCheck(propOut *omap, elm, kid *elem, outer *omap) {
 	switch {
-	case elm.is("RegistrySearch") && outer.mapAt("registry") != nil && elm.attr("Type") == keyDirectory:
-		// type: directory already returns the folder only if it exists.
+	case elm.is("RegistrySearch") && outer.mapAt("registry") != nil && slices.Contains([]string{keyDirectory, "file"}, elm.attr("Type")):
+		// type: directory and type: file already return the folder only
+		// if it exists (SEARCH-07, SEARCH-09, SEARCH-10).
 	case elm.is("RegistrySearch") && outer.mapAt("registry") != nil && slices.Contains([]string{"", "raw"}, elm.attr("Type")):
 		c.rawFolderNote(propOut, kid)
 	case elm.is("DirectorySearch"), hasNestedSearch(kid):
@@ -1122,7 +1123,10 @@ func (c *converter) registrySearch(propOut *omap, elm *elem, found *omap) {
 	case "directory":
 		found.set("type", "directory")
 	case "file":
-		c.todof(propOut, "", elm.line, "RegistrySearch Type=\"file\" has no counterpart; search the folder and add a file search under it")
+		// RegLocator type 1 returns the folder that holds the file the
+		// value names (SEARCH-10), and a nested FileSearch becomes a file
+		// search in that folder.
+		found.set("type", "file")
 	}
 }
 

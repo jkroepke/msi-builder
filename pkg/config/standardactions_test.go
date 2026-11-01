@@ -126,8 +126,17 @@ func TestStandardActionsRejected(t *testing.T) {
 				moveFind("{sequence: execute, after: Before}"),
 			"customActions[0].schedule[0]", "scheduling cycle",
 		},
+		"ui move with the scope page": {
+			"ui: {enabled: true}\n" + moveFind("{sequence: ui, at: 30}"),
+			"standardActions[0].schedule[0].sequence", "scope page of a dual-scope wizard",
+		},
 	} {
-		ds := validate(t, base+appComponent+test.doc)
+		doc := base + appComponent + test.doc
+		if strings.Contains(name, "scope page") {
+			doc = strings.Replace(doc, "  platform: x64\n", "  platform: x64\n  scope: perUserOrMachine\n", 1)
+		}
+
+		ds := validate(t, doc)
 		if !find(ds, config.SeverityError, test.path, test.msg) || errorCount(ds) != 1 {
 			t.Errorf("%s: want one error at %s with %q: %v", name, test.path, test.msg, ds)
 		}

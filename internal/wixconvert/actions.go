@@ -356,6 +356,11 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 		return false, why
 	}
 
+	// The scope page runs these after the context is chosen (UI-11).
+	if name != actAppSearch && placement.str("sequence") == seqUI && c.dualScope() && c.uiID() != "" {
+		return false, "the wizard's scope page runs it after the context is chosen"
+	}
+
 	if c.anchoredBack(name, placement) {
 		return true, ""
 	}

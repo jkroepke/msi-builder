@@ -2033,7 +2033,7 @@ properties:
         key: SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full
         name: Release                  # empty: the key's default value
         bitness: 64                    # 32 | 64; default: the package's
-        type: value                    # value (default) | directory
+        type: value                    # value (default) | directory | file
   DATA_DIR:
     value: C:\Data                     # used when no search finds anything
     search:
@@ -2067,12 +2067,29 @@ number of digits (SEARCH-04). Do not search a `REG_MULTI_SZ` value: the
 property starts and ends with a NUL, which is reported to break the full UI
 (specification section 8.7). `directory` returns the folder the data names
 with a trailing backslash, and nothing when it names a file or a missing
-folder (SEARCH-04).
+folder (SEARCH-04). `file` is for data that holds the path of a file, such
+as an `App Paths` entry: it returns the folder that holds that file, with a
+trailing backslash, and nothing when that folder is missing. It does not
+check the file itself: a missing file in an existing folder still returns
+the folder, data that names a folder returns its parent, and quotes around
+the path are removed (SEARCH-10). To require the file, search it by name
+`under` the registry search:
+
+```yaml
+properties:
+  OLD_APP_DIR:
+    search: { registry: { root: HKCU, key: 'Software\Microsoft\Windows\CurrentVersion\App Paths\example.exe', type: file } }
+  OLD_APP_EXE:
+    search:
+      file:
+        name: example.exe
+        under: { registry: { root: HKCU, key: 'Software\Microsoft\Windows\CurrentVersion\App Paths\example.exe', type: file } }
+```
 
 | Search | Key | Notes |
 |---|---|---|
 | `directory` | `path` | A full path (a drive, a share or a property in brackets such as `[ProgramFiles64Folder]`), or with `under` a path relative to the folder that search finds. Returns the folder with a trailing backslash, and nothing for a file or a missing folder |
-| | `under` | A search that finds a folder: `registry` (its `type` defaults to `directory` there, `value` is an error), `directory` or `component`. Up to eight searches in one chain |
+| | `under` | A search that finds a folder: `registry` (its `type` defaults to `directory` there, `file` searches the folder of the file the value names, `value` is an error), `directory` or `component`. Up to eight searches in one chain |
 | | `depth` | Default 0. How many folders may lie between the path's parent and its last folder: `C:\a\b` with depth 2 also finds `C:\a\x\y\b` |
 | `file` | `name` | The filename, without a folder. The result is the folder plus `name` as written here, in this case, not the case on disk. A name that is no valid 8.3 name is written with a generated short name (`short\|long`); the long name is the one matched and returned (SEARCH-05) |
 | | `path`, `under` | The folder to look in, as for `directory` |

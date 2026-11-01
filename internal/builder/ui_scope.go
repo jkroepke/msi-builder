@@ -48,6 +48,18 @@ func (b *build) installScope(wiz *wizard) {
 	b.uiAction("SetInstallScopeMachine", propScope, scopeMachine, "ALLUSERS=1")
 	b.uiAction("SetInstallScopeUser", propScope, scopeUser, "NOT ALLUSERS")
 
+	// A folder remembered in the other context only says where the
+	// previous install is: the page starts there, so that Next keeps the
+	// update in that context.
+	if b.cfg.InstallDir.Remember {
+		user, machine := rememberedUser(b.cfg.InstallDir.ID), rememberedMachine(b.cfg.InstallDir.ID)
+		if initial == scopeUser {
+			b.uiAction("SetInstallScopePrevious", propScope, scopeMachine, "NOT ALLUSERS AND "+machine+" AND NOT "+user)
+		} else {
+			b.uiAction("SetInstallScopePrevious", propScope, scopeUser, "ALLUSERS=1 AND "+user+" AND NOT "+machine)
+		}
+	}
+
 	page := wiz.add(&uiDialog{name: dlgInstallScope, attrs: dlgPage, first: ctlScope})
 	page.innerHeader(wiz.text("InstallScopeTitle"), wiz.text("InstallScopeText"))
 
@@ -58,6 +70,8 @@ func (b *build) installScope(wiz *wizard) {
 	})
 	page.control(text("ScopeHint", margin+5, 130, width, 30, wiz.text("InstallScopeHint")))
 	page.navigation()
+	// The page comes before the welcome page, so there is no way back.
+	page.find(ctlBack).attrs = ctlDisabled
 
 	wiz.radios = append(wiz.radios,
 		uiRadio{property: propScope, value: scopeUser, text: wiz.text("InstallScopeUser"), y: 0, w: width, h: radioStep},
@@ -70,6 +84,7 @@ func (b *build) installScope(wiz *wizard) {
 		on("[MSIINSTALLPERUSER]", "{}", condMachine)
 
 	b.scopeFolders(next)
+	next.on(evEndDialog, endReturn, condAlways)
 
 	// Two Install buttons in one place: the shield one for all users.
 	ready := wiz.byName[dlgVerifyReady]
@@ -88,7 +103,40 @@ func (b *build) installScope(wiz *wizard) {
 	at := slices.Index(ready.controls, install)
 	ready.controls = slices.Insert(ready.controls, at+1, elevated)
 
-	wiz.flow = slices.Insert(wiz.flow, wiz.shown(1, 1), dlgInstallScope)
+	b.scopeFirst()
+}
+
+// scopeFirst shows the scope page on its own before the wizard, after the
+// actions that prepare it, and runs FindRelatedProducts and
+// LaunchConditions of the UI sequence after it. In a full-UI install only
+// the client's FindRelatedProducts counts, and it finds only products of
+// the context it runs in: before the page it misses a per-machine install
+// that the page then switches to, and both versions stay installed;
+// launch conditions that test ALLUSERS see the context the package opened
+// in (UI-11). The page stays before MigrateFeatureStates, which needs the
+// related products.
+func (b *build) scopeFirst() {
+	b.schedule(seqInstallUI, dlgInstallScope, condNotInstalled, "", b.lastScopeAction, 0)
+
+	b.scopePage = true
+
+	// LaunchConditions is scheduled later, by launchConditionsAction.
+	for i := range b.schedules[seqInstallUI] {
+		if action := &b.schedules[seqInstallUI][i]; action.Name == actFindRelatedProducts {
+			action.Before, action.After, action.Sequence = "", dlgInstallScope, 0
+		}
+	}
+}
+
+// afterScopePage returns the action that LaunchConditions follows in the
+// UI sequence of a package with the scope page: FindRelatedProducts, or
+// the page.
+func (b *build) afterScopePage() string {
+	if b.scheduled(seqInstallUI, actFindRelatedProducts) {
+		return actFindRelatedProducts
+	}
+
+	return dlgInstallScope
 }
 
 // Where a folder that follows the context lies in each context. A client

@@ -250,6 +250,7 @@ func (b *build) launchConditions() error {
 // Registry locator types (RegLocator.Type).
 const (
 	regLocatorDirectory = 0
+	regLocatorFile      = 1
 	regLocatorRaw       = 2
 	regLocator64Bit     = 16
 )
@@ -417,8 +418,14 @@ func (b *build) locate(path, signature string, search *config.Search, folder boo
 	case search.Registry != nil:
 		reg := search.Registry
 
+		// RegLocator type 1 without a Signature row returns the folder
+		// that holds the file the data names (SEARCH-10).
 		typ := regLocatorRaw
-		if folder || reg.Type == config.SearchDirectory {
+
+		switch {
+		case reg.Type == config.SearchFile:
+			typ = regLocatorFile
+		case folder || reg.Type == config.SearchDirectory:
 			typ = regLocatorDirectory
 		}
 
