@@ -560,6 +560,39 @@ func TestConvertIconIDNotIdentifier(t *testing.T) {
 	wantNone(t, yaml, "icon: hello-app.ico", "icon: 1st.ico", "  hello-app.ico:")
 }
 
+// TestConvertIconIDThroughDefine renames icon ids that a define, an
+// <Icon> Id and a SetProperty of ARPPRODUCTICON give, so that every
+// reference matches the icons key.
+func TestConvertIconIDThroughDefine(t *testing.T) {
+	t.Parallel()
+
+	src := `<?define IconName = "hello-app.ico" ?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Icon Id="$(var.IconName)" SourceFile="a.ico" />
+    <SetProperty Id="ARPPRODUCTICON" Value="hello-app.ico" After="CostFinalize" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Hello">
+          <Component Id="App" Guid="*" Win64="yes">
+            <File Source="hello.exe" KeyPath="yes" />
+            <Shortcut Id="Menu" Directory="ProgramMenuFolder" Name="Hello" Target="[INSTALLDIR]hello.exe" Icon="$(var.IconName)" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+  </Product>
+</Wix>`
+
+	yaml := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, yaml, "  hello_app.ico: a.ico\n", "icon: hello_app.ico\n", "value: hello_app.ico")
+	wantNone(t, yaml, "icon: {{", "__var")
+}
+
 // TestConvertIconIDClash notes a renamed icon id that another icon has.
 func TestConvertIconIDClash(t *testing.T) {
 	t.Parallel()

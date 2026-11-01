@@ -244,7 +244,7 @@ func (c *converter) emitARP(p *omap) {
 				arp.set(key, n)
 			}
 		case "icon":
-			arp.set(key, iconID(val))
+			arp.set(key, c.iconRef(elm, "Value"))
 		default:
 			arp.set(key, val)
 		}
@@ -255,19 +255,31 @@ func (c *converter) emitARP(p *omap) {
 // Id such as "app-name.ico", which is no MSI identifier (WiX 5 refuses it,
 // WIX0014), so every other character becomes "_", and an id that does not
 // start with a letter or "_" gets one in front. Ids with template actions or
-// properties stay as they are.
-func iconID(id string) string {
-	if id == "" || config.IsIdentifier(id) || strings.Contains(id, "{{") || strings.ContainsAny(id, "[]") {
-		return id
+// properties, or WiX variables convert cannot fill in, stay as they are.
+func iconID(raw string) string {
+	if raw == "" || config.IsIdentifier(raw) || strings.Contains(raw, "{{") || strings.Contains(raw, "$(") ||
+		strings.ContainsAny(raw, "[]") {
+		return raw
 	}
 
-	out := strings.Map(iconIDRune, id)
+	out := strings.Map(iconIDRune, raw)
 
 	if first := rune(out[0]); first != '_' && !isASCIILetter(first) {
 		out = "_" + out
 	}
 
 	return out
+}
+
+// iconRef returns the icon id that attr of elm names, renamed as emitFiles
+// renames the <Icon>. A reference through a define whose value is renamed
+// becomes that literal id, since the icons key is one too.
+func (c *converter) iconRef(elm *elem, attr string) string {
+	if lit := c.literalStatic(elm.attr(attr)); iconID(lit) != lit {
+		return iconID(lit)
+	}
+
+	return c.value(elm, attr)
 }
 
 // iconIDRune keeps a character an MSI identifier may hold, else gives "_".
@@ -1275,12 +1287,12 @@ func (c *converter) foldMessage(upgrade *omap, cond string, elm *elem) {
 func (c *converter) emitFiles() {
 	taken := make(map[string]bool, len(c.icons))
 	for _, icon := range c.icons {
-		taken[icon.attr("Id")] = true
+		taken[c.literalStatic(icon.attr("Id"))] = true
 	}
 
 	for _, icon := range c.icons {
 		icons := c.out.child("icons")
-		raw := icon.attr("Id")
+		raw := c.literalStatic(icon.attr("Id"))
 		name := iconID(raw)
 
 		if name != raw {

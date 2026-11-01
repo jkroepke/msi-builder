@@ -1920,13 +1920,23 @@ func (c *converter) asyncExec(action *omap, custom *elem) {
 	}
 }
 
+// setValue returns the value a setter gives the property name; an icon id
+// for ARPPRODUCTICON is renamed as its <Icon> is.
+func (c *converter) setValue(setter *elem, name string) string {
+	if name == "ARPPRODUCTICON" {
+		return c.iconRef(setter, "Value")
+	}
+
+	return c.value(setter, "Value")
+}
+
 // setterKind converts the actions that set a value or show an error.
 func (c *converter) setterKind(action *omap, custom *elem) bool {
 	switch {
 	case custom.has("Error"):
 		action.set("error", c.errorText(custom))
 	case custom.has(attrProperty) && custom.has("Value"):
-		action.set("setProperty", flowMap().set("name", custom.attr(attrProperty)).set("value", c.value(custom, "Value")))
+		action.set("setProperty", flowMap().set("name", custom.attr(attrProperty)).set("value", c.setValue(custom, custom.attr(attrProperty))))
 	case custom.has(attrDirectory) && custom.has("Value"):
 		action.set("setDirectory", flowMap().set("directory", c.dirRef(custom.attr(attrDirectory))).set("value", c.value(custom, "Value")))
 	default:
@@ -2091,7 +2101,7 @@ func (c *converter) setter(setter *elem) (*omap, []any) {
 			after = actCostFinalize
 		}
 	} else {
-		action.set("setProperty", flowMap().set("name", setterID).set("value", c.value(setter, "Value")))
+		action.set("setProperty", flowMap().set("name", setterID).set("value", c.setValue(setter, setterID)))
 	}
 
 	sequences := c.setterSequences(action, setter)
