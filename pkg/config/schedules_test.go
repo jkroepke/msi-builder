@@ -260,3 +260,31 @@ func TestScheduleBuilderChainName(t *testing.T) {
 		t.Error(ds)
 	}
 }
+
+// A FindRelatedProducts moved into a long chain after AppSearch runs before
+// LaunchConditions, which the builder puts after that chain once it reaches
+// 100; ids the older checks refuse are not reported twice.
+func TestScheduleFindInLongSearchChain(t *testing.T) {
+	t.Parallel()
+
+	doc := base + appComponent + "properties: {Q: {search: {registry: {root: HKLM, key: X, name: V}}}}\n" +
+		"launchConditions: [{condition: VersionNT, message: x}]\n" +
+		"standardActions: [{action: FindRelatedProducts, schedule: [{sequence: execute, after: SearchApply_Q}]}]\n"
+
+	placements := make([]string, 49)
+	for i := range placements {
+		placements[i] = "after: SearchApply_Q"
+	}
+
+	if ds := validate(t, doc+setProps(placements...)); errorCount(ds) != 0 || len(ds) != 0 {
+		t.Errorf("long chain: %v", ds)
+	}
+
+	dual := strings.Replace(base, "  platform: x64\n", "  platform: x64\n  scope: perUserOrMachine\n", 1) + appComponent + "ui: {enabled: true}\n"
+	for _, id := range []string{"SetInstallScopeUser", "FindRelatedProducts"} {
+		ds := validate(t, dual+"customActions:\n  - id: "+id+"\n    setProperty: {name: P, value: x}\n    schedule: [{sequence: execute, at: 6700}]\n")
+		if errorCount(ds) != 1 {
+			t.Errorf("%s: want one error: %v", id, ds)
+		}
+	}
+}

@@ -86,7 +86,7 @@ func (v *validator) takenChainNames(cfg *Config, byID map[string]*CustomAction) 
 	}
 
 	for i, action := range cfg.CustomActions {
-		if note := notes[action.ID]; note != "" && byID[action.ID] == action {
+		if note := notes[action.ID]; note != "" && byID[action.ID] == action && !reportedID(action.ID) {
 			path := fmt.Sprintf("customActions[%d].id", i)
 			if action.origin != "" {
 				path = action.origin
@@ -95,6 +95,13 @@ func (v *validator) takenChainNames(cfg *Config, byID map[string]*CustomAction) 
 			v.errorf(path, "%s is the name of an action the build adds: %s", action.ID, note)
 		}
 	}
+}
+
+// reportedID reports whether actionID and rememberIDs already refuse an id
+// named like a chain action: a standard action, or an action of the scope
+// page or of installDir.remember.
+func reportedID(id string) bool {
+	return standardActions[id] || slices.ContainsFunc(dualActionPrefixes, func(prefix string) bool { return strings.HasPrefix(id, prefix) })
 }
 
 // explain returns the reason of a numbering error with a note on where

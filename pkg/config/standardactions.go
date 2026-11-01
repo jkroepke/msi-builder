@@ -118,16 +118,9 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 		return
 	}
 
-	launch := sequence.Find(numbered, actLaunchConditions)
-	if launch == 0 {
-		std, _ := sequence.LookupStandard(actLaunchConditions)
-		launch = std.Number(table)
-
-		if find == launch {
-			v.findOnLaunch(cfg, table, find)
-
-			return
-		}
+	launch, done := v.launchNumber(cfg, table, numbered, find)
+	if done {
+		return
 	}
 
 	path = movePath(cfg, table)
@@ -136,6 +129,55 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 	}
 
 	v.reportLaunchBeforeFind(cfg, path)
+}
+
+// launchNumber returns the number of LaunchConditions, or its default when
+// validate leaves it to the build; done reports that nothing is left to
+// check: the build runs it after a FindRelatedProducts in the chain after
+// AppSearch, or FindRelatedProducts takes its default number.
+func (v *validator) launchNumber(cfg *Config, table string, numbered []sequence.Numbered, find int) (int, bool) {
+	if launch := sequence.Find(numbered, actLaunchConditions); launch != 0 {
+		return launch, false
+	}
+
+	// The builder runs LaunchConditions at 100 or, when the actions after
+	// AppSearch reach it, after them: after FindRelatedProducts either way.
+	if inSearchBlock(numbered, find) {
+		return 0, true
+	}
+
+	std, _ := sequence.LookupStandard(actLaunchConditions)
+	launch := std.Number(table)
+
+	if find == launch {
+		v.findOnLaunch(cfg, table, find)
+
+		return 0, true
+	}
+
+	return launch, false
+}
+
+// inSearchBlock reports whether number belongs to the unbroken run of
+// numbers after AppSearch, that is to the actions chained after it.
+func inSearchBlock(numbered []sequence.Numbered, number int) bool {
+	search := sequence.Find(numbered, actAppSearch)
+	if search == 0 || number <= search {
+		return false
+	}
+
+	taken := make(map[int]bool, len(numbered))
+	for _, n := range numbered {
+		taken[n.Sequence] = true
+	}
+
+	for i := search + 1; i < number; i++ {
+		if !taken[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // findOnLaunch reports FindRelatedProducts on the number of an unmoved
