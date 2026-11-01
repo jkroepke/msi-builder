@@ -785,7 +785,7 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 	}
 
 	fileType := newMap()
-	fileType.order("progId", "description", "iconIndex", "extensions", "verbs")
+	fileType.order("progId", "file", "description", "iconFile", "iconIndex", "extensions", "verbs")
 	fileType.set("progId", conv.typeText(fileType, elm, "Id"))
 	fileType.set("description", conv.typeText(fileType, elm, "Description"))
 
@@ -975,36 +975,43 @@ func (c *converter) placeTypes() {
 			continue
 		}
 
-		placed[progID] = placedType{pending: pending, file: file}
+		c.typeIcon(pending, file)
+
+		// A ProgId in a component with other features or a condition than
+		// the file it opens stays in that component, which names the file,
+		// so that it stays optional.
+		if pending.comp != file.comp && c.componentDiffers(file.comp, pending.comp) {
+			placed[progID] = placedType{pending: pending, file: file, home: pending.comp}
+
+			pending.out.set("file", fileRefName(file))
+			pending.comp.out.add("fileTypes", pending.out)
+
+			continue
+		}
+
+		placed[progID] = placedType{pending: pending, file: file, home: file.comp}
 
 		file.out.add("fileTypes", pending.out)
-		c.typeIconNote(pending, file)
-		c.typeFeatureNote(pending, file)
-		c.typeConditionNote(pending, file)
 	}
 }
 
-// placedType is a ProgId placed on the file it opens.
+// fileRefName returns how the YAML names a converted file from another
+// component: its id, else its name.
+func fileRefName(file *fileRef) string {
+	if id := file.out.str("id"); id != "" {
+		return id
+	}
+
+	return file.name
+}
+
+// placedType is a ProgId placed on the file it opens or in its own
+// component.
 type placedType struct {
-	file    *fileRef
+	file *fileRef
+	// home is the component whose YAML holds the file type.
+	home    *comp
 	pending pendingType
-}
-
-// typeConditionNote notes a ProgId whose component has a condition that the
-// component of the file it opens does not share: the file type now
-// installs with the file.
-func (c *converter) typeConditionNote(pending pendingType, file *fileRef) {
-	if pending.comp == file.comp || pending.comp.out == nil {
-		return
-	}
-
-	cond := pending.comp.out.str("condition")
-	if cond == "" || file.comp.out != nil && file.comp.out.str("condition") == cond {
-		return
-	}
-
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with the condition %s; msi-builder installs "+
-		"file types with their file, so that condition no longer applies to it", pending.e.attr("Id"), cond)
 }
 
 // typeExtensions returns the extensions of a converted file type.
@@ -1057,8 +1064,8 @@ func (c *converter) mergeType(first placedType, again pendingType, file *fileRef
 	}
 
 	note := ""
-	if again.comp != file.comp && c.componentDiffers(file.comp, again.comp) {
-		note = "; it installs with the file now, so the condition and features of the component that declared it again no longer apply"
+	if again.comp != first.home && c.componentDiffers(first.home, again.comp) {
+		note = "; it installs with the first declaration now, so the condition and features of the component that declared it again no longer apply"
 	}
 
 	c.todof(first.pending.out, "", again.e.line, "the ProgId %s is declared again; convert merged its extensions into this file type "+
@@ -1117,35 +1124,39 @@ func commentsIn(value any, skip map[*omap]bool) []string {
 	return nil
 }
 
-// typeIconNote notes a ProgId whose icon is in another file than the one
-// it opens: iconIndex only picks an icon of the file the type goes on.
-func (c *converter) typeIconNote(pending pendingType, file *fileRef) {
+// typeIcon sets the icon of a ProgId whose Icon names another file than
+// the one it opens: iconFile names that file, and without an IconIndex
+// the first icon is taken. An <Icon> or a file this source does not
+// define gets a TODO.
+func (c *converter) typeIcon(pending pendingType, file *fileRef) {
 	icon := strings.TrimSpace(c.literal(pending.e.attr("Icon")))
 	if icon == "" || icon == file.key || icon == strings.TrimSpace(c.literal(file.key)) {
 		return
 	}
 
-	pending.out.del("iconIndex")
-
 	progID := pending.e.attr("Id")
-	isFile := slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == icon })
 
-	if !isFile && slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
-		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
-			"ProgIds use; install the icon as a file and add the DefaultIcon key HKCR\\%s\\DefaultIcon as a registry value "+
-			"naming it", progID, icon, progID)
+	if index := slices.IndexFunc(c.files, func(f *fileRef) bool { return f.key == icon }); index >= 0 {
+		pending.out.set("iconFile", fileRefName(c.files[index]))
+
+		if !pending.e.has("IconIndex") {
+			pending.out.del("iconIndex")
+		}
 
 		return
 	}
 
-	where := ""
-	if !isFile {
-		where = " (a file this source does not define)"
+	pending.out.del("iconIndex")
+
+	if slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
+		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
+			"ProgIds use; install the icon as a file and name it with iconFile", progID, icon)
+
+		return
 	}
 
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s%s, not from the file it opens; "+
-		"iconIndex only picks an icon of that file, so add the DefaultIcon key as a registry value "+
-		"(HKCR\\%s\\DefaultIcon = [#%s],%s)", progID, icon, where, progID, icon, c.iconIndexText(pending.e))
+	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s (a file this source does not define), "+
+		"not from the file it opens; name the file with iconFile (index %s)", progID, icon, c.iconIndexText(pending.e))
 }
 
 // iconIndexText returns a ProgId's icon index, 0 when it gives none.
@@ -1155,23 +1166,6 @@ func (c *converter) iconIndexText(elm *elem) string {
 	}
 
 	return "0"
-}
-
-// typeFeatureNote notes a ProgId whose component is in other features than
-// the file it opens: its file type now installs with the file.
-func (c *converter) typeFeatureNote(pending pendingType, file *fileRef) {
-	if file.comp == pending.comp {
-		return
-	}
-
-	own, target := c.featureIDs(pending.comp), c.featureIDs(file.comp)
-	if slices.Equal(own, target) {
-		return
-	}
-
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in features %s, the file it opens in %s; "+
-		"msi-builder installs file types with their file, so this one is no longer optional", pending.e.attr("Id"),
-		orNone(own), orNone(target))
 }
 
 // featureIDs returns the IDs of the features that hold a component, sorted.

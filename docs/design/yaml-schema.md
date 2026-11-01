@@ -1098,6 +1098,7 @@ files:
       - progId: Example.Document                 # a key under HKEY_CLASSES_ROOT
         description: Example document            # the type's name in Explorer
         iconIndex: 0                             # DefaultIcon: "[#viewer.exe]",0; leave out for none
+        # iconFile: document.ico                 # take the icon from another packaged file
         extensions:
           - extension: exdoc                     # without the dot
             contentType: application/x-exdoc     # optional Content Type value
@@ -1159,6 +1160,64 @@ an error). Uninstalling removes only that entry and keeps other programs'
 entries (REG-04). Any number of ProgIDs may list an extension with
 `openWithOnly`; the default may be registered once. Explorer's "Open with"
 choice of the user (`UserChoice`) still wins over the package's default.
+
+**File type icons from other files.** `iconFile` names another packaged
+file, the ID or name of an `.ico`, `.exe` or `.dll` in any component,
+whose icon `DefaultIcon` shows instead of the opened file's:
+`"[#document.ico]",0`, with `iconIndex` picking the icon (default 0 with
+`iconFile`). A file that a folder source adds has a generated ID and cannot
+be named. An `icons` entry cannot be used: the engine copies those to disk
+for `Shortcut` rows, advertisement and the Add/Remove Programs icon
+(documented), and a `Registry` row has no way to name one (specification
+chapter 16). The `.ico` installs with its component like any file.
+
+**File types with features of their own.** A component can list
+`fileTypes` of its own, each naming the file it opens with `file`, the ID
+or name of a packaged file in any component. Their rows go into that
+component, so they install with its features, not those of the file, and
+each extension can be picked in the feature tree:
+
+```yaml
+components:
+  - id: Viewer
+    files: [{ source: viewer.exe }, { source: document.ico }]
+  - id: AssocExdoc
+    fileTypes:
+      - progId: Example.exdoc
+        file: viewer.exe                         # a file of any component
+        description: Example document
+        iconFile: document.ico
+        extensions: [{ extension: exdoc }]
+  - id: AssocExlog
+    fileTypes:
+      - progId: Example.exlog
+        file: viewer.exe
+        description: Example log
+        iconFile: document.ico
+        extensions: [{ extension: exlog }]
+features:
+  - id: Main
+    components: [Viewer]
+    features:
+      - { id: Exdoc, title: .exdoc files, components: [AssocExdoc] }
+      - { id: Exlog, title: .exlog files, default: off, components: [AssocExlog] }
+```
+
+They take the keys of a file's `fileTypes`, and `file` is required. When a
+feature of the listing component does not also install the file's
+component, the command and the icon name the file by its folder and long
+name, `"[INSTALLDIR]viewer.exe" "%1"`, instead of `[#id]`, by the rule of
+component shortcuts (ICE69, SHORTCUT-04); with the file's feature as the
+parent, as above, the file is always there. A component with nothing but
+file types is keyed on the first value with data they write: the ProgID's
+description, else its `DefaultIcon`, a verb's command or the default of an
+extension it owns (an `openWithOnly` entry alone is not enough, which is an
+error). Adding a feature later writes only its rows, removing it removes
+only those, and the uninstall removes the rest (REG-09). Give each optional
+extension its own ProgID, as above: a ProgID is registered once per
+package, and the rows of one ProgID in two components would be removed
+with the first of them, leaving the other extension pointing at nothing
+(specification chapter 16).
 
 **Closing running programs.** `close` on a program stops its running
 copies when its component is installed, repaired or removed, so that an

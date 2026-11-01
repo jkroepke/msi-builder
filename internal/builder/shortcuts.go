@@ -206,7 +206,7 @@ func shortcutsOnly(comp *config.Component) bool {
 	}
 
 	return len(comp.Files)+len(comp.Registry)+len(comp.RemoveRegistry)+len(comp.RemoveFiles)+len(comp.RemoveFolders)+
-		len(comp.Services)+len(comp.ServiceControl)+len(comp.EventLog)+len(comp.Environment) == 0
+		len(comp.Services)+len(comp.ServiceControl)+len(comp.EventLog)+len(comp.Environment)+len(comp.FileTypes) == 0
 }
 
 // topFolder returns the standard folder above a directory.

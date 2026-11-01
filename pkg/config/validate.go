@@ -83,7 +83,7 @@ func Validate(cfg *Config) Diagnostics {
 	checker.components(cfg, known)
 	checker.folderComponents(cfg, known)
 	checker.shortcuts(cfg, known)
-	checker.fileTypes(cfg)
+	checker.fileTypes(cfg, known)
 	checker.properties(cfg)
 	checker.launchConditions(cfg)
 	checker.customActions(cfg, known)
@@ -2948,6 +2948,10 @@ func componentRoots(comp *Component) []string {
 		if len(file.FileTypes) > 0 {
 			roots = append(roots, "HKCR")
 		}
+	}
+
+	if len(comp.FileTypes) > 0 {
+		roots = append(roots, "HKCR")
 	}
 
 	for _, env := range comp.Environment {

@@ -1847,9 +1847,10 @@ func TestConvertLocalActionRefAndIcon(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"the ProgId Example.Doc takes its icon from doc.ico", `HKCR\Example.Doc\DefaultIcon = [#doc.ico],0`,
+		"progId: Example.Doc\n", "description: Hello document\n", "iconFile: doc.ico\n",
 		"progId: Example.Own\n", "iconIndex: 0\n", "iconIndex: 2\n", "iconIndex: 1\n",
-		"the ProgId Example.Elsewhere takes its icon from other.dll (a file this source does not define), not from the file it opens",
+		"the ProgId Example.Elsewhere takes its icon from other.dll (a file this source does not define), not from the file it opens; " +
+			"name the file with iconFile (index 0)",
 		"the ProgId Example.Table takes its icon from the <Icon> App.ico, which only advertised ProgIds use",
 	} {
 		if !strings.Contains(out, want) {
@@ -2276,8 +2277,8 @@ func TestConvertSharedProgIDAndExistenceSearch(t *testing.T) {
 	out := string(res.YAML)
 	for _, want := range []string{
 		"extension: hla\n", "extension: hlb\n", "the ProgId Example.Shared is declared again",
-		"so the condition and features of the component that declared it again no longer apply",
-		`was in a component with the condition ASSOC="1"`,
+		// The conditioned component keeps its file type and names the file.
+		"    condition: ASSOC=\"1\"\n    fileTypes:\n", "        file: app\n",
 		"type: directory\n",
 	} {
 		if !strings.Contains(out, want) {

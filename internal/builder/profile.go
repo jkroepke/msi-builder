@@ -139,6 +139,10 @@ func componentRoots(comp *config.Component) []string {
 		}
 	}
 
+	if len(comp.FileTypes) > 0 {
+		roots = append(roots, rootHKCR)
+	}
+
 	for _, env := range comp.Environment {
 		if env.Scope == envMachine {
 			roots = append(roots, rootHKLM)
