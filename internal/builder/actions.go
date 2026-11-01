@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -44,11 +45,11 @@ const returnIgnore = "ignore"
 
 // Sequence table names.
 const (
-	seqInstallExecute = "InstallExecuteSequence"
-	seqInstallUI      = "InstallUISequence"
-	seqAdminExecute   = "AdminExecuteSequence"
-	seqAdminUI        = "AdminUISequence"
-	seqAdvtExecute    = "AdvtExecuteSequence"
+	seqInstallExecute = sequence.InstallExecute
+	seqInstallUI      = sequence.InstallUI
+	seqAdminExecute   = sequence.AdminExecute
+	seqAdminUI        = sequence.AdminUI
+	seqAdvtExecute    = sequence.AdvtExecute
 )
 
 // Standard action names the builder refers to more than once.
@@ -83,125 +84,6 @@ const (
 )
 
 var sequenceTables = []string{seqInstallExecute, seqInstallUI, seqAdminExecute, seqAdminUI, seqAdvtExecute} //nolint:gochecknoglobals // lookup table
-
-// standardAction is a standard action's default number per table (section
-// 9.2) and its condition.
-type standardAction struct {
-	condition string
-	ies       int
-	ius       int
-	aes       int
-	aus       int
-	advt      int
-}
-
-func (s standardAction) number(table string) int {
-	switch table {
-	case seqInstallExecute:
-		return s.ies
-	case seqInstallUI:
-		return s.ius
-	case seqAdminExecute:
-		return s.aes
-	case seqAdminUI:
-		return s.aus
-	default:
-		return s.advt
-	}
-}
-
-// standardActions holds the default numbers of every standard action this
-// builder may schedule.
-var standardActions = map[string]standardAction{ //nolint:gochecknoglobals // lookup table
-	"FindRelatedProducts":      {ies: 25, ius: 25},
-	"AppSearch":                {ies: 50, ius: 50},
-	"LaunchConditions":         {ies: 100, ius: 100, aes: 100, aus: 100},
-	"CCPSearch":                {ies: 500, ius: 500, condition: condNotInstalled},
-	"RMCCPSearch":              {ies: 600, ius: 600, condition: condNotInstalled},
-	actValidateProductID:       {ies: 700, ius: 700},
-	actCostInitialize:          {ies: 800, ius: 800, aes: 800, aus: 800, advt: 800},
-	actFileCost:                {ies: 900, ius: 900, aes: 900, aus: 900},
-	"IsolateComponents":        {ies: 950, ius: 950},
-	actCostFinalize:            {ies: 1000, ius: 1000, aes: 1000, aus: 1000, advt: 1000},
-	"SetODBCFolders":           {ies: 1100},
-	"MigrateFeatureStates":     {ies: 1200, ius: 1200},
-	actExecuteAction:           {ius: 1300, aus: 1300},
-	actInstallValidate:         {ies: 1400, aes: 1400, advt: 1400},
-	"RemoveExistingProducts":   {ies: 1401},
-	actInstallInitialize:       {ies: 1500, aes: 1500, advt: 1500},
-	"AllocateRegistrySpace":    {ies: 1550, condition: condNotInstalled},
-	"ProcessComponents":        {ies: 1600},
-	"UnpublishComponents":      {ies: 1700},
-	"MsiUnpublishAssemblies":   {ies: 1750},
-	"UnpublishFeatures":        {ies: 1800},
-	actStopServices:            {ies: 1900, condition: condVersionNT},
-	actDeleteServices:          {ies: 2000, condition: condVersionNT},
-	"UnregisterComPlus":        {ies: 2100},
-	"SelfUnregModules":         {ies: 2200},
-	"UnregisterTypeLibraries":  {ies: 2300},
-	"RemoveODBC":               {ies: 2400},
-	"UnregisterFonts":          {ies: 2500},
-	actRemoveRegistryValues:    {ies: 2600},
-	"UnregisterClassInfo":      {ies: 2700},
-	"UnregisterExtensionInfo":  {ies: 2800},
-	"UnregisterProgIdInfo":     {ies: 2900},
-	"UnregisterMIMEInfo":       {ies: 3000},
-	"RemoveIniValues":          {ies: 3100},
-	"RemoveShortcuts":          {ies: 3200},
-	"RemoveEnvironmentStrings": {ies: 3300},
-	"RemoveDuplicateFiles":     {ies: 3400},
-	actRemoveFiles:             {ies: 3500},
-	actRemoveFolders:           {ies: 3600},
-	"CreateFolders":            {ies: 3700},
-	"MoveFiles":                {ies: 3800},
-	"InstallAdminPackage":      {aes: 3900},
-	actInstallFiles:            {ies: 4000, aes: 4000},
-	"PatchFiles":               {ies: 4090, aes: 4090},
-	actDuplicateFiles:          {ies: 4210},
-	"BindImage":                {ies: 4300},
-	"CreateShortcuts":          {ies: 4500, advt: 4500},
-	"RegisterClassInfo":        {ies: 4600, advt: 4600},
-	"RegisterExtensionInfo":    {ies: 4700, advt: 4700},
-	"RegisterProgIdInfo":       {ies: 4800, advt: 4800},
-	"RegisterMIMEInfo":         {ies: 4900, advt: 4900},
-	actWriteRegistryValues:     {ies: 5000},
-	"WriteIniValues":           {ies: 5100},
-	"WriteEnvironmentStrings":  {ies: 5200},
-	"RegisterFonts":            {ies: 5300},
-	"InstallODBC":              {ies: 5400},
-	"RegisterTypeLibraries":    {ies: 5500},
-	"SelfRegModules":           {ies: 5600},
-	"RegisterComPlus":          {ies: 5700},
-	actInstallServices:         {ies: 5800, condition: condVersionNT},
-	"MsiConfigureServices":     {ies: 5850, condition: "VersionNT>=600"},
-	actStartServices:           {ies: 5900, condition: condVersionNT},
-	"RegisterUser":             {ies: 6000},
-	"RegisterProduct":          {ies: 6100},
-	"PublishComponents":        {ies: 6200, advt: 6200},
-	"MsiPublishAssemblies":     {ies: 6250, advt: 6250},
-	actPublishFeatures:         {ies: 6300, advt: 6300},
-	actPublishProduct:          {ies: 6400, advt: 6400},
-	actScheduleReboot:          {},
-	"InstallExecute":           {ies: 6500, condition: condNotInstalled},
-	"InstallExecuteAgain":      {ies: 6550, condition: condNotInstalled},
-	actInstallFinalize:         {ies: 6600, aes: 6600, advt: 6600},
-}
-
-// alwaysActions are the standard actions every product gets, per table
-// (sections 9.2 and 11.7).
-var alwaysActions = map[string][]string{ //nolint:gochecknoglobals // lookup table
-	seqInstallExecute: {
-		actValidateProductID, actCostInitialize, actFileCost, actCostFinalize, actInstallValidate,
-		actInstallInitialize, "ProcessComponents", "UnpublishFeatures", "RegisterUser",
-		"RegisterProduct", actPublishFeatures, actPublishProduct, actInstallFinalize,
-	},
-	seqInstallUI: {actValidateProductID, actCostInitialize, actFileCost, actCostFinalize, actExecuteAction},
-	seqAdminExecute: {
-		actCostInitialize, actFileCost, actCostFinalize, actInstallValidate, actInstallInitialize, "InstallAdminPackage", actInstallFiles, actInstallFinalize,
-	},
-	seqAdminUI:     {actCostInitialize, actFileCost, actCostFinalize, actExecuteAction},
-	seqAdvtExecute: {actCostInitialize, actCostFinalize, actInstallValidate, actInstallInitialize, actPublishFeatures, actPublishProduct, actInstallFinalize},
-}
 
 // tableActions maps a populated table to the InstallExecuteSequence actions
 // it needs (section 9.3).
@@ -303,12 +185,26 @@ func (b *build) standardAt(table, name string) {
 		return
 	}
 
-	s, ok := standardActions[name]
-	if !ok || s.number(table) == 0 {
+	s, ok := sequence.LookupStandard(name)
+	if !ok || s.Number(table) == 0 {
 		panic(fmt.Sprintf("builder: %s has no default number in %s", name, table))
 	}
 
-	b.schedule(table, name, s.condition, "", "", s.number(table))
+	b.schedule(table, name, s.Condition, "", "", s.Number(table))
+}
+
+// standardNumber is the default number of a standard action in a table.
+func standardNumber(table, name string) int {
+	s, _ := sequence.LookupStandard(name)
+
+	return s.Number(table)
+}
+
+// standardCondition is the default condition of a standard action.
+func standardCondition(name string) string {
+	s, _ := sequence.LookupStandard(name)
+
+	return s.Condition
 }
 
 // anchorActions adds a standard action that an action is scheduled
@@ -317,7 +213,7 @@ func (b *build) anchorActions() {
 	for _, table := range sequenceTables {
 		for _, action := range b.schedules[table] {
 			anchor := action.Before + action.After
-			if s, ok := standardActions[anchor]; ok && s.number(table) != 0 {
+			if s, ok := sequence.LookupStandard(anchor); ok && s.Number(table) != 0 {
 				b.standardAt(table, anchor)
 
 				// DuplicateFiles copies installed files (specification
@@ -637,7 +533,7 @@ func firewallProfiles(list config.StringList) string {
 // and writes the five sequence tables and the CustomAction table.
 func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over the format; splitting would scatter it
 	for _, table := range sequenceTables {
-		for _, name := range alwaysActions[table] {
+		for _, name := range sequence.Always(table) {
 			b.standardAt(table, name)
 		}
 	}
@@ -648,8 +544,8 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 			// they do not fit between 50 and 100, so that the gap does not
 			// limit how many properties a package can search.
 			if b.scheduled(table, "AppSearch") && !b.scheduled(table, "LaunchConditions") &&
-				standardActions["AppSearch"].number(table)+b.anchoredTo(table, "AppSearch") >= standardActions["LaunchConditions"].number(table) {
-				b.schedule(table, "LaunchConditions", standardActions["LaunchConditions"].condition, "", "AppSearch", 0)
+				standardNumber(table, "AppSearch")+b.anchoredTo(table, "AppSearch") >= standardNumber(table, "LaunchConditions") {
+				b.schedule(table, "LaunchConditions", standardCondition("LaunchConditions"), "", "AppSearch", 0)
 			}
 
 			b.standardAt(table, "LaunchConditions")
@@ -681,7 +577,7 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 	// Every scheduled name must be a standard action or a custom action.
 	for _, table := range sequenceTables {
 		for _, action := range b.schedules[table] {
-			if _, std := standardActions[action.Name]; std || b.action(action.Name) != nil || b.isDialog(action.Name) {
+			if _, std := sequence.LookupStandard(action.Name); std || b.action(action.Name) != nil || b.isDialog(action.Name) {
 				continue
 			}
 
@@ -705,7 +601,9 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 	for _, table := range sequenceTables {
 		numbered, err := sequence.Number(b.schedules[table])
 		if err != nil {
-			return fmt.Errorf("%s: %w", table, err)
+			b.sequenceError(table, err)
+
+			continue
 		}
 
 		b.numbered[table] = numbered
@@ -714,6 +612,10 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 		for _, n := range numbered {
 			t.Add(n.Name, nullable(n.Condition), n.Sequence)
 		}
+	}
+
+	if err := b.diags.Err(); err != nil {
+		return err //nolint:wrapcheck // the diagnostics carry their own paths
 	}
 
 	b.checkSequences()
@@ -747,6 +649,145 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 	}
 
 	return nil
+}
+
+// sequenceError reports a numbering error at the YAML placement of the
+// action it names, or of the other action involved when the first one is
+// not the user's (a standard action or one the builder adds), else at the
+// first user placement in the chain of either action. An error that leads
+// to none falls back to the customActions section.
+func (b *build) sequenceError(table string, err error) {
+	var serr *sequence.Error
+	if !errors.As(err, &serr) {
+		b.errorf("customActions", "%s: %v", table, err)
+
+		return
+	}
+
+	path := b.placementPath(table, serr.Action)
+	if path == "" {
+		path = b.placementPath(table, serr.Other)
+	}
+
+	if path == "" {
+		path = b.chainPlacement(table, serr.Action, serr.Other)
+	}
+
+	if path == "" {
+		path = "customActions"
+	}
+
+	b.errorf(path, "%s: %s", table, serr.Reason)
+}
+
+// chainPlacement returns the YAML path of the first user placement in the
+// chain of an action the builder added, the chain whose anchors end at the
+// same action, trying the actions in turn; "" when no chain has one.
+func (b *build) chainPlacement(table string, actions ...string) string {
+	anchors := make(map[string]string, len(b.schedules[table]))
+	before := make(map[string]bool, len(b.schedules[table]))
+
+	for _, a := range b.schedules[table] {
+		anchors[a.Name] = a.Before + a.After
+		before[a.Name] = a.Before != ""
+	}
+
+	chains := &chainRoots{anchors: anchors, before: before, roots: make(map[string]string, len(anchors))}
+
+	user := make(map[string]bool, len(b.cfg.CustomActions))
+	for _, custom := range b.cfg.CustomActions {
+		user[custom.ID] = true
+
+		if custom.Run != nil {
+			user[custom.ID+".Data"] = true
+		}
+	}
+
+	first := make(map[string]string)
+
+	for _, a := range b.schedules[table] {
+		if root := chains.root(a.Name); user[a.Name] && first[root] == "" {
+			first[root] = a.Name
+		}
+	}
+
+	for _, action := range actions {
+		if name := first[chains.root(action)]; action != "" && name != "" {
+			return b.placementPath(table, name)
+		}
+	}
+
+	return ""
+}
+
+// chainRoots finds the action that ends each chain of anchors.
+type chainRoots struct {
+	anchors map[string]string
+	before  map[string]bool
+	roots   map[string]string
+}
+
+// root names the chain of an action: the action its anchors end at, and
+// whether the chain runs before or after it, since the two sides take
+// different numbers. Each name is resolved once, and a cycle ends where it
+// closes. An action with no anchor is its own chain.
+func (c *chainRoots) root(name string) string {
+	seen := make(map[string]bool)
+
+	var path []string
+
+	cur := name
+	for c.anchors[cur] != "" && c.roots[cur] == "" && !seen[cur] {
+		seen[cur] = true
+		path = append(path, cur)
+		cur = c.anchors[cur]
+	}
+
+	key := cur
+
+	switch {
+	case c.roots[cur] != "":
+		key = c.roots[cur]
+	case len(path) > 0 && c.before[path[len(path)-1]]:
+		key = cur + " before"
+	case len(path) > 0:
+		key = cur + " after"
+	}
+
+	for _, n := range path {
+		c.roots[n] = key
+	}
+
+	return key
+}
+
+// placementPath returns the YAML path of the placement that schedules action
+// in table: that of a custom action, or of the run action whose data action
+// it is; "" for any other action.
+// An action generated from a service argument gets the index it has in
+// cfg.CustomActions; config.Validate, which knows its origin, reports the
+// conflicts it can take part in first, and only a conflict the build alone
+// sees could reach one through chainPlacement.
+func (b *build) placementPath(table, action string) string {
+	if action == "" {
+		return ""
+	}
+
+	id, isData := strings.CutSuffix(action, ".Data")
+
+	for i, custom := range b.cfg.CustomActions {
+		if custom.ID != action && (!isData || custom.ID != id || custom.Run == nil) {
+			continue
+		}
+
+		for j, placement := range custom.Schedule {
+			if t, ok := config.SequenceTable(placement.Sequence); ok && t == table {
+				return fmt.Sprintf("customActions[%d].schedule[%d]", i, j)
+			}
+		}
+	}
+
+	return ""
 }
 
 // checkSequences applies the ordering rules that numbering cannot: ICE77
