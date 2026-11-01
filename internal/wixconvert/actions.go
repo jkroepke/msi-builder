@@ -1445,15 +1445,17 @@ func (c *converter) moveOff(actionID string, placement *omap, dropped map[string
 // pivotAnchor places an action scheduled next to a left-out action that
 // has actions on both of its sides: taking the left-out action's place
 // would lose their order, so, as for a WiX extension's action, the
-// placement keeps its side of fallbackAnchor, the same one for every action
-// around the left-out one.
+// placement keeps its side of one fallback anchor in the sequence.
 func (c *converter) pivotAnchor(actionID string, placement *omap, gone string, src *elem) *omap {
 	key := keyAfter
 	if placement.str(keyBefore) != "" {
 		key = keyBefore
 	}
 
-	target := fallbackAnchor(src.name != "" && inScript(src))
+	// One anchor for every action around the left-out one: InstallFiles in
+	// the execute sequence, where it keeps a deferred one in the script and
+	// an immediate one may run too, CostFinalize in the UI sequence.
+	target := fallbackAnchor(placement.str("sequence") == seqExecute)
 	moved := moveAnchor(placement, flowMap().set(key, target))
 	c.todof(moved, "", src.line, "%s was scheduled %s %s, which convert left out and which has actions on both sides; "+
 		"convert placed it %s %s to keep their order, check that place", actionID, key, gone, key, target)

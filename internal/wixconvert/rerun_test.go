@@ -308,7 +308,9 @@ func TestConvertLaunchConditionsFirstEverywhere(t *testing.T) {
 
 // TestConvertDroppedActionBothSides keeps the order of actions on both
 // sides of a left-out action: taking its place would put them in file
-// order, so they keep their sides of the fallback anchor instead.
+// order, so they keep their sides of InstallFiles instead, which keeps a
+// deferred one in the install script even when the left-out action is
+// immediate.
 func TestConvertDroppedActionBothSides(t *testing.T) {
 	t.Parallel()
 
@@ -325,8 +327,8 @@ func TestConvertDroppedActionBothSides(t *testing.T) {
     </Directory>
     <Feature Id="Main"><ComponentRef Id="App" /></Feature>
     <Binary Id="Fix" SourceFile="fix.js" />
-    <CustomAction Id="RunJs" BinaryKey="Fix" JScriptCall="Fix" Execute="deferred" />
-    <CustomAction Id="SetSecond" Property="SECOND" Value="2" />
+    <CustomAction Id="RunJs" BinaryKey="Fix" JScriptCall="Fix" Execute="immediate" />
+    <CustomAction Id="SetSecond" Directory="INSTALLDIR" ExeCommand="&quot;[SystemFolder]cmd.exe&quot; /c echo" Execute="deferred" Impersonate="no" Return="ignore" />
     <CustomAction Id="SetFirst" Property="FIRST" Value="1" />
     <InstallExecuteSequence>
       <Custom Action="RunJs" After="InstallFiles" />
