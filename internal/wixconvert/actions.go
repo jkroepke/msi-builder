@@ -879,21 +879,34 @@ func (c *converter) convertActions(byAction map[string][]any, drop func(string, 
 		}
 	}
 
+	for _, id := range c.undefinedActions(byAction) {
+		drop(id, nil, byAction[id])
+	}
+
+	return kept
+}
+
+// undefinedActions returns the actions the sequences schedule that the
+// file defines neither as a custom action nor as a setter, leaving out the
+// finish page's launch action and the actions of WiX extensions, which
+// extensionAnchors places actions next to, keeping the order of those on
+// both sides of one.
+func (c *converter) undefinedActions(byAction map[string][]any) []string {
 	setters := make(map[string]bool)
 	for _, setter := range c.setters {
 		setters[setterName(setter)] = true
 	}
 
+	var ids []string
+
 	for _, id := range slices.Sorted(maps.Keys(byAction)) {
-		// extensionAnchors places actions next to an extension's action,
-		// keeping the order of those on both sides of it.
 		if c.actions[id] == nil && id != c.launchAction && !setters[id] &&
 			!extensionAction.MatchString(strings.TrimPrefix(id, "override ")) {
-			drop(id, nil, byAction[id])
+			ids = append(ids, id)
 		}
 	}
 
-	return kept
+	return ids
 }
 
 // actionScope gives an action of a dual package a scope: perMachine for

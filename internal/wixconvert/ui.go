@@ -320,6 +320,12 @@ func (c *converter) uiLaunch(wizard *omap) {
 		return
 	}
 
+	c.launchElsewhere(launch)
+}
+
+// launchElsewhere notes a ui.launch.file that this source file does not
+// define, which msi-builder refuses.
+func (c *converter) launchElsewhere(launch *omap) {
 	if file := launch.str("file"); !slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == file }) {
 		c.todof(launch, "file", 0, "the finish page launches the file %s, which this file does not define (it comes from "+
 			"another source file or a harvest); add that file to a component or remove ui.launch", file)
