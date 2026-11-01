@@ -138,7 +138,9 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 			for line := range strings.Lines(text) {
 				if strings.Contains(line, "Doing action: FindRelatedProducts") || strings.Contains(line, "Skipping action: FindRelatedProducts") ||
 					strings.Contains(line, "FindRelatedProducts:") || strings.Contains(line, "Doing action: SetAllUsersFromPrevious") ||
-					strings.Contains(line, "PROPERTY CHANGE: Adding ALLUSERS") || strings.Contains(line, "PROPERTY CHANGE: Modifying ALLUSERS") {
+					strings.Contains(line, "PROPERTY CHANGE: Adding ALLUSERS") || strings.Contains(line, "PROPERTY CHANGE: Modifying ALLUSERS") ||
+					strings.Contains(line, "RemoveExistingProducts") || strings.Contains(line, "app.exe") || strings.Contains(line, "Disallowing") ||
+					strings.Contains(line, "INSTALLDIR property") {
 					t.Logf("%s", strings.TrimSpace(line))
 				}
 			}
@@ -156,7 +158,9 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 			}
 
 			if _, err := os.Stat(filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilder"+name, "app.exe")); err != nil {
-				t.Errorf("app.exe after the v2 install: %v", err)
+				_, userErr := os.Stat(filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "MsiBuilder"+name, "app.exe"))
+				t.Errorf("app.exe after the v2 install: %v (server INSTALLDIR %q, in the per-user folder %t)", err,
+					serverProperties(text)["INSTALLDIR"], userErr == nil)
 			}
 		})
 	}
