@@ -101,7 +101,10 @@ func (c *converter) builtComponent(comp *comp, keyFile string) *BuiltComponent {
 }
 
 // registryRoots are the Root column values of the WiX registry roots.
-var registryRoots = map[string]int{"HKMU": -1, "HKCR": 0, "HKCU": 1, "HKLM": 2, "HKU": 3} //nolint:gochecknoglobals // lookup table
+// rootHKMU is the registry root of the installation context.
+const rootHKMU = "HKMU"
+
+var registryRoots = map[string]int{rootHKMU: -1, "HKCR": 0, "HKCU": 1, "HKLM": 2, "HKU": 3} //nolint:gochecknoglobals // lookup table
 
 // builtByRegistry returns the one free component of the built package
 // whose key path is a registry value of comp: its key path, when the source
@@ -341,10 +344,12 @@ func (c *converter) noteAdvertised() {
 // noteHarvested notes the folder sources that a WiX Files glob became and
 // that keep no code of the WiX package under a late removal: WiX gave every
 // harvested file a component and code of its own, so the removal of the
-// WiX package deletes the files whose code changed (UPG-11, UPG-12).
+// WiX package deletes the files whose code changed (UPG-11, UPG-12). With
+// --msi it notes them under any removal, as it notes the components it
+// finds no code for, so that a glob never stays without codes unnoticed.
 func (c *converter) noteHarvested() {
-	upgrade := c.out.mapAt("upgrade")
-	if upgrade == nil || !lateRemoval[upgrade.str("removeOld")] {
+	late := c.removesLate()
+	if !late && c.built == nil {
 		return
 	}
 
@@ -357,39 +362,64 @@ func (c *converter) noteHarvested() {
 			slices.Sort(comp.tied)
 			c.todof(comp.folder, "", comp.e.line,
 				"another Files glob into the same folder may add %s too, and convert did not find the files in exactly one "+
-					"of their source folders, so it kept no code for them and the late removeOld deletes them on the first "+
-					"upgrade from the WiX package; add the ComponentId WiX gave each one to the guids of the glob whose source "+
-					"folder holds it",
-				strings.Join(comp.tied, ", "))
+					"of their source folders, so it kept no code for them and %s; add the ComponentId WiX gave each one to "+
+					"the guids of the glob whose source folder holds it",
+				strings.Join(comp.tied, ", "), lostCodes(late))
 		default:
-			c.todof(comp.folder, "", comp.e.line, "%s", c.harvestNote(comp))
+			c.todof(comp.folder, "", comp.e.line, "%s", c.harvestNote(comp, late))
 		}
 	}
 }
 
+// removesLate reports whether the upgrade removes the old version after
+// installing this one.
+func (c *converter) removesLate() bool {
+	upgrade := c.out.mapAt("upgrade")
+
+	return upgrade != nil && lateRemoval[upgrade.str("removeOld")]
+}
+
+// lostCodes says what happens to the files of a folder source whose codes
+// differ from the WiX package's.
+func lostCodes(late bool) string {
+	if late {
+		return "the late removeOld deletes them on the first upgrade from the WiX package"
+	}
+
+	return "msi-builder gives them other codes, which an upgrade from the WiX package that removes the old version " +
+		"after installing this one (removeOld afterInstallExecute) would delete"
+}
+
 // harvestNote explains why a folder source that a Files glob became keeps
 // no code of the WiX package.
-func (c *converter) harvestNote(comp *comp) string {
-	const early = "or remove the old version early (afterInstallInitialize)"
+func (c *converter) harvestNote(comp *comp, late bool) string {
+	early := ""
+	if late {
+		early = ", or remove the old version early (afterInstallInitialize)"
+	}
 
 	switch {
 	case c.built == nil && comp.needArch:
 		return "WiX gave each file of this Files glob a component of its own, whose code depends on the platform WiX built " +
-			"for, so the late removeOld deletes these files on the first upgrade from the WiX package; run msi-builder " +
-			"convert again with --arch and that platform, or with --msi and the package WiX built, " + early
+			"for, so " + lostCodes(late) + "; run msi-builder convert again with --arch and that platform, or with --msi " +
+			"and the package WiX built" + early
 	case c.built == nil:
-		return "WiX gave each file of this Files glob a component of its own, so the late removeOld deletes these files on " +
-			"the first upgrade from the WiX package; run msi-builder convert again next to the glob's folder, or with --msi " +
-			"and the package WiX built, which keeps the code of each file in guids, " + early
+		return "WiX gave each file of this Files glob a component of its own, so " + lostCodes(late) + "; run msi-builder " +
+			"convert again next to the glob's folder, or with --msi and the package WiX built, which keeps the code of each " +
+			"file in guids" + early
 	case c.builtDir(c.dirs[comp.dir], comp.dir) == "":
 		return "convert did not find the folder of this Files glob in " + c.built.Name + ", so it kept no code for its " +
-			"files and the late removeOld deletes them on the first upgrade from the WiX package; add the ComponentId WiX " +
-			"gave each file to guids (msi-builder inspect --table Component), " + early
+			"files and " + lostCodes(late) + "; add the ComponentId WiX gave each file to guids (msi-builder inspect " +
+			"--table Component)" + early
 	}
 
-	return c.built.Name + " has no component for a file of this Files glob, so the late removeOld deletes these files on " +
-		"the first upgrade from the WiX package; add the ComponentId WiX gave each file to guids (msi-builder inspect " +
-		"--table Component), " + early
+	left := ""
+	if len(comp.e.opens) > 0 {
+		left = " (unless the build of the WiX package left this glob out: it sits in a template block)"
+	}
+
+	return c.built.Name + " has no component for a file of this Files glob" + left + ", so " + lostCodes(late) +
+		"; add the ComponentId WiX gave each file to guids (msi-builder inspect --table Component)" + early
 }
 
 // pinHarvested gives each folder source that a WiX Files glob became the

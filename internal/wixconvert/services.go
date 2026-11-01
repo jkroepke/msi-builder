@@ -316,7 +316,7 @@ func (c *converter) serviceKey(elm *elem) string {
 	for _, loc := range preprocessorVar.FindAllStringSubmatchIndex(text, -1) {
 		key.WriteString(strings.ToLower(text[last:loc[0]]))
 
-		kind := "var"
+		kind := varVar
 		if loc[2] >= 0 {
 			kind = text[loc[2]:loc[3]]
 		}
@@ -1005,6 +1005,12 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 		}
 	}
 
+	if regs := cc.typeRegs[elm]; regs != nil {
+		if file := applyTypeRegistry(fileType, regs); file != "" {
+			target = file
+		}
+	}
+
 	if fileType.get("verbs") == nil {
 		// Without verbs msi-builder writes an open verb; WiX writes none.
 		fileType.set("verbs", emptyList{})
@@ -1172,7 +1178,7 @@ func (c *converter) placeTypes() {
 }
 
 // typeFile returns the file a ProgId opens: the target of its verbs, else
-// the first file of its component.
+// the first file of its component, else the file its icon names.
 func (c *converter) typeFile(pending pendingType) *fileRef {
 	var file *fileRef
 
@@ -1182,7 +1188,23 @@ func (c *converter) typeFile(pending pendingType) *fileRef {
 		}
 	}
 
+	if file == nil && pending.target == "" {
+		return c.iconOnlyFile(pending)
+	}
+
 	return file
+}
+
+// iconOnlyFile returns the file the icon of a ProgId that runs nothing
+// names, or nil: in a component without files, such a ProgId still names
+// it, as WiX writes it.
+func (c *converter) iconOnlyFile(pending pendingType) *fileRef {
+	icon := strings.TrimSpace(c.literal(pending.e.attr("Icon")))
+	if index := slices.IndexFunc(c.files, func(f *fileRef) bool { return icon != "" && f.key == icon }); index >= 0 {
+		return c.files[index]
+	}
+
+	return nil
 }
 
 // fileRefName returns how the YAML names a converted file from another

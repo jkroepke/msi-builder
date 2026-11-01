@@ -142,6 +142,13 @@ versioning after 1.0.
   A WiX v3 package without a scope only does when it reads
   `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
   per-machine packages per-user in review, so they stay perMachine.
+  A ProgId without `Extension` children takes its verbs and `openWithOnly`
+  extensions from the `RegistryValue`s of its component that write
+  `<ProgId>\shell\<verb>\command` (running `[#file]`) and
+  `.<ext>\OpenWithProgids` under HKCR or `HKMU\Software\Classes`
+  (`progidreg.go`, marked `consumed`, which `compConv.child` skips); one
+  that runs nothing goes on its `Icon` file without verbs. With `--msi`,
+  a glob that kept no code gets a todo under any removal (`noteHarvested`).
   The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
   Nameless and `.` Directories are settled before the directories link
@@ -161,7 +168,18 @@ versioning after 1.0.
   block is also unkept when a file or component in it is referenced from
   outside its branch (`checkReferences`); when the converter needs one
   value of a variable a kept block defines (`literal` calls `needFixed`),
-  `Convert` runs again with those blocks forced to their first branch.
+  `Convert` runs again with those blocks forced to one branch. A block
+  that is not kept converts the branch a build without `-d` takes
+  (`ppeval.go`, `chooseBranches`): `ppSim` replays the instructions with
+  the file's defines and `$(sys.BUILDARCH)`/`BUILDARCHSHORT` from `--arch`, and evaluates
+  conditions as the template `ppCondition` writes would; a condition that
+  reads anything else (a variable only `-d` sets, an `<?ifdef?>` of a
+  variable no define sets, a loop variable) keeps the first branch.
+  `ppBlock.chosen` is that branch (`noBranch` for none) and `pruned`
+  drops the others. A `ComponentGroup` of contained components, `File`s
+  and `Files` stays in a kept block (`groupAllowed`); a membership's
+  actions are the reference's plus the component's, and `unionOpens`
+  drops an `if` that repeats one already there.
   Defines follow WiX order through `defineEval`: a define takes the value
   each variable has at that point, one that reads a variable no define has
   set yet reads `{{ .X }}` (--var stands in for -d), and a header var

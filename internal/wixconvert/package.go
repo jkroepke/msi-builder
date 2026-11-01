@@ -1103,7 +1103,7 @@ func attachUnder(inner, outer *omap) {
 
 func (c *converter) registrySearch(propOut *omap, elm *elem, found *omap) {
 	root := elm.attr("Root")
-	if root == "HKMU" {
+	if root == rootHKMU {
 		c.todof(propOut, "", elm.line, "a registry search cannot read HKMU; pick HKLM or HKCU")
 	}
 

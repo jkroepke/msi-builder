@@ -499,7 +499,7 @@ func (c *converter) index() error {
 
 	for _, elm := range c.doc.root.kids {
 		switch {
-		case elm.is("Package"), elm.is("Product"):
+		case elm.is(elemPackage), elm.is("Product"):
 			packages = append(packages, elm)
 		case elm.is("Fragment"):
 		case elm.is("Bundle"), elm.is("Module"), elm.is("Patch"), elm.is("PatchCreation"):
@@ -732,7 +732,7 @@ func (c *converter) walkElem(elm *elem, within scope) bool {
 	}
 
 	// The v3 Package element is the summary information.
-	if elm.name == "Package" && c.v3 {
+	if elm.name == elemPackage && c.v3 {
 		c.summary = elm
 
 		return true
@@ -910,7 +910,11 @@ func (c *converter) group(id string) *group {
 // component WiX makes for it, which takes its Id, Directory and
 // Subdirectory.
 func implicitComponent(file *elem) *elem {
-	component := &elem{attrs: make(map[string]string), ns: file.ns, space: file.space, name: elemComponent, kids: []*elem{file}, line: file.line}
+	component := &elem{
+		attrs: make(map[string]string), ns: file.ns, space: file.space, name: elemComponent, kids: []*elem{file}, line: file.line,
+		// The component is in the file's branches.
+		pos: file.pos, opens: file.opens, loops: file.loops,
+	}
 
 	// WiX names the component after the file.
 	for _, name := range []string{"Id", attrDirectory, "Subdirectory"} {
@@ -1000,8 +1004,8 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 		case "include":
 			c.todof(nil, "", proc.line, "<?include %s?>: convert the included file and merge it in by hand", proc.inst)
 		case piIf, piIfdef, piIfndef:
-			if !kept {
-				c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
+			if !kept && proc.block != nil {
+				c.unkeptNote(proc)
 			}
 		case piElseif, piElse:
 			if proc.leftOut {
@@ -1019,6 +1023,37 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 		default:
 			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.text)
 		}
+	}
+}
+
+// unkeptNote notes which branch of a block that is not a template was
+// converted.
+func (c *converter) unkeptNote(proc procInst) {
+	blk := proc.block
+
+	if !blk.evaluated {
+		c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
+
+		return
+	}
+
+	with := "a build without -d variables"
+	if blk.archRead {
+		with = "a build for --arch " + c.arch + " without -d variables"
+	}
+
+	if blk.chosen == noBranch {
+		c.todof(nil, "", proc.line, "<?%s %s?> is not converted as a template: no branch applies in %s, so none was "+
+			"converted; convert it by hand if your build takes one", proc.target, proc.text, with)
+
+		return
+	}
+
+	c.todof(nil, "", proc.line, "<?%s %s?> is not converted as a template: only the branch on line %d, which %s takes, "+
+		"was converted", proc.target, proc.text, blk.branches[blk.chosen].line, with)
+
+	if blk.chosen > 0 {
+		c.todof(nil, "", proc.line, "the <?%s %s?> branch was left out; convert it by hand if your build takes it", proc.target, proc.text)
 	}
 }
 

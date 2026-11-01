@@ -162,11 +162,11 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 		},
 		"ifndef with more than its default": {
 			body: `<?ifndef Version ?><?define Version = "1.0.0" ?><?define Dev = "yes" ?><?endif ?>`,
-			note: "<?ifndef Version?> is not evaluated: only its first branch was converted",
+			note: "<?ifndef Version?> is not converted as a template: only the branch on line 5, which a build without -d variables takes, was converted",
 		},
 		"variable defined again after the block": {
 			body: `<?define Arch = "x86" ?><?if $(var.Arch) = x86 ?><?define Folder = "a" ?><?endif ?><?define Arch = "x64" ?>`,
-			note: "<?if $(var.Arch) = x86?> is not evaluated: only its first branch was converted",
+			note: "<?if $(var.Arch) = x86?> is not converted as a template: only the branch on line 5, which a build without -d variables takes, was converted",
 		},
 		"key path in a branch": {
 			body: `<Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" />
@@ -242,7 +242,7 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 		},
 		"define that extends a default": {
 			body: `<?ifndef V ?><?define V = "1" ?><?endif ?><?define V = "$(var.V)-x" ?><Property Id="P" Value="$(var.V)" />`,
-			note: "<?ifndef V?> is not evaluated: only its first branch was converted",
+			note: "<?ifndef V?> is not converted as a template: only the branch on line 5, which a build without -d variables takes, was converted",
 		},
 		"default after a block that defines the variable": {
 			body: `<?ifdef D ?><?define X = "d" ?><?endif ?><?ifndef X ?><?define X = "def" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
@@ -254,11 +254,11 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 		},
 		"default given twice": {
 			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?><?define Z = "$(var.X)z" ?><Property Id="Q" Value="$(var.Z)" />`,
-			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+			note: "<?ifndef X?> is not converted as a template: only the branch on line 5, which a build without -d variables takes, was converted",
 		},
 		"default defined again later": {
 			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)-y" ?><?ifdef A ?><?define X = "3" ?><?endif ?><Property Id="Q" Value="$(var.Y)" />`,
-			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+			note: "<?ifndef X?> is not converted as a template: only the branch on line 5, which a build without -d variables takes, was converted",
 		},
 		"variable read back through another define": {
 			body: `<?ifdef B ?><?define Y = "$(var.X)-y" ?><?else ?><?define Y = "y" ?><?endif ?><?ifndef X ?><?define X = "$(var.Y)" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,

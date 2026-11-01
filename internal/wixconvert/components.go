@@ -148,6 +148,8 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 	c.bitness(out, elm)
 
 	content := &compConv{c: c, cp: comp, out: out, tree: tree, keyIsDir: elm.yes("KeyPath"), removeRows: make(map[[5]string]bool)}
+	content.typeRegs = c.progIDRegistry(elm)
+
 	for _, kid := range elm.kids {
 		content.child(kid)
 	}
@@ -244,6 +246,8 @@ type compConv struct {
 	out        *omap
 	tree       map[*dir]bool
 	controlled map[*omap]bool
+	// typeRegs are the registry values that complete the ProgIds.
+	typeRegs map[*elem]*typeRegistry
 	// firstKey is a key path RegistryValue that came before any other
 	// resource, and firstKeyID its ID.
 	firstKey     *omap
@@ -338,6 +342,11 @@ func (c *converter) componentCondition(out *omap, line int, cond string) {
 }
 
 func (cc *compConv) child(elm *elem) {
+	if cc.c.consumed[elm] {
+		// A file type writes it.
+		return
+	}
+
 	if hint, ok := unsupported[elm.qname()]; ok {
 		cc.c.todof(cc.out, "", elm.line, "<%s> is not supported: %s", elm.qname(), hint)
 
