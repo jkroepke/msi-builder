@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -99,6 +100,10 @@ func restartManagerRun(t *testing.T, value, target string) []string {
 	// finds it in use. It prints a line once the file is open.
 	holder := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-Command", //nolint:gosec // a test path
 		"$ErrorActionPreference = 'Stop'; $f = [IO.File]::Open('"+target+"', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('open'); [Console]::Out.Flush(); Start-Sleep -Seconds 300")
+
+	// Its own hidden console keeps a Restart Manager Ctrl+C away from the
+	// test process.
+	holder.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 
 	out, err := holder.StdoutPipe()
 	if err != nil {

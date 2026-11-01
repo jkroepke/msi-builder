@@ -535,7 +535,7 @@
           "not": {}
         },
         "ARPSYSTEMCOMPONENT": {
-          "description": "1 hides the product from Apps & features; it can still be repaired and removed with msiexec.",
+          "description": "1 hides the product from Apps & features.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
