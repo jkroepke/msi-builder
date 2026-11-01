@@ -930,7 +930,7 @@ func (v *validator) sharedSidTypes(cfg *Config) {
 				continue
 			}
 
-			e := entry{fmt.Sprintf("components[%d].services[%d]", i, j), svc.Name}
+			e := entry{fmt.Sprintf("%s.services[%d]", comp.Path(i), j), svc.Name}
 			if svc.SidType == "restricted" {
 				restricted = append(restricted, e)
 			} else {

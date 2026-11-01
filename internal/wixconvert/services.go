@@ -109,9 +109,9 @@ func (c *converter) serviceConfig(svc *omap, elm *elem) {
 		svc.set("failureActionsOnNonCrashFailures", true)
 	}
 
-	switch sid := elm.attr("ServiceSid"); sid {
-	case "":
-	case valueNone, "unrestricted", "restricted":
+	switch sid := c.value(elm, "ServiceSid"); {
+	case sid == "":
+	case sid == valueNone, sid == "unrestricted", sid == "restricted", strings.Contains(sid, "{{"):
 		svc.set("sidType", sid)
 	default:
 		c.todof(svc, "", elm.line, "ServiceConfig ServiceSid=%q has no counterpart", sid)
@@ -131,8 +131,10 @@ func (c *converter) serviceConfigTodos(svc *omap, elm *elem) {
 		c.todof(svc, "", elm.line, "ServiceConfig RequiredPrivilege has no counterpart")
 	}
 
-	// msi-builder applies these settings at install and repair.
-	if !elm.yes("OnInstall") || !elm.yes("OnReinstall") || elm.yes("OnUninstall") {
+	// msi-builder applies these settings at install and repair. A
+	// ServiceConfig without any of the event attributes is left alone.
+	events := elm.has("OnInstall") || elm.has("OnReinstall") || elm.has("OnUninstall")
+	if events && (!elm.yes("OnInstall") || !elm.yes("OnReinstall") || elm.yes("OnUninstall")) {
 		c.todof(svc, "", elm.line, "ServiceConfig OnInstall, OnReinstall and OnUninstall have no counterpart; "+
 			"msi-builder applies the settings at install and repair")
 	}

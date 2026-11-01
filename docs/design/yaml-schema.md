@@ -1593,10 +1593,11 @@ the install with error 1920 (SVC-05).
 `sidType` sets the service SID type. Microsoft documents that
 `unrestricted` adds the service's own SID (`NT SERVICE\<name>`) to its
 process token, so an ACL that grants the service SID (a `grant` to
-`NT SERVICE\<name>`) applies to the service; that `restricted` also makes
-the token write-restricted, so the service can only write where the
-service SID, Everyone, the logon SID or the write-restricted SID may
-write; and that `none` leaves the SID out. `none` matters for a service
+`NT SERVICE\<name>`) applies to the service; that `restricted` also adds
+the service SID, Everyone, the service logon SID and the write-restricted
+SID (S-1-5-33) to the token's restricted SID list, which presumably limits
+where the service can write (inferred); and that `none` leaves the SID
+out. `none` matters for a service
 that is already registered, since InstallServices reconfigures it
 (SVC-06). Microsoft also documents that a change takes effect at the next
 system start; whether a service started by the same install already runs
@@ -1605,8 +1606,8 @@ with the new SID is not tested.
 that accepts preshutdown notifications before shutdown goes on; a whole
 number of milliseconds from 1 ms to about 24.8 days. Both become
 `MsiServiceConfig` rows for install and repair, which `MsiConfigureServices`
-applies; SVC-10 checks the configured values after an install and a
-repair. Microsoft documents that a restricted service in a
+applies; whether they hold after an install and a repair is untested until
+SVC-10 runs. Microsoft documents that a restricted service in a
 shared process needs every service of that process restricted, so a
 `shareProcess` service with `sidType: restricted` next to another
 `shareProcess` service of the package that is not restricted is a warning.
