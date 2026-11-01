@@ -9,6 +9,10 @@ func set(names ...string) map[string]bool {
 	return m
 }
 
+// AliasName is the directory name that makes a directory a second id for
+// its parent folder: DefaultDir "." (specification section 8.3).
+const AliasName = "."
+
 // standardFolders are the Windows Installer folder properties a top-level
 // directory may name.
 var standardFolders = set( //nolint:gochecknoglobals // lookup table

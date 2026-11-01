@@ -280,6 +280,7 @@ func newConverter(doc *document) *converter {
 		wixVars:        make(map[string]string),
 		firewallNames:  make(map[string]int),
 		renames:        make(map[string]string),
+		consumed:       make(map[*elem]bool),
 		doActions:      make(map[string]*elem),
 		otherSequences: make(map[string]*elem),
 		needDirs:       make(map[string]bool),
@@ -360,6 +361,7 @@ func (c *converter) index() error {
 		}
 	}
 
+	c.foldAliasDirs()
 	c.linkDirs()
 	c.resolveFeatures()
 	c.chooseInstallDir()
@@ -583,7 +585,7 @@ func (c *converter) addDir(elm *elem, parentID string, standard bool) *dir {
 
 	folder := &dir{id: dirID, name: c.expand(elm, elm.attr("Name")), parentID: parentID, line: elm.line, generated: elm.attr("Id") == ""}
 
-	if dirID == "TARGETDIR" || standard || isStandardFolder(dirID) {
+	if dirID == dirTarget || standard || isStandardFolder(dirID) {
 		folder.std, folder.name, folder.parentID = true, "", ""
 	}
 

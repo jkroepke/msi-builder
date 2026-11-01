@@ -429,10 +429,20 @@ func compareVersion3(left, right Version) int {
 		cmp.Compare(left.Build, right.Build))
 }
 
-func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,gocognit // a flat list of independent checks
+func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop // a flat list of independent checks
 	seen := make(map[string]bool)
 
 	var walk func([]*Directory, string, bool)
+
+	// topLevel holds the children of top-level nodes: an alias there would
+	// be a second id for a standard folder or TARGETDIR.
+	topLevel := make(map[*Directory]bool)
+
+	for _, root := range cfg.Directories {
+		for _, child := range root.Children {
+			topLevel[child] = true
+		}
+	}
 
 	walk = func(ds []*Directory, prefix string, top bool) {
 		names := make(map[string]string)
@@ -454,21 +464,7 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,goco
 				seen[dir.ID] = true
 			}
 
-			problem := nameProblem(dir.Name, "folder name")
-
-			switch {
-			case top && !standardFolders[dir.ID]:
-				v.errorf(dirPath+".id", "a top-level directory must be a standard folder such as ProgramFiles64Folder")
-			case top && dir.Name != "":
-				v.errorf(dirPath+".name", "a standard folder has no name")
-			case !top && !v.required(dirPath+".name", dir.Name):
-			case !top && problem != "" && dir.origin == productNamePath:
-				v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)
-			case !top && problem != "" && dir.origin != "":
-				v.errorf(dir.origin, "%s", problem)
-			case !top && problem != "":
-				v.errorf(dirPath+".name", "%s", problem)
-			}
+			v.directoryName(dirPath, dir, top, topLevel[dir])
 
 			if dir.Configurable && !IsPublicProperty(dir.ID) {
 				v.errorf(dirPath+".id", "a configurable directory needs an upper-case id")
@@ -583,12 +579,38 @@ func (v *validator) rememberIDs(cfg *Config) {
 	}
 }
 
+// directoryName checks the name of a directory node: none at the top
+// level, a valid folder name below it, or AliasName for a second id of a
+// named parent folder (inTop marks a child of a top-level node).
+func (v *validator) directoryName(dirPath string, dir *Directory, top, inTop bool) { //nolint:cyclop // a flat list of independent checks
+	problem := nameProblem(dir.Name, "folder name")
+	if dir.Name == AliasName {
+		problem = ""
+	}
+
+	switch {
+	case top && !standardFolders[dir.ID]:
+		v.errorf(dirPath+".id", "a top-level directory must be a standard folder such as ProgramFiles64Folder")
+	case top && dir.Name != "":
+		v.errorf(dirPath+".name", "a standard folder has no name")
+	case top || !v.required(dirPath+".name", dir.Name):
+	case dir.Name == AliasName && inTop:
+		v.errorf(dirPath+".name", "%q names the parent folder itself, here a standard folder; use that folder's id instead", dir.Name)
+	case problem != "" && dir.origin == productNamePath:
+		v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)
+	case problem != "" && dir.origin != "":
+		v.errorf(dir.origin, "%s", problem)
+	case problem != "":
+		v.errorf(dirPath+".name", "%s", problem)
+	}
+}
+
 // sameFolder warns when two sibling directories name the same folder: the
 // rows install to one place, but setting one on the command line leaves the
 // other behind.
 func (v *validator) sameFolder(names map[string]string, dirPath string, dir *Directory, top bool) {
 	// A standard folder's path comes from its property, not its name.
-	if top || dir.Name == "" || standardFolders[dir.ID] {
+	if top || dir.Name == "" || dir.Name == AliasName || standardFolders[dir.ID] {
 		return
 	}
 
@@ -830,7 +852,10 @@ func directoryPaths(dirs []*Directory, parent string, out map[string]string) map
 	for _, dir := range dirs {
 		dirPath := dir.ID
 
-		if parent != "" {
+		switch {
+		case parent != "" && dir.Name == AliasName:
+			dirPath = parent
+		case parent != "":
 			dirPath = parent + `\` + strings.ToLower(dir.Name)
 		}
 
@@ -1616,7 +1641,7 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 
 		v.oneOf(entryPath+".on", entry.On, RemoveOnInstall, RemoveOnUninstall, RemoveOnBoth)
 
-		row := [3]string{cmp.Or(entry.Directory, comp.Directory), strings.ToLower(entry.Name), entry.On}
+		row := [3]string{removeFileFolder(comp, entry), strings.ToLower(entry.Name), entry.On}
 		if seen[row] {
 			v.errorf(entryPath, "this component already removes %q there", entry.Name)
 		}
@@ -1627,7 +1652,40 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 			v.errorf(entryPath+".directory", "directory %q is not defined", entry.Directory)
 		}
 
+		if entry.Property != "" {
+			v.removeFileProperty(cfg, known, entryPath, entry)
+		}
+
 		v.removeFilePattern(entryPath+".name", entry.Name, *cfg.Package.LongFileNames)
+	}
+}
+
+// removeFileFolder names the folder of a removeFiles entry: its directory,
+// the component's, or [property].
+func removeFileFolder(comp *Component, entry *RemoveFile) string {
+	if entry.Property != "" {
+		return "[" + entry.Property + "]"
+	}
+
+	return cmp.Or(entry.Directory, comp.Directory)
+}
+
+// removeFileProperty checks the property of a removeFiles entry, whose
+// value the engine reads as the folder's full path when RemoveFiles runs.
+func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath string, entry *RemoveFile) {
+	field := entryPath + ".property"
+	name := entry.Property
+
+	switch {
+	case entry.Directory != "":
+		v.errorf(entryPath, "give directory or property, not both")
+	case !IsIdentifier(name) || len(name) > MaxIdentifierLength:
+		v.errorf(field, "%q is not a property name", name)
+	case known.dirs[name] != nil || IsStandardFolder(name) || name == targetDir:
+		v.errorf(field, "%s is a directory; use directory: %s", name, name)
+	case !setProperties(cfg)[name]:
+		v.warnf(field, "nothing in the package sets %s, so only the command line can name the folder, and the row "+
+			"does nothing without it; use a property with a search that finds the folder again at uninstall", name)
 	}
 }
 

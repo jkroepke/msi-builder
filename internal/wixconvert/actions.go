@@ -982,7 +982,6 @@ func (c *converter) sequenceEntries() map[string][]seqEntry {
 func (c *converter) quietExecCommands() {
 	sources := c.commandSources()
 	c.quietCommands = make(map[string]commandSource)
-	c.consumed = make(map[*elem]bool)
 
 	for _, quiet := range c.actionOrder {
 		if !quietExec[quiet.attr("DllEntry")] {

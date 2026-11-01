@@ -986,6 +986,76 @@ func TestConvertRemoveFolderExBothOwnFolder(t *testing.T) {
 	}
 }
 
+// TestConvertFolderCases checks the folder cases of real-world packages: a
+// nameless Directory in TARGETDIR that a SetDirectory points at
+// [WindowsVolume] becomes that standard folder without the action, a
+// nameless or "." Directory below a named folder stays a second id for it,
+// one directly in a standard folder becomes that folder, and a RemoveFile
+// on a property keeps the property.
+func TestConvertFolderCases(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="WINDOWSVOLUME" Value="[WindowsVolume]" />
+    <Directory Id="WINDOWSVOLUME">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Directory Id="BINDIR" Name=".">
+          <Component Id="Tool"><File Source="hellod.exe" /></Component>
+        </Directory>
+        <Directory Id="LIBDIR">
+          <Component Id="Lib"><File Source="hello.dll" /></Component>
+        </Directory>
+        <Component Id="App">
+          <File Source="hello.exe" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Example" Name="Tools" Value="[BINDIR];[LIBDIR]" />
+          <RemoveFile Id="Logs" Property="LOGDIR" Name="*.log" On="uninstall" />
+          <RemoveFile Id="Own" Property="INSTALLFOLDER" Name="*.tmp" On="install" />
+        </Component>
+      </Directory>
+    </Directory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAROOT">
+        <Directory Id="DATADIR" Name="Hello">
+          <Component Id="Data"><CreateFolder /></Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="LOGDIR"><RegistrySearch Root="HKLM" Key="SOFTWARE\Example" Name="Logs" Type="directory" /></Property>
+    <Feature Id="Main"><ComponentRef Id="App" /><ComponentRef Id="Tool" /><ComponentRef Id="Lib" /><ComponentRef Id="Data" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"- id: WindowsVolume\n", "id: BINDIR\n", "id: LIBDIR\n", "name: .\n", "property: LOGDIR",
+		"directory: CommonAppDataFolder/Hello"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	for _, unwanted := range []string{"setDirectory", "WINDOWSVOLUME", "DATAROOT", "property: INSTALLFOLDER", "has no Name"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the YAML holds %q:\n%s", unwanted, out)
+		}
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {
@@ -1001,7 +1071,7 @@ func TestConvertUnmappedNotes(t *testing.T) {
         <Component><File Source="hellod.exe"><fw:FirewallException Name="Hello" Port="4985" /></File></Component>
       </Directory>
     </Directory>
-    <SetDirectory Id="VOLUME" Value="[WindowsVolume]" />
+    <SetDirectory Id="VOLUME" Value="[DATAVOLUME]" />
     <CustomAction Id="Notes" Directory="INSTALLFOLDER" ExeCommand="explorer.exe https://example.com/notes" Return="asyncNoWait" />
     <ui:WixUI Id="WixUI_Minimal" />
     <UI><Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="Notes" Condition="NOT Installed" /></UI>

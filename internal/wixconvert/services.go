@@ -401,14 +401,19 @@ func (cc *compConv) createFolder(elm *elem) {
 func (cc *compConv) removeFile(elm *elem) {
 	conv := cc.c
 	row := newMap()
-	row.order("id", "name", "directory", "on")
+	row.order("id", "name", "directory", "property", "on")
 
 	if elm.is("RemoveFile") {
 		row.set("name", conv.value(elm, "Name"))
 	}
 
-	if elm.has(attrProperty) {
-		conv.todof(row, "", elm.line, "the folder comes from the property %s: msi-builder takes a directory ID", elm.attr(attrProperty))
+	// Property names a directory or any property that holds a full path.
+	if prop := elm.attr(attrProperty); prop != "" && prop != cc.cp.dir {
+		if _, isDir := conv.dirs[prop]; isDir || isStandardFolder(prop) {
+			row.set("directory", conv.stdID(conv.dirRef(prop)))
+		} else {
+			row.set("property", prop)
+		}
 	}
 
 	if d := elm.attr(attrDirectory); d != "" && d != cc.cp.dir {

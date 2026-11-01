@@ -190,8 +190,8 @@ func (c *converter) markNeededDirs() {
 		"Shortcut":        {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
 		"SetDirectory":    {"Id"},
-		"RemoveFile":      {attrDirectory},
-		"RemoveFolder":    {attrDirectory},
+		"RemoveFile":      {attrDirectory, attrProperty},
+		"RemoveFolder":    {attrDirectory, attrProperty},
 		"Property":        {"Id"},
 		"DirectorySearch": {"Id"},
 		"RemoveFolderEx":  {attrProperty},
@@ -329,7 +329,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		nodes[folder] = entry
 
 		if folder.parent == nil || folder.parent.std {
-			rootID := "TARGETDIR"
+			rootID := dirTarget
 			if folder.parent != nil {
 				rootID = c.stdID(folder.parent.id)
 			}
@@ -370,6 +370,102 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 	for _, r := range roots {
 		c.out.add("directories", r)
 	}
+}
+
+// dirTarget is the root directory.
+const dirTarget = "TARGETDIR"
+
+// foldAliasDirs handles the Directories without a name of their own,
+// which name their parent folder (DefaultDir "."). Below a named folder
+// such a directory stays a second id for it, written as name ".". Directly
+// in a standard folder it is that folder, and directly in TARGETDIR it is
+// the standard folder a SetDirectory sets it to, typically [WindowsVolume]
+// for a folder such as C:\opt; the SetDirectory is then left out. A
+// directory that another action sets keeps its own row.
+func (c *converter) foldAliasDirs() {
+	setters := make(map[string][]*elem)
+
+	for _, setter := range c.setters {
+		setters[setter.attr("Id")] = append(setters[setter.attr("Id")], setter)
+	}
+
+	for _, custom := range c.actionOrder {
+		if custom.has("Value") && custom.has(attrDirectory) {
+			setters[custom.attr(attrDirectory)] = append(setters[custom.attr(attrDirectory)], custom)
+		}
+	}
+
+	kept := c.dirOrder[:0]
+
+	for _, folder := range c.dirOrder {
+		target := c.aliasTarget(folder, setters[folder.id])
+		if target == "" {
+			kept = append(kept, folder)
+
+			continue
+		}
+
+		std := c.dirs[target]
+		if std == nil {
+			std = &dir{id: target, std: true, line: folder.line}
+			kept = append(kept, std)
+		}
+
+		c.dirs[folder.id] = std
+		c.renames[folder.id] = target
+	}
+
+	c.dirOrder = kept
+}
+
+// aliasTarget returns the standard folder that a directory without a name
+// stands for, or "" when it keeps a row of its own; it names one below a
+// named folder ".".
+func (c *converter) aliasTarget(folder *dir, setters []*elem) string {
+	if folder.std || folder.sub || !unnamed(folder.name) {
+		return ""
+	}
+
+	parent := c.dirs[folder.parentID]
+
+	switch {
+	case parent != nil && !parent.std:
+		folder.name = config.AliasName
+
+		return ""
+	case len(setters) == 0 && parent != nil && parent.id != dirTarget:
+		return parent.id
+	case len(setters) == 1:
+		return c.setterFolder(setters[0])
+	}
+
+	return ""
+}
+
+// unnamed reports whether a WiX directory name names the parent folder.
+func unnamed(name string) bool {
+	return name == "" || name == config.AliasName
+}
+
+// setterFolder returns the standard folder an unconditioned SetDirectory
+// sets its directory to, such as [WindowsVolume], and leaves the action
+// out; "" for any other value.
+func (c *converter) setterFolder(setter *elem) string {
+	if !setter.is("SetDirectory") || setter.has("Condition") {
+		return ""
+	}
+
+	value := strings.TrimSpace(c.literal(setter.attr("Value")))
+	inner, ok := strings.CutPrefix(value, "[")
+	inner, closed := strings.CutSuffix(inner, "]")
+
+	if !ok || !closed || !config.IsStandardFolder(inner) || inner == dirTarget {
+		return ""
+	}
+
+	c.consumed[setter] = true
+
+	return inner
 }
 
 // defaultInstallParent reports whether msi-builder picks the folder as the
@@ -426,7 +522,7 @@ func (c *converter) dirValue(id string, tree map[*dir]bool) string {
 		names = append(dirNames(cur.name), names...)
 	}
 
-	return joinPath("TARGETDIR", names)
+	return joinPath(dirTarget, names)
 }
 
 // relative returns a path below the install dir, with "./" when its first
