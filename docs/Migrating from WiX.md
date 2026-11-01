@@ -1014,9 +1014,9 @@ Without `--msi`, convert computes the GUID WiX generates for a component
 from its key file or key registry value, as WiX does (section 8.10 of the
 spec; UPG-14 upgraded a WiX package this way), for the platform `--arch`
 names (`package.platform` follows it); pass the `-arch` WiX built with,
-and `--bcgg` when WiX 6 or later built with `-bcgg`. A WiX 3 `Package
-Platform` names it too. Without either, codes that depend on the platform
-(below a 6432 folder, or a registry value of default bitness) stay open. It leaves one
+and `--bcgg` when WiX 6 or later built with `-bcgg`. Without `--arch`,
+codes that depend on the platform (below a 6432 folder, or a registry
+value of default bitness) stay open. It leaves one
 `# TODO` at `upgrade.removeOld` that names the components whose GUID it
 cannot compute, such as ones whose folder or filename comes from an
 undefined variable, or ones that depend on the platform without

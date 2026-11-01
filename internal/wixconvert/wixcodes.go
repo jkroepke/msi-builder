@@ -451,9 +451,9 @@ func plural(n int, thing string) string {
 	return strconv.Itoa(n) + " " + thing + "s"
 }
 
-// codeArch returns the platform WiX built for when --arch or a WiX 3
-// Package Platform names it, else "": the folders a source uses do not
-// tell which -arch it was built with, and WiX builds for x86 without one.
+// codeArch returns the platform WiX built for when --arch names it, else
+// "": the folders a source uses and a WiX 3 Package Platform do not tell
+// which -arch WiX built with, and WiX builds for x86 without one.
 func (c *converter) codeArch() string {
 	if !c.platformNamed {
 		return ""

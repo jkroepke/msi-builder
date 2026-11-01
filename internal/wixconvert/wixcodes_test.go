@@ -202,9 +202,7 @@ const v3ProbeSource = `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 func TestConvertComputedCodesV3(t *testing.T) {
 	t.Parallel()
 
-	// The Package Platform names the platform, so the default bitness of
-	// Reg64 needs no --arch.
-	got, res := convertCodes(t, v3ProbeSource, wixconvert.Options{})
+	got, res := convertCodes(t, v3ProbeSource, wixconvert.Options{Arch: "x64"})
 	checkCodes(t, got, map[string]string{
 		"AppExe": "{1C2DB505-EC99-5268-95D7-15C86F1C7D04}",
 		"Reg32":  "{9CA1B61F-85B6-5B11-A923-ACACF0FCC8D7}",

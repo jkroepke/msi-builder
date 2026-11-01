@@ -69,8 +69,7 @@ type Options struct {
 	Source string
 	// Arch is the platform WiX built the package for (wix build -arch):
 	// x86, x64 or arm64; package.platform follows it. Empty leaves the
-	// codes that depend on it to a todo, unless a WiX 3 Package Platform
-	// names it.
+	// codes that depend on it to a todo.
 	Arch string
 	// BCGG is set when WiX 6 or later built the package with -bcgg, which
 	// computes the codes of registry key paths as WiX 3 did.
@@ -220,8 +219,9 @@ type converter struct {
 	v3            bool
 	// bcgg makes registry key path codes those of WiX 3.
 	bcgg bool
-	// platformNamed is set when --arch or a WiX 3 Package Platform names
-	// the platform, not the folders the source uses.
+	// platformNamed is set when --arch names the platform: neither the
+	// folders a source uses nor a WiX 3 Package Platform tells which -arch
+	// WiX built with.
 	platformNamed bool
 	// floorSeen is set once a hand-made major upgrade became
 	// upgrade.minVersion.

@@ -96,8 +96,8 @@ versioning after 1.0.
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
   WiX 5 package on CI). Without `--msi`, `wixcodes.go` computes the codes WiX
   generates from the key path (MSISPEC 8.10: UUIDv5 over the UTF-16LE path of
-  the key file or registry value), for `--arch` (`Options.Arch`, or a WiX 3
-  Package Platform; the platform inferred from folders does not count) and `--bcgg`, and the `guids` of a `Files` glob
+  the key file or registry value), for `--arch` (`Options.Arch`; neither the
+  folders nor a WiX 3 Package Platform count) and `--bcgg`, and the `guids` of a `Files` glob
   from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
   for this, since `name` holds `${VAR}` references. Anything it cannot repeat
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works

@@ -11,8 +11,8 @@ becomes a "# TODO" comment in the YAML file and a line on stderr.
 
 A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
 gives it: convert computes it from the key file or key registry value as
-WiX does, for the platform --arch or a WiX 3 Package Platform names (without either,
-codes that depend on the platform keep a "# TODO") and, with --bcgg, as
+WiX does, for the platform --arch names (without it, codes that depend on the
+platform keep a "# TODO") and, with --bcgg, as
 WiX 6 and later do with -bcgg. Each file a WiX Files glob harvests keeps its code in the
 guids of the folder source the glob became, when the folder is next to the
 source file. With --msi and the package WiX built from the source file,
