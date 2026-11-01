@@ -2,7 +2,15 @@ name: CI
 
 on:
   workflow_dispatch:
+  # Draft pull requests run nothing but the fail job below, which fails, so
+  # a draft never looks green. Marking the pull request ready for review
+  # starts the full run (ready_for_review); later pushes run it again.
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   push:
     tags:
       - 'v*'
@@ -18,6 +26,7 @@ jobs:
   # workflow_dispatch always run every job.
   detect-changes:
     name: Detect changes
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -28,6 +37,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: 'false'
+
+      # A probe workflow belongs to its draft pull request only (AGENTS.md);
+      # delete it before marking the pull request ready for review.
+      - name: Check for a probe workflow
+        run: |
+          if [ -e .github/workflows/probe.yaml ]; then
+            echo "::error file=.github/workflows/probe.yaml::Delete the probe workflow before the pull request is ready for review."
+            exit 1
+          fi
 
       - id: set-output
         name: Detect changes
@@ -359,6 +377,7 @@ jobs:
 
   super-lint:
     name: super-lint
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -438,13 +457,13 @@ jobs:
           diff /tmp/committed-SHA256SUMS internal/cadll/SHA256SUMS
 
   # The one job to mark as required in branch protection. It only runs, and
-  # fails, when a needed job failed or was cancelled; GitHub counts the
-  # skipped job as passed. Add every new check job to needs, and to the
-  # needs of release and publish, so that nothing is tagged or published
-  # past a failed check.
+  # fails, when a needed job failed or was cancelled, or on a draft pull
+  # request, where every other job is skipped; GitHub counts the skipped job
+  # as passed. Add every new check job to needs, and to the needs of release
+  # and publish, so that nothing is tagged or published past a failed check.
   fail:
     name: fail
-    if: "${{ cancelled() || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'failure') }}"
+    if: "${{ cancelled() || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'failure') || github.event.pull_request.draft == true }}"
     needs:
       - detect-changes
       - build
@@ -455,8 +474,14 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: verify checks passed
+        env:
+          DRAFT: ${{ github.event.pull_request.draft == true }}
         run: |
-          echo "Some checks have failed!"
+          if [ "${DRAFT}" = true ]; then
+            echo "::error::CI does not run on draft pull requests. Mark the pull request ready for review to run it."
+          else
+            echo "Some checks have failed!"
+          fi
           exit 1
 
   # Tags a new version from the conventional commit titles on main. A tag
