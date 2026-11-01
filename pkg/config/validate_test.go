@@ -164,6 +164,9 @@ func TestValidateAccepted(t *testing.T) {
 		"dual scope firewall": strings.Replace(pkg(`{platform: x64, scope: perMachineOrUser}`), "[App]", "[App, Fw]", 1) + appComponent +
 			"  - {id: Fw, directory: INSTALLDIR, scope: perMachine, createFolder: true}\n" +
 			"firewall: [{name: a, component: Fw, program: x}]\n",
+		// The INST-07 warning is about dual packages only.
+		"per-machine context setter": base + appComponent +
+			"customActions: [{id: Flip, setProperty: {name: ALLUSERS, value: '1'}, schedule: [{sequence: execute, after: ValidateProductID}]}]\n",
 		"dual scope feature firewall": strings.Replace(pkg(`{platform: x64, scope: perMachineOrUser}`), "    components: [App]\n",
 			"    components: [App]\n    firewall: [{name: a, program: x}]\n", 1) + appComponent,
 		"language dialog texts": base + appComponent + "properties: {OPT: {}, NAME: {}}\nui:\n  enabled: true\n  dialogs:\n    - {id: ExtraDlg, title: x, after: WelcomeDlg, fields: [{property: OPT, type: choice, options: [a, b]}, {property: NAME}]}\n" +

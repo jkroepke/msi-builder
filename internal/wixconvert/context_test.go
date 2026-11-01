@@ -141,6 +141,39 @@ func TestConvertContextSetters(t *testing.T) {
 	}
 }
 
+// TestConvertMachineSetter checks a WiX v3 package without a scope that
+// always sets ALLUSERS=1, the WiX v3 way to install per machine: it stays
+// per machine, the setter is left out with a note, and its HKLM data
+// validates.
+func TestConvertMachineSetter(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="200" Compressed="yes" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" Sequence="first" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Hello">
+          <Component Id="Machine" Guid="*">
+            <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="M" Value="1" Type="string" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="Machine" /></Feature>
+  </Product>
+</Wix>`
+
+	yaml := convertValid(t, src)
+
+	if strings.Contains(yaml, "scope:") || strings.Contains(yaml, "name: ALLUSERS") ||
+		!strings.Contains(yaml, "which always sets ALLUSERS=1, was left out") {
+		t.Errorf("want a per-machine package without the setter:\n%s", yaml)
+	}
+}
+
 // TestConvertContextConditions checks the context conditions in other
 // forms: an explicit per-machine package keeps its conditions and its
 // scope, since ALLUSERS=1 always holds there; NOT in another case and

@@ -107,7 +107,7 @@ func (c *converter) choosesContext() int {
 		switch {
 		case elm.is("Component") && contextCondition(c.componentConditionText(elm)) != "":
 			line = elm.line
-		case contextSetter(elm) != "":
+		case contextSetter(elm) != "" && !c.machineSetter(elm):
 			line = elm.line
 		}
 
@@ -151,8 +151,12 @@ func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) stri
 // choose the context.
 func (c *converter) skipContextSetter(action *elem, byAction map[string][]any) bool {
 	property := contextSetter(action)
-	if property == "" || !c.dualScope() {
+	if property == "" {
 		return false
+	}
+
+	if !c.dualScope() {
+		return c.skipMachineSetter(action, byAction)
 	}
 
 	actionID := action.attr("Id")
@@ -186,4 +190,87 @@ func (c *converter) contextSources() []commandSource {
 	}
 
 	return sources
+}
+
+// setterValue returns the value an ALLUSERS or MSIINSTALLPERUSER setter
+// sets.
+func (c *converter) setterValue(action *elem) string {
+	return c.value(action, "Value")
+}
+
+// conditionedSetter reports whether a context setter runs only under a
+// condition: its own (SetProperty) or one of a sequence entry that
+// schedules it.
+func (c *converter) conditionedSetter(action *elem) bool {
+	if action.is("SetProperty") {
+		return c.condition(action) != ""
+	}
+
+	conditioned := false
+	id := action.attr("Id")
+
+	var walk func(*elem)
+
+	walk = func(elm *elem) {
+		if elm.is("Custom") && elm.attr("Action") == id && c.condition(elm) != "" {
+			conditioned = true
+		}
+
+		for _, kid := range elm.kids {
+			walk(kid)
+		}
+	}
+
+	walk(c.doc.root)
+
+	return conditioned
+}
+
+// machineSetter reports whether an action always sets ALLUSERS=1, as WiX v3
+// packages without InstallScope do to install per machine: that does not
+// choose a context, it states the per-machine one.
+func (c *converter) machineSetter(action *elem) bool {
+	return contextSetter(action) == propAllUsers && c.setterValue(action) == "1" && !c.conditionedSetter(action)
+}
+
+// skipMachineSetter leaves out an unconditioned ALLUSERS=1 setter of a
+// package that converts to perMachine, which writes ALLUSERS=1 itself.
+func (c *converter) skipMachineSetter(action *elem, byAction map[string][]any) bool {
+	if c.scope != "" && c.scope != scopeMachine || !c.machineSetter(action) {
+		return false
+	}
+
+	actionID := action.attr("Id")
+	if action.is("SetProperty") {
+		actionID = setterName(action)
+	}
+
+	delete(byAction, actionID)
+
+	c.todof(nil, "", action.line, "the action %s, which always sets ALLUSERS=1, was left out: a perMachine package "+
+		"writes ALLUSERS=1 itself", actionID)
+
+	return true
+}
+
+// setsMachine reports whether the file has an unconditioned ALLUSERS=1
+// setter.
+func (c *converter) setsMachine() bool {
+	found := false
+
+	var walk func(*elem)
+
+	walk = func(elm *elem) {
+		if contextSetter(elm) != "" && c.machineSetter(elm) {
+			found = true
+		}
+
+		for _, kid := range elm.kids {
+			walk(kid)
+		}
+	}
+
+	walk(c.doc.root)
+
+	return found
 }

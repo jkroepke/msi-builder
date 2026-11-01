@@ -516,9 +516,10 @@ func (v *validator) builderProperty(name string) bool {
 // ALLUSERS=1 registered the product per machine with the per-user folders
 // and MSIINSTALLPERUSER already resolved, and setting MSIINSTALLPERUSER=1
 // changed no context but made conditions on it hold per machine (INST-07).
-// A setter in the UI sequence was not tested.
+// A setter in the UI sequence was not tested. Other scopes were not
+// tested with such setters, so they get no warning.
 func (v *validator) contextSetter(actionPath, name string) {
-	if name != "ALLUSERS" && name != "MSIINSTALLPERUSER" {
+	if !v.scope.Dual() || name != "ALLUSERS" && name != "MSIINSTALLPERUSER" {
 		return
 	}
 
