@@ -1305,6 +1305,18 @@ The window helpers now exit on `WM_ENDSESSION` and record it.
 - Not covered: a full-UI or basic-UI install, a standard user, another
   user's session, Windows Server 2016.
 
+Third run on 2026-11-01, the push to `main` after PR #211 merged, run
+41315908285 (commit cab63fa, same job). Since PR #215 the tests run a
+`/f<modes>` repair as `/i <package> REINSTALL=ALL REINSTALLMODE=<modes>`, so
+the repair step became `/i ... REINSTALL=ALL REINSTALLMODE=omus
+MSIRESTARTMANAGERCONTROL=Disable`.
+
+| Case and step | Result |
+| --- | --- |
+| CLOSE-04 `/i` | exit 0. All three registered; the holder and the registered program got `WM_ENDSESSION`; the service ran as PID 3160 before and 6784 after |
+| CLOSE-04 repair in the `/i REINSTALL=ALL` form with `MSIRESTARTMANAGERCONTROL=Disable` on the command line | exit 0. `RESTART MANAGER: Disabled by MSIRESTARTMANAGERCONTROL property`; the action logged `no Restart Manager session; nothing registered`; service PID 6784 before and after. The command-line property turns Restart Manager off once it reaches the server, so the `/fomus` runs above dropped it |
+| CLOSE-04 second product with `MSIRESTARTMANAGERCONTROL=Disable` in its `Property` table | exit 0. `no Restart Manager session; nothing registered`; service PID 6784 unchanged |
+
 ## Custom action DLL review fixes (SEC-06, CLOSE-02, FILE-14)
 
 Run on 2026-10-31 in the `Build & Test (windows-latest, native)` job
