@@ -183,7 +183,7 @@ versioning after 1.0.
   drops the others. A `ComponentGroup` of contained components, `File`s
   and `Files`, outside loops and without references, stays in a kept
   block (`groupAllowed`); `--msi` pins a component in a kept block whose
-  Id repeats only to the row with its key file and folder, which
+  ID repeats only to the row with its key file and folder, which
   branches that never apply together share, and globs in such branches
   share the code of a file both add (`exclusiveHarvests`). `and`/`or`
   decide on one known operand (three-valued). A
