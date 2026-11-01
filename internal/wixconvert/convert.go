@@ -749,6 +749,10 @@ func (c *converter) walkExtension(elm *elem) {
 		c.wixUI = elm
 	case elm.qname() == elemCloseApp:
 		c.closeApps = append(c.closeApps, elm)
+	case elm.qname() == elemRestartResource:
+		c.todof(nil, "", elm.line, "<util:RestartResource> outside a component registers its resource on every "+
+			"install; add it to restartResources of the component it belongs to, which registers it when that "+
+			"component is installed, repaired or removed")
 	default:
 		c.todof(nil, "", elm.line, "<%s> has no counterpart", elm.qname())
 	}

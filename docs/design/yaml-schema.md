@@ -793,6 +793,7 @@ components:
     removeFiles: []                  # RemoveFile rows, see "File removal" below
     services: []
     serviceControl: []               # services the package does not install
+    restartResources: []             # files, programs, services for Restart Manager, see below
     eventLog: []
     environment: []
     createFolder: false
@@ -1346,23 +1347,97 @@ What gets ended, and when:
 
 Only files that end in `.exe` take `close`, and a folder source does not.
 
-Set `MSIRESTARTMANAGERCONTROL: Disable` with `close`. Restart Manager
-otherwise asks every process that holds a package file to shut down in a
-silent install, also an unrelated one that only has the file open, and
-waits for the user in a basic UI (reported by the close-apps evaluation, 2026-10-25;
-the silent shutdown of an unrelated holder was observed in PROP-04);
-`close` covers the programs the package knows about. With `Disable`, a file
-that a program `close` does not end still holds is replaced at the next
-restart: a silent `/fa` repair then returned 1641 and restarted the machine
-although `/norestart` was given (PROP-04). `/f` did not pass `REBOOT` to
-the server, so run such a repair as `msiexec /i <package> REINSTALL=ALL
-REINSTALLMODE=a REBOOT=ReallySuppress`; with `DisableShutdown` such a
-repair returned 3010 instead (not run with `Disable`, where 3010 is
-expected too). The value is case-sensitive: `disable`
-behaved like `0`. Not adopted from WiX:
-closing a program by name wherever it runs, end-session messages
-(`WM_QUERYENDSESSION`), registering programs for a restart after the
-install, and a reboot prompt for programs that refuse to exit.
+Restart Manager stays on with `close`, as it is in every package unless
+the package turns it off: msi-builder never sets
+`MSIRESTARTMANAGERCONTROL`, and the installer's default uses Restart
+Manager. `close` runs first, so a program that quits on `WM_CLOSE` is gone
+before the installer looks for files in use; what still holds a package
+file then goes to Restart Manager, which in a silent install shuts down
+what it can, also an unrelated process that only has the file open (an
+accepted risk, see "Restart Manager" below). In CLOSE-03 it reported that
+it shut everything down but left console programs started without a
+console running: `close`'s deferred action ended `cli.exe`, and `keep.exe`
+with `terminate: false` kept running, while the uninstall still returned
+0. Not
+adopted from WiX: closing a program by name wherever it runs, end-session
+messages (`WM_QUERYENDSESSION`), registering programs for a restart after
+the install, and a reboot prompt for programs that refuse to exit.
+
+**Restart Manager.** Windows Installer asks Restart Manager which
+processes hold the files an install replaces or removes, and shuts them
+down: a silent install (`/qn`) does it without asking, the wizard asks on
+its `MsiRMFilesInUse` page, and a basic UI (`/qb`) waits for an answer on
+msiexec's own dialog (the close-apps evaluation saw it hold the
+installation for about ten minutes). msi-builder leaves this on. Restart
+Manager does not tell an unrelated process that only has a package file
+open (an editor, a log reader, a virus scanner, a monitoring agent) from
+the program itself; in the close-apps evaluation on 2026-10-25 a silent
+upgrade and uninstall shut down an unrelated PowerShell that held the
+program's file, and PROP-04 observed the same. msi-builder accepts that risk: shutting down what holds a
+file is what lets an upgrade replace it without a reboot. A package that
+cannot accept it turns Restart Manager off with a property, which needs
+no key of its own:
+
+```yaml
+properties:
+  MSIRESTARTMANAGERCONTROL: Disable   # FilesInUse handling instead of Restart Manager
+```
+
+`DisableShutdown` is documented to keep Restart Manager for finding the processes but
+shut nothing down. Microsoft documents that a custom action cannot change
+the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
+line of a repair left Restart Manager on, presumably dropped like the
+repair's other public properties (CLOSE-04, inferred), so the package
+itself sets it. The `windows_exporter` example turns it off, because its service
+and `close` already stop everything it installs.
+
+The value is case-sensitive: `disable` behaved like `0` (PROP-04). With
+`Disable`, a file that a program `close` does not end still holds is
+replaced at the next restart: a silent `/fa` repair then returned 1641 and
+restarted the machine although `/norestart` was given (PROP-04). `/f` did
+not pass `REBOOT` to the server, so run such a repair as
+`msiexec /i <package> REINSTALL=ALL REINSTALLMODE=a REBOOT=ReallySuppress`;
+with `DisableShutdown` such a repair returned 3010 instead (not run with
+`Disable`, where 3010 is expected too).
+
+`restartResources` on a component adds what the package does not
+install to the Restart Manager session, so that what holds or runs it is
+shut down like a program that holds a package file:
+
+```yaml
+components:
+  - files: [{ source: app.exe }]
+    restartResources:
+      - file: '[CommonAppDataFolder]Sample\state.db'   # processes holding it open
+      - program: '[SystemFolder]sample-helper.exe'      # its running processes
+      - service: SampleHelper                           # stopped by its name
+```
+
+Each entry sets exactly one of `file`, `program` and `service`, a
+formatted string. They are registered when the component is installed,
+repaired or removed, by an immediate action on the embedded DLL before
+`InstallValidate` (after `close`'s first action), which joins the
+installer's session (specification section 17.11). `program` matches the
+running processes by their image path like `close`, so a copy of the
+program in another folder is not registered; the action runs as the
+installing user, so it registers only processes that user may open: from
+an elevated prompt that may include another user's copy or a service
+process running that file, without elevation those are only logged
+(inferred from the access rights, not tested). In CLOSE-04 the action
+joined the session of a silent per-machine install and registered all
+three kinds, and Restart Manager shut down the program holding the file
+and the registered program (both got `WM_ENDSESSION`), while the copy in
+another folder kept running; the service was stopped and started again.
+It restarts only programs that registered for a restart, when the
+installation ends: in CLOSE-05 the restarted program was running about
+0.1 seconds after msiexec returned. The shell (`explorer.exe`) is expected to be no exception: registering
+it would shut the desktop down until the installation ends (reported, not
+tested). A service of a per-user
+package is an error, an entry listed twice in one component too, a `file`
+that ends in a backslash (a folder, which Restart Manager does not take)
+gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` (nothing is
+expected to be registered) or `DisableShutdown` (nothing is expected to be shut down) gives a warning
+too.
 
 **Component shortcuts.** A component can list `shortcuts` of its own, for
 shortcuts that do not point at a file listed with them. Each names exactly
@@ -1901,7 +1976,7 @@ components:
 
 The folder must be the component's only file. Settings that name one file
 or one component cannot be copied to many: `guid` (other than `auto`),
-`keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `eventLog`,
+`keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `restartResources`, `eventLog`,
 `environment`, `purge`, `createFolder`, `folderPermissions`, `shortcuts` and
 `fileTypes` on the component, and `name`, `id`, `version`, `language`,
 `shortcuts` and `fileTypes` on the file, are errors. Put them on a component of their own and exclude its file
@@ -1994,7 +2069,7 @@ properties:
   LISTEN_PORT: "9182"                  # short form: value only
   ENABLED_COLLECTORS: {}               # declared, no default value
   SERVICE_PASSWORD: { hidden: true }
-  MSIRESTARTMANAGERCONTROL: Disable
+  MSIRESTARTMANAGERCONTROL: Disable  # turns Restart Manager off, see 4.6
   myPrivate: { value: x }
 ```
 

@@ -376,6 +376,7 @@ func (b *build) writeTables() error {
 		b.permissions,
 		b.removeFolders,
 		b.closeApps,
+		b.restartResources,
 		b.streams,
 		b.customTables,
 		b.ui,

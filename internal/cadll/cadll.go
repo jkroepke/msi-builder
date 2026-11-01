@@ -185,6 +185,27 @@ func CloseEntry(condition string, timeoutMS uint32, path string) string {
 	return strings.Join([]string{condition, fmt.Sprintf("%x|", timeoutMS), path}, closeSeparator)
 }
 
+// Registering resources with the engine's Restart Manager session: the
+// property the builder lists them in and the immediate action, named like
+// its entry point, that registers them before InstallValidate. The kinds
+// are a file, a program (its running processes) and a service.
+const (
+	RestartProperty = "BuilderRestartResources"
+	RestartRegister = "BuilderRestartRegister"
+
+	RestartFile    = 'f'
+	RestartProgram = 'p'
+	RestartService = 's'
+)
+
+// RestartEntry encodes one line of the BuilderRestartResources property:
+// the condition under which it applies, the kind and the value, which
+// BuilderRestartRegister formats. None of the texts may contain a line
+// break or U+001F.
+func RestartEntry(condition string, kind byte, value string) string {
+	return strings.Join([]string{condition, string(kind), value}, closeSeparator)
+}
+
 // Data encodes the working directory and command line the DLL expects.
 func Data(directory, command string) string {
 	return directory + Separator + command

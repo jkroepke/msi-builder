@@ -427,6 +427,7 @@ func (v *validator) folderComponentFields(compPath string, comp *Component) {
 		{"removeFolders", len(comp.RemoveFolders) > 0},
 		{"services", len(comp.Services) > 0},
 		{"serviceControl", len(comp.ServiceControl) > 0},
+		{"restartResources", len(comp.RestartResources) > 0},
 		{"eventLog", len(comp.EventLog) > 0},
 		{"environment", len(comp.Environment) > 0},
 		{"purge", comp.Purge.Enabled()},
