@@ -117,11 +117,23 @@ func (c *chains) firewall(cfg *Config) {
 // scopePage adds the actions that preset the scope page, the page and,
 // when the package runs them or a placement is anchored to them,
 // FindRelatedProducts and LaunchConditions after AppSearch. The actions
-// that keep each folder in the chosen context are left out.
+// that keep each folder in the chosen context, after AppSearch and right
+// before CostFinalize, are left out: which folders they cover depends on
+// the resolved directory tree.
 func (c *chains) scopePage(cfg *Config) {
 	page := []string{"SetInstallScopeMachine", "SetInstallScopeUser"}
 	if cfg.InstallDir.Remember {
 		page = append(page, "SetInstallScopePrevious")
+	}
+
+	if prefer := cfg.UI.ScopePage; prefer != nil {
+		if prefer.PerUser != "" {
+			page = append(page, "SetInstallScopePreferUser")
+		}
+
+		if prefer.PerMachine != "" {
+			page = append(page, "SetInstallScopePreferMachine")
+		}
 	}
 
 	page = append(page, scopePageNode)

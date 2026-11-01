@@ -64,7 +64,7 @@ versioning after 1.0.
   and the UI sequence's FindRelatedProducts and LaunchConditions run after
   it, all before CostInitialize, which ICE27 requires (`scopeFirst`,
   `launchConditionsAction`); Next only records the topmost public folders
-  (`InstallScopeDir_<dir>`), setters scheduled last before CostFinalize
+  and a remembered install dir (`InstallScopeDir_<dir>`), setters scheduled last before CostFinalize
   (`costAction`, `beforeCosting`, appended in `sequences`) set them, so an
   action after the page that restores a folder into an empty property
   still runs (UI-12), and CostFinalize resolves the rest:

@@ -2834,7 +2834,7 @@ into an empty property (`condition: SAVEDDIR AND NOT INSTALLDIR`, placed
 `after: LaunchConditions`) therefore still sees it empty: when Next set the
 folder itself, such an action never ran in a full-UI install and the
 remembered folder was lost (UI-12). A `ui` action at a fixed number right
-before `CostFinalize` collides with that setter. Installed
+before `CostFinalize` collides with that setter, which only the build reports. Installed
 products step over the page, since they keep their context. Its texts are
 the `ui.strings` keys `InstallScopeTitle`, `InstallScopeText`,
 `InstallScopeUser`, `InstallScopeMachine` and `InstallScopeHint`, translated
