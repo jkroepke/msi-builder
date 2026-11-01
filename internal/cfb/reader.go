@@ -461,6 +461,13 @@ func (r *reader) chain(start uint32, limit int) ([]uint32, error) {
 			return nil, fmt.Errorf("cfb: bad FAT chain at %#x", sector)
 		}
 
+		// The FAT may describe far more sectors than the file holds; a
+		// chain through sectors past its end would cost time and memory
+		// for every one of them before the data is ever read.
+		if _, err := r.sectorOffset(sector); err != nil {
+			return nil, fmt.Errorf("cfb: FAT chain at %#x: %w", sector, err)
+		}
+
 		seen[sector] = true
 		out = append(out, sector)
 

@@ -420,3 +420,26 @@ func TestMetadataReadError(t *testing.T) {
 		t.Errorf("Open = %v, want the backing reader's error", err)
 	}
 }
+
+// TestChainInsideFile: a FAT sector describes more sectors than a small
+// file holds. A chain through such a sector, here the root's mini stream
+// starting at sector 100 of a file of a few sectors, fails at Open instead
+// of being followed sector by sector past the end of the file.
+func TestChainInsideFile(t *testing.T) {
+	t.Parallel()
+
+	raw, err := Write([]Stream{{Name: "s", Data: []byte("x")}}, Options{Version: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lay := parse(t, raw)
+	if len(raw)/512-1 >= 100 {
+		t.Fatalf("the test file has %d sectors", len(raw)/512-1)
+	}
+
+	bad := bytes.Clone(raw)
+	put32(bad, lay.fat(100), endOfChain)
+	put32(bad, lay.entry(t, "Root Entry")+0x74, 100)
+	wantError(t, "root chain past the file", bad, "out of range")
+}
