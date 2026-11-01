@@ -9,34 +9,136 @@ import (
 	"github.com/jkroepke/msi-builder/pkg/config"
 )
 
+// braceSafe writes a literal { that comes just before an action of a
+// vars header value as an action of its own: {{{ would read the { as
+// part of the action. Literal text never holds {{, which escapeTemplate
+// writes as an action, and the text inside actions stays as it is. The
+// body needs none: quoteVars splits it into operands.
+func braceSafe(text string) string {
+	var out strings.Builder
+
+	for i := 0; i < len(text); {
+		switch {
+		case strings.HasPrefix(text[i:], "{{{"):
+			out.WriteString("{{ `{` }}")
+
+			i++
+		case strings.HasPrefix(text[i:], "{{"):
+			end := actionEnd(text, i)
+			out.WriteString(text[i:end])
+
+			i = end
+		default:
+			out.WriteByte(text[i])
+
+			i++
+		}
+	}
+
+	return out.String()
+}
+
+// actionEnd returns the index after the action that starts at i, past
+// the }} that is not in a string constant.
+func actionEnd(text string, i int) int {
+	var quote byte
+
+	for pos := i + 2; pos < len(text); pos++ {
+		switch {
+		case quote == '"' && text[pos] == '\\':
+			pos++
+		case quote != 0:
+			if text[pos] == quote {
+				quote = 0
+			}
+		case text[pos] == '"' || text[pos] == '`':
+			quote = text[pos]
+		case strings.HasPrefix(text[pos:], "}}"):
+			return pos + 2
+		}
+	}
+
+	return len(text)
+}
+
 // emitVars writes the defines as vars. A define that uses an earlier one
 // takes in its value, as the WiX preprocessor does.
+// A variable that a kept block defines becomes a template that tests the
+// block's conditions.
 func (c *converter) emitVars() {
 	c.resolveDefines()
 
+	conditional := c.conditionalValues(c.conditionalVars())
+
 	for _, define := range c.defines {
-		c.out.child("vars").set(define[0], c.expand(c.pkg, c.defined[define[0]]))
+		value, ok := conditional[define[0]]
+		if !ok {
+			value = c.expand(c.pkg, c.defined[define[0]])
+		}
+
+		c.out.child("vars").set(define[0], braceSafe(value))
+		c.checkSelfRead(define[0], value)
 	}
 }
 
+// checkSelfRead notes a var whose value reads the var itself, through a
+// variable that a define set from it before: WiX reads the value each
+// variable has at its define, the vars header the final one.
+func (c *converter) checkSelfRead(name, value string) {
+	if !strings.Contains(value, "{{ ."+name+" }}") {
+		return
+	}
+
+	line := 0
+	if last := c.lastDefine(name, len(c.doc.procs)); last >= 0 {
+		line = c.doc.procs[last].line
+	}
+
+	c.todof(nil, "", line, "the variable %s reads itself, where WiX reads the value it has at each define; pass it with --var or write its value", name)
+}
+
 // resolveDefines fills the values of earlier defines into each define.
+// The variables that kept blocks define stay variables.
 func (c *converter) resolveDefines() {
 	c.defined = make(map[string]string)
+	conditional := c.conditionalVars()
 
 	for _, define := range c.defines {
-		c.defined[define[0]] = c.literal(define[1])
+		if !conditional[define[0]] {
+			c.defined[define[0]] = c.literalStatic(define[1])
+		}
+	}
+
+	// A variable set from a block's variable before the block, or set
+	// again after it, has one value after all.
+	for name, value := range c.conditionalValues(conditional) {
+		if !strings.Contains(value, "{{") && !strings.Contains(value, "$(") {
+			c.defined[name] = value
+		}
 	}
 }
 
 // literal fills the values of the defines into text.
+// A variable that a kept block defines has no one value: the blocks that
+// define it are converted again with their first branch only.
 func (c *converter) literal(text string) string {
+	for _, name := range varRefs(text) {
+		c.needFixed(name)
+	}
+
+	return c.literalStatic(text)
+}
+
+// literalStatic fills in the values of the defines that no kept block
+// sets, and leaves the others.
+func (c *converter) literalStatic(text string) string {
 	if c.defined == nil {
 		c.resolveDefines()
 	}
 
 	return preprocessorVar.ReplaceAllStringFunc(text, func(ref string) string {
 		parts := preprocessorVar.FindStringSubmatch(ref)
-		if v, ok := c.defined[varName(parts[2])]; ok && parts[1] != "env" && parts[1] != "sys" {
+		if v, ok := c.defined[varName(parts[2])]; ok && parts[1] != "env" && parts[1] != varSys {
 			return v
 		}
 
@@ -740,7 +842,7 @@ func (c *converter) emitProperties() {
 
 	upgradeProps := c.upgradeProperties()
 
-	for _, elm := range c.properties {
+	for i, elm := range c.properties {
 		propID := elm.attr("Id")
 		if c.skippedProperty(propID) || upgradeOnly(elm, upgradeProps) {
 			continue
@@ -761,14 +863,21 @@ func (c *converter) emitProperties() {
 			value = propOut.get("value")
 		}
 
-		props.set(propID, value)
+		key := propID
+		if len(elm.opens) > 0 {
+			// The property may repeat in other branches of the block,
+			// also on the same line.
+			key += keySep + strconv.Itoa(i)
+		}
+
+		props.setIn(key, elm.opens, value)
 
 		if lines := comments(elm); len(lines) > 0 {
-			props.comment(propID, lines...)
+			props.comment(key, lines...)
 		}
 
 		if comment := propOut.head; len(comment) > 0 {
-			props.comment(propID, comment...)
+			props.comment(key, comment...)
 
 			propOut.head = nil
 		}

@@ -771,6 +771,39 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc, verbs: [{id: open}, {id: Open}]}]\n", 1),
 			sevError, "components[0].files[0].fileTypes[0].verbs[1].id", "listed twice",
 		},
+		"fileTypes file under a file": {
+			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc, file: app.exe}]\n", 1),
+			sevError, "components[0].files[0].fileTypes[0].file", "opens that file",
+		},
+		"fileTypes iconFile unknown": {
+			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc, iconFile: doc.ico}]\n", 1),
+			sevError, "components[0].files[0].fileTypes[0].iconFile", "not defined in any component",
+		},
+		"component fileTypes without file": {
+			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, extensions: [{extension: acme}]}]\n",
+			sevError, "components[1].fileTypes[0].file", "required",
+		},
+		"component fileTypes unknown file": {
+			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, file: other.exe}]\n",
+			sevError, "components[1].fileTypes[0].file", "not defined in any component",
+		},
+		"component fileTypes progId twice": {
+			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc}]\n", 1) +
+				"  - id: Assoc\n    fileTypes: [{progId: ACME.doc, file: app.exe}]\n",
+			sevError, "components[1].fileTypes[0].progId", "registers",
+		},
+		"component fileTypes folderPermissions": {
+			base + appComponent + "  - id: Assoc\n    folderPermissions: {sddl: 'D:(A;;FA;;;SY)'}\n    fileTypes: [{progId: Acme.Doc, file: app.exe, extensions: [{extension: acme}]}]\n",
+			sevError, "components[1].folderPermissions", "createFolder",
+		},
+		"component fileTypes on a folder source": {
+			base + "components:\n  - id: Tree\n    files: [{source: dist/}]\n    fileTypes: [{progId: Acme.Doc, file: app.exe}]\n  - id: App\n    files: [{source: app.exe}]\n",
+			sevError, "components[0].fileTypes", "folder source",
+		},
+		"component fileTypes no key path": {
+			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, file: app.exe, verbs: [], extensions: [{extension: acme, openWithOnly: true}]}]\n",
+			sevError, "components[1].fileTypes", "key path",
+		},
 		"registry value twice": {
 			base + strings.Replace(appComponent, "    files:", "    registry: [{root: HKLM, key: Software\\App, name: a, value: x}, {root: HKLM, key: software\\app, name: A, value: y}]\n    files:", 1),
 			sevError, "components[0].registry[1]", "already writes this registry value",

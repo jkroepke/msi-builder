@@ -308,6 +308,10 @@ type Component struct { //nolint:govet // field order is the YAML key order
 	// point at a file they are listed under: each names a file, a folder,
 	// a program or a URL.
 	Shortcuts []*Shortcut `yaml:"shortcuts"`
+	// FileTypes are file types that this component registers for a file
+	// they name, in any component, so that a file type can have features
+	// of its own.
+	FileTypes []*FileType `yaml:"fileTypes"`
 
 	// ref marks a features[].components entry written as an id.
 	ref bool
@@ -461,15 +465,26 @@ func (c *Close) Terminates() bool {
 // FileType is a ProgId that the file it is listed under opens, with the
 // extensions that point at it and its shell verbs. The builder writes them
 // as Registry rows under HKEY_CLASSES_ROOT, in the file's component, the
-// way non-advertised ProgId, Extension and Verb elements are written.
+// way non-advertised ProgId, Extension and Verb elements are written. In a
+// component's own fileTypes list, File names the file it opens and the
+// rows go into that component.
 type FileType struct {
 	// ProgID is the programmatic identifier, such as Acme.Document.1.
 	ProgID string `yaml:"progId"`
+	// File is the id or name of the packaged file, in any component, that
+	// a file type in a component's fileTypes list opens. A file type
+	// listed under a file opens that file and has none.
+	File string `yaml:"file"`
 	// Description is the type's name in Explorer, written as it is:
 	// [PROPERTY] references are not formatted.
 	Description string `yaml:"description"`
-	// IconIndex picks an icon resource of the file for DefaultIcon; nil
-	// writes no DefaultIcon.
+	// IconFile is the id or name of a packaged file, in any component,
+	// whose icon DefaultIcon names instead of the opened file's, such as
+	// an .ico file.
+	IconFile string `yaml:"iconFile"`
+	// IconIndex picks an icon resource of the file, or of IconFile, for
+	// DefaultIcon; nil writes no DefaultIcon unless IconFile is set, which
+	// then takes the first icon.
 	IconIndex  *int                 `yaml:"iconIndex"`
 	Extensions []*FileTypeExtension `yaml:"extensions"`
 	// Verbs are the shell verbs. nil gets one open verb; an empty,

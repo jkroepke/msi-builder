@@ -260,7 +260,7 @@ way:
 | no `installDir` | `INSTALLDIR`, configurable, named after the product, under `ProgramFiles64Folder` (`ProgramFilesFolder` on x86, `LocalAppDataFolder\Programs` for `perUser`). Not added when `directories` already defines that ID (section 4.4); added next to a tree with a configurable directory, or an upper-case one below Program Files, it warns, since components without `directory` go there. |
 | component without `directory` | the install dir |
 | `directory: bin` or `directory: CommonAppDataFolder/Hello/logs` | directory nodes for the path, with generated IDs such as `INSTALLDIR_bin` (section 4.4) |
-| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the directory ID |
+| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the first own file type's ProgID, else the directory ID |
 | no `features` | one feature `MainFeature`, titled with the product name, holding every component, with the install dir as its configurable directory |
 | a component written inside `features[].components` | the same component in `components`, referenced by ID |
 | `features[].components` entry that is only an ID | a reference to that component; in Go, `config.ComponentRef(id)` |
@@ -1137,6 +1137,7 @@ files:
       - progId: Example.Document                 # a key under HKEY_CLASSES_ROOT
         description: Example document            # the type's name in Explorer
         iconIndex: 0                             # DefaultIcon: "[#viewer.exe]",0; leave out for none
+        # iconFile: document.ico                 # take the icon from another packaged file
         extensions:
           - extension: exdoc                     # without the dot
             contentType: application/x-exdoc     # optional Content Type value
@@ -1198,6 +1199,75 @@ an error). Uninstalling removes only that entry and keeps other programs'
 entries (REG-04). Any number of ProgIDs may list an extension with
 `openWithOnly`; the default may be registered once. Explorer's "Open with"
 choice of the user (`UserChoice`) still wins over the package's default.
+
+**File type icons from other files.** `iconFile` names another packaged
+file, the ID or name of an `.ico`, `.exe` or `.dll` in any component,
+whose icon `DefaultIcon` shows instead of the opened file's:
+`"[#document.ico]",0`, with `iconIndex` picking the icon (default 0 with
+`iconFile`). A file that a folder source adds has a generated ID and cannot
+be named. An `icons` entry cannot be used: the engine copies those to disk
+for `Shortcut` rows, advertisement and the Add/Remove Programs icon
+(documented), and a `Registry` row has no way to name one (specification
+chapter 16). The `.ico` installs with its component like any file.
+
+**File types with features of their own.** A component can list
+`fileTypes` of its own, each naming the file it opens with `file`, the ID
+or name of a packaged file in any component. Their rows go into that
+component, so they install with its features, not those of the file, and
+each extension can be picked in the feature tree:
+
+```yaml
+components:
+  - id: Viewer
+    files: [{ source: viewer.exe }, { source: document.ico }]
+  - id: AssocExdoc
+    fileTypes:
+      - progId: Example.exdoc
+        file: viewer.exe                         # a file of any component
+        description: Example document
+        iconFile: document.ico
+        extensions: [{ extension: exdoc }]
+  - id: AssocExlog
+    fileTypes:
+      - progId: Example.exlog
+        file: viewer.exe
+        description: Example log
+        iconFile: document.ico
+        extensions: [{ extension: exlog }]
+features:
+  - id: Main
+    components: [Viewer]
+    features:
+      - { id: Exdoc, title: .exdoc files, components: [AssocExdoc] }
+      - { id: Exlog, title: .exlog files, default: off, components: [AssocExlog] }
+```
+
+They take the keys of a file's `fileTypes`, and `file` is required. When a
+feature of the listing component does not also install the file's
+component, the command and the icon name the file by its folder and long
+name, `"[INSTALLDIR]viewer.exe" "%1"`, instead of `[#id]`, by the rule of
+component shortcuts (SHORTCUT-04 observed ICE69 on shortcuts; Microsoft
+lists the `Registry` table for ICE69 too). Like a component shortcut, a
+file in another component of the same feature is named `[#id]`, which
+ICE69 reports as a warning (observed on shortcuts; for `Registry` rows
+documented, not tested). With the file's feature as the parent, as above,
+the file should always be there, since a child feature installs only with
+its parent (documented for the default feature attributes, not tested
+here). A component with nothing but
+file types is keyed on the first value with data they write: the ProgID's
+description, else its `DefaultIcon`, a verb's text or command or the default
+of an extension it owns, in the order they are written (an `openWithOnly` entry alone is not enough, which is an
+error). In a per-user package that value is under
+`HKCU\Software\Classes`, which should serve as the HKCU key path a profile folder needs (ICE38
+reported nothing for such a package per user, REG-09; a per-user install
+was not run).
+Adding a feature later should write only its rows and removing it remove
+only those, with the uninstall removing the rest (observed per machine,
+REG-09). Give each optional
+extension its own ProgID, as above: a ProgID is registered once per
+package, and the rows of one ProgID in two components would presumably be
+removed with the first of them, leaving the other extension pointing at
+nothing (inferred, not tested; specification chapter 16).
 
 **Closing running programs.** `close` on a program stops its running
 copies when its component is installed, repaired or removed, so that an
@@ -1804,9 +1874,9 @@ components:
 The folder must be the component's only file. Settings that name one file
 or one component cannot be copied to many: `guid` (other than `auto`),
 `keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `eventLog`,
-`environment`, `purge`, `createFolder` and `folderPermissions` on the
-component, and `name`, `id`, `version`, `language` and `shortcuts` on the
-file, are errors. Put them on a component of their own and exclude its file
+`environment`, `purge`, `createFolder`, `folderPermissions`, `shortcuts` and
+`fileTypes` on the component, and `name`, `id`, `version`, `language`,
+`shortcuts` and `fileTypes` on the file, are errors. Put them on a component of their own and exclude its file
 from the folder, or, for a GUID, list the file in `guids`. `include`,
 `exclude` and `guids` on a file that is not a folder are errors too, and so is a `firewall` rule whose `component` is a folder
 component. The generated components take the component's place in

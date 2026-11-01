@@ -54,20 +54,20 @@ components:
   # An optional file association for a file of another feature.
   - id: TxtAssoc
     guid: 6a0f1c2e-7d3b-4e58-9a61-2b4c8d0e1f38
+    fileTypes:
+      - progId: Example.HelloText
+        file: hello.exe
+        description: Hello text
+        extensions:
+          - extension: hellotxt
+        verbs:
+          - id: open
+            arguments: '"%1"'
   - id: hello.exe
     guid: '{78693E13-BDFA-5DDB-ACF6-13E143D638A9}'
     files:
       - source: dist/hello.exe
         id: hello.exe
-        fileTypes:
-          # TODO(line 31): the ProgId Example.HelloText was in features Docs, the file it opens in Main; msi-builder installs file types with their file, so this one is no longer optional
-          - progId: Example.HelloText
-            description: Hello text
-            extensions:
-              - extension: hellotxt
-            verbs:
-              - id: open
-                arguments: '"%1"'
   - id: Component1
     directory: tools
     files:

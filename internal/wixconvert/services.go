@@ -75,7 +75,7 @@ func (cc *compConv) serviceChild(svc *omap, kid *elem) {
 	conv := cc.c
 
 	switch kid.qname() {
-	case "ServiceDependency":
+	case elemServiceDependency:
 		if kid.yes("Group") {
 			conv.todof(svc, "", kid.line, "a dependency on a load order group has no counterpart")
 
@@ -304,11 +304,11 @@ func (c *converter) serviceInstallers(name string) ([]*comp, []*comp) {
 	var withOwn, without []*comp
 
 	for _, comp := range c.comps {
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceInstall", name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, name)) {
 			continue
 		}
 
-		if slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceControl", name)) {
+		if slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceControl, name)) {
 			withOwn = append(withOwn, comp)
 		} else {
 			without = append(without, comp)
@@ -326,12 +326,12 @@ func (c *converter) borrowedControl(name string) *elem {
 	var installer *elem
 
 	for _, comp := range c.comps {
-		i := slices.IndexFunc(comp.e.kids, c.namedKid("ServiceControl", name))
+		i := slices.IndexFunc(comp.e.kids, c.namedKid(elemServiceControl, name))
 		if i < 0 {
 			continue
 		}
 
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid("ServiceInstall", name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, name)) {
 			return comp.e.kids[i]
 		}
 
@@ -764,9 +764,9 @@ func (cc *compConv) writesFolder(search *elem) bool {
 			}
 
 			switch {
-			case kid.is("RegistryKey") && walk(kid, regRoot, regKey):
+			case kid.is(elemRegistryKey) && walk(kid, regRoot, regKey):
 				return true
-			case kid.is("RegistryValue") && strings.TrimSuffix(kid.attr("Value"), `\`) == folder &&
+			case kid.is(elemRegistryValue) && strings.TrimSuffix(kid.attr("Value"), `\`) == folder &&
 				slices.Equal(want, []string{strings.ToUpper(regRoot), strings.ToLower(strings.Trim(regKey, `\`)), strings.ToLower(kid.attr("Name"))}):
 				return true
 			}
@@ -827,7 +827,7 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 		program = p
 	}
 
-	if f := elm.attr("File"); f != "" {
+	if f := elm.attr(elemFile); f != "" {
 		program = "[#" + f + "]"
 	}
 
@@ -908,7 +908,7 @@ func (c *converter) compID(comp *comp) string {
 		// Skip the IDs that components took from the source.
 		for comp.id == "" || c.compByID[comp.id] != nil {
 			c.anonymous++
-			comp.id = "Component" + strconv.Itoa(c.anonymous)
+			comp.id = elemComponent + strconv.Itoa(c.anonymous)
 		}
 
 		if comp.out != nil {
@@ -927,7 +927,7 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 	}
 
 	fileType := newMap()
-	fileType.order("progId", "description", "iconIndex", "extensions", "verbs")
+	fileType.order("progId", "file", "description", "iconFile", "iconIndex", "extensions", "verbs")
 	fileType.set("progId", conv.typeText(fileType, elm, "Id"))
 	fileType.set("description", conv.typeText(fileType, elm, "Description"))
 
@@ -1042,7 +1042,7 @@ func (c *converter) constProperty(name string) (string, bool) {
 		}
 	}
 
-	if found == nil || !found.has("Value") || len(found.kids) > 0 || c.propertyChanged(name) {
+	if found == nil || !found.has("Value") || len(found.kids) > 0 || len(found.opens) > 0 || c.propertyChanged(name) {
 		return "", false
 	}
 
@@ -1051,8 +1051,9 @@ func (c *converter) constProperty(name string) (string, bool) {
 	return value, !formattedLeft(value)
 }
 
-// varRef matches a {{ .NAME }} action that msi-builder fills in on load.
-var varRef = regexp.MustCompile(`\{\{ \.[A-Za-z_][A-Za-z0-9_]* \}\}`)
+// varRef matches a {{ .NAME }} action that msi-builder fills in on load,
+// or {{ $.NAME }} and {{ $NAME }} inside a loop.
+var varRef = regexp.MustCompile(`\{\{ (?:\$\.|\$|\.)[A-Za-z_][A-Za-z0-9_]* \}\}`)
 
 // formattedLeft reports whether text still holds formatted text or a WiX
 // bind or localization variable once the {{ .NAME }} actions are left out.
@@ -1096,13 +1097,7 @@ func (c *converter) placeTypes() {
 	placed := make(map[string]placedType)
 
 	for _, pending := range c.pendingTypes {
-		var file *fileRef
-
-		for _, f := range c.files {
-			if pending.target != "" && f.key == pending.target || pending.target == "" && f.comp == pending.comp && file == nil {
-				file = f
-			}
-		}
+		file := c.typeFile(pending)
 
 		if file == nil {
 			c.todof(pending.parent, "", pending.e.line, "the ProgId %s opens no file of the package; file types go on the file they start", pending.e.attr("Id"))
@@ -1117,36 +1112,63 @@ func (c *converter) placeTypes() {
 			continue
 		}
 
-		placed[progID] = placedType{pending: pending, file: file}
+		c.typeIcon(pending, file)
+
+		// A ProgId in a component with other features or a condition than
+		// the file it opens stays in that component, which names the file,
+		// so that it stays optional.
+		if pending.comp != file.comp && c.componentDiffers(file.comp, pending.comp) {
+			if pending.comp.folder == nil {
+				placed[progID] = placedType{pending: pending, file: file, home: pending.comp}
+
+				pending.out.set("file", fileRefName(file))
+				pending.comp.out.add("fileTypes", pending.out)
+
+				continue
+			}
+
+			c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with a folder source, which cannot list "+
+				"file types; it installs with the file it opens now, so the condition and features of that component no longer "+
+				"apply: move it to a component of its own with file", pending.e.attr("Id"))
+		}
+
+		placed[progID] = placedType{pending: pending, file: file, home: file.comp}
 
 		file.out.add("fileTypes", pending.out)
-		c.typeIconNote(pending, file)
-		c.typeFeatureNote(pending, file)
-		c.typeConditionNote(pending, file)
 	}
 }
 
-// placedType is a ProgId placed on the file it opens.
+// typeFile returns the file a ProgId opens: the target of its verbs, else
+// the first file of its component.
+func (c *converter) typeFile(pending pendingType) *fileRef {
+	var file *fileRef
+
+	for _, f := range c.files {
+		if pending.target != "" && f.key == pending.target || pending.target == "" && f.comp == pending.comp && file == nil {
+			file = f
+		}
+	}
+
+	return file
+}
+
+// fileRefName returns how the YAML names a converted file from another
+// component: its id, else its name.
+func fileRefName(file *fileRef) string {
+	if id := file.out.str("id"); id != "" {
+		return id
+	}
+
+	return file.name
+}
+
+// placedType is a ProgId placed on the file it opens or in its own
+// component.
 type placedType struct {
-	file    *fileRef
+	file *fileRef
+	// home is the component whose YAML holds the file type.
+	home    *comp
 	pending pendingType
-}
-
-// typeConditionNote notes a ProgId whose component has a condition that the
-// component of the file it opens does not share: the file type now
-// installs with the file.
-func (c *converter) typeConditionNote(pending pendingType, file *fileRef) {
-	if pending.comp == file.comp || pending.comp.out == nil {
-		return
-	}
-
-	cond := pending.comp.out.str("condition")
-	if cond == "" || file.comp.out != nil && file.comp.out.str("condition") == cond {
-		return
-	}
-
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with the condition %s; msi-builder installs "+
-		"file types with their file, so that condition no longer applies to it", pending.e.attr("Id"), cond)
 }
 
 // typeExtensions returns the extensions of a converted file type.
@@ -1199,8 +1221,9 @@ func (c *converter) mergeType(first placedType, again pendingType, file *fileRef
 	}
 
 	note := ""
-	if again.comp != file.comp && c.componentDiffers(file.comp, again.comp) {
-		note = "; it installs with the file now, so the condition and features of the component that declared it again no longer apply"
+	if again.comp != first.home && (c.componentDiffers(first.home, again.comp) || c.componentDiffers(again.comp, first.home)) {
+		note = "; it installs with the component of the first declaration now, whose condition and features replace those of the " +
+			"component that declared it again"
 	}
 
 	c.todof(first.pending.out, "", again.e.line, "the ProgId %s is declared again; convert merged its extensions into this file type "+
@@ -1259,35 +1282,39 @@ func commentsIn(value any, skip map[*omap]bool) []string {
 	return nil
 }
 
-// typeIconNote notes a ProgId whose icon is in another file than the one
-// it opens: iconIndex only picks an icon of the file the type goes on.
-func (c *converter) typeIconNote(pending pendingType, file *fileRef) {
+// typeIcon sets the icon of a ProgId whose Icon names another file than
+// the one it opens: iconFile names that file, and without an IconIndex
+// the first icon is taken. An <Icon> or a file this source does not
+// define gets a TODO.
+func (c *converter) typeIcon(pending pendingType, file *fileRef) {
 	icon := strings.TrimSpace(c.literal(pending.e.attr("Icon")))
 	if icon == "" || icon == file.key || icon == strings.TrimSpace(c.literal(file.key)) {
 		return
 	}
 
-	pending.out.del("iconIndex")
-
 	progID := pending.e.attr("Id")
-	isFile := slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == icon })
 
-	if !isFile && slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
-		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
-			"ProgIds use; install the icon as a file and add the DefaultIcon key HKCR\\%s\\DefaultIcon as a registry value "+
-			"naming it", progID, icon, progID)
+	if index := slices.IndexFunc(c.files, func(f *fileRef) bool { return f.key == icon }); index >= 0 {
+		pending.out.set("iconFile", fileRefName(c.files[index]))
+
+		if !pending.e.has("IconIndex") {
+			pending.out.del("iconIndex")
+		}
 
 		return
 	}
 
-	where := ""
-	if !isFile {
-		where = " (a file this source does not define)"
+	pending.out.del("iconIndex")
+
+	if slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
+		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
+			"ProgIds use; install the icon as a file and name it with iconFile", progID, icon)
+
+		return
 	}
 
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s%s, not from the file it opens; "+
-		"iconIndex only picks an icon of that file, so add the DefaultIcon key as a registry value "+
-		"(HKCR\\%s\\DefaultIcon = [#%s],%s)", progID, icon, where, progID, icon, c.iconIndexText(pending.e))
+	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s (a file this source does not define), "+
+		"not from the file it opens; name the file with iconFile (index %s)", progID, icon, c.iconIndexText(pending.e))
 }
 
 // iconIndexText returns a ProgId's icon index, 0 when it gives none.
@@ -1297,23 +1324,6 @@ func (c *converter) iconIndexText(elm *elem) string {
 	}
 
 	return "0"
-}
-
-// typeFeatureNote notes a ProgId whose component is in other features than
-// the file it opens: its file type now installs with the file.
-func (c *converter) typeFeatureNote(pending pendingType, file *fileRef) {
-	if file.comp == pending.comp {
-		return
-	}
-
-	own, target := c.featureIDs(pending.comp), c.featureIDs(file.comp)
-	if slices.Equal(own, target) {
-		return
-	}
-
-	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in features %s, the file it opens in %s; "+
-		"msi-builder installs file types with their file, so this one is no longer optional", pending.e.attr("Id"),
-		orNone(own), orNone(target))
 }
 
 // featureIDs returns the IDs of the features that hold a component, sorted.
@@ -1329,14 +1339,6 @@ func (c *converter) featureIDs(cp *comp) []string {
 	slices.Sort(ids)
 
 	return slices.Compact(ids)
-}
-
-func orNone(ids []string) string {
-	if len(ids) == 0 {
-		return valueNone
-	}
-
-	return strings.Join(ids, ", ")
 }
 
 // Rights names of grants.

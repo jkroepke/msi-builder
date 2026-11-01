@@ -375,8 +375,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MULTI_STATUS: false
           LINTER_RULES_PATH: .
-          # The Windows test harness and its raw run logs.
-          FILTER_REGEX_EXCLUDE: docs/spec/msitest/.*
+          # The Windows test harness and its raw run logs, and the convert
+          # snapshots, which are templates that are YAML only once rendered
+          # (TestConvertSnapshots renders and validates them).
+          FILTER_REGEX_EXCLUDE: (docs/spec/msitest/.*|internal/wixconvert/testdata/.*\.yaml)
           GITHUB_ACTIONS_ZIZMOR_CONFIG_FILE: ./.github/zizmor.yml
           ENABLE_GITHUB_ACTIONS_STEP_SUMMARY: true
           ENABLE_GITHUB_PULL_REQUEST_SUMMARY_COMMENT: false
