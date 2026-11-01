@@ -243,22 +243,28 @@ func TestConvertChosenMachineSetter(t *testing.T) {
 }
 
 // TestConvertMachineContent checks a WiX v3 package without a scope whose
-// component without a context condition holds machine data: a
-// bootstrapper installs it per machine, so it stays perMachine with its
-// conditions instead of becoming a dual package that refuses that data.
+// components hold machine data or folders: a bootstrapper installs it per
+// machine, so it stays perMachine with its conditions when the dual
+// package would refuse that data.
 func TestConvertMachineContent(t *testing.T) {
 	t.Parallel()
 
 	for name, data := range map[string]string{
 		"hklm":    `<RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="S" Value="1" Type="string" KeyPath="yes" />`,
 		"service": `<File Id="svc.exe" Source="svc.exe" KeyPath="yes" /><ServiceInstall Id="Svc" Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" />`,
+		"common app data": `<File Id="data.txt" Source="data.txt" KeyPath="yes" />`,
 	} {
+		folder := "ProgramFiles64Folder"
+		if name == "common app data" {
+			folder = "CommonAppDataFolder"
+		}
+
 		src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
     <Package InstallerVersion="200" Compressed="yes" />
     <MajorUpgrade DowngradeErrorMessage="newer" />
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFiles64Folder">
+      <Directory Id="` + folder + `">
         <Directory Id="INSTALLFOLDER" Name="Hello">
           <Component Id="Svc" Guid="*">` + data + `</Component>
           <Component Id="M" Guid="*"><Condition>ALLUSERS=1</Condition>

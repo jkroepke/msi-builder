@@ -125,10 +125,11 @@ func (c *converter) choosesContext(machineOK bool) int {
 // contextScope makes a per-user package that chooses its context itself
 // the dual scope perUserOrMachine, which still installs per user by
 // default and per machine with a bootstrapper's ALLUSERS=1 (INST-07). A
-// WiX v3 package without a scope and without ALLUSERS is per user too. A
+// WiX v3 package without a scope and without ALLUSERS is per user too;
+// Convert keeps it perMachine when the dual package does not validate. A
 // per-machine package stays: there a condition on ALLUSERS=1 always holds.
 func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) string {
-	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !c.setsMachine() && !c.machineContent()
+	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !c.setsMachine() && !c.noDual
 	if !perUser {
 		return scope
 	}
@@ -143,6 +144,8 @@ func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) stri
 		"components[].scope keeps machine and user data in their context, and ALLUSERS=1 or MSIINSTALLPERUSER on "+
 		"the command line still picks the context (INST-07); use %s if the install should default to all users; "+
 		"it needs installerVersion 5.0", scopeUserOrMachine, scopeMachineOrUser)
+
+	c.guessedDual = scope == ""
 
 	return scopeUserOrMachine
 }
@@ -269,51 +272,6 @@ func (c *converter) setsMachine() bool {
 	walk = func(elm *elem) {
 		if contextSetter(elm) != "" && c.machineSetter(elm) {
 			found = true
-		}
-
-		for _, kid := range elm.kids {
-			walk(kid)
-		}
-	}
-
-	walk(c.doc.root)
-
-	return found
-}
-
-// machineContent reports whether a component without a context condition
-// holds data that a dual package refuses outside a perMachine component:
-// services, HKLM or HKU registry data, machine environment variables or
-// firewall rules. A WiX v3 package without a scope that has such a
-// component converts to perMachine as before, since a bootstrapper
-// installs it per machine.
-func (c *converter) machineContent() bool {
-	found := false
-
-	var inside func(*elem)
-
-	inside = func(elm *elem) {
-		switch {
-		case elm.is("ServiceInstall"), elm.is("ServiceControl"), elm.name == "FirewallException",
-			elm.is("Environment") && elm.yes("System"),
-			(elm.is("RegistryValue") || elm.is("RegistryKey")) && (elm.attr("Root") == "HKLM" || elm.attr("Root") == "HKU"):
-			found = true
-		}
-
-		for _, kid := range elm.kids {
-			inside(kid)
-		}
-	}
-
-	var walk func(*elem)
-
-	walk = func(elm *elem) {
-		if elm.is("Component") {
-			if contextCondition(c.componentConditionText(elm)) == "" {
-				inside(elm)
-			}
-
-			return
 		}
 
 		for _, kid := range elm.kids {

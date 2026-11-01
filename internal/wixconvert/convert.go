@@ -8,12 +8,14 @@
 package wixconvert
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -78,19 +80,68 @@ type Options struct {
 // Convert reads a .wxs file and returns the msi.yaml that describes the
 // same package as far as msi-builder can express it.
 func Convert(r io.Reader, opts Options) (*Result, error) {
-	doc, err := parse(r)
+	src, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
 
+	res, conv, err := convertOnce(src, opts, false)
+	if err != nil || !conv.guessedDual {
+		return res, err
+	}
+
+	// A WiX v3 package without a scope became a dual package because it
+	// chooses its context; when that package does not validate and the
+	// perMachine one that a bootstrapper installs validates better, keep
+	// perMachine.
+	dualErrors := validationErrors(res.YAML)
+	if dualErrors == 0 {
+		return res, nil
+	}
+
+	machine, _, err := convertOnce(src, opts, true)
+	if err != nil || validationErrors(machine.YAML) >= dualErrors {
+		return res, nil //nolint:nilerr // the dual result stands
+	}
+
+	return machine, nil
+}
+
+// validationErrors returns the number of errors config.Validate reports
+// for a converted file, or a large number when it does not parse.
+func validationErrors(text []byte) int {
+	cfg, err := config.Parse(text, config.Options{})
+	if err != nil {
+		return math.MaxInt
+	}
+
+	count := 0
+
+	for _, d := range config.Validate(cfg) {
+		if d.Severity == config.SeverityError {
+			count++
+		}
+	}
+
+	return count
+}
+
+// convertOnce converts src; with noDual, a WiX v3 package without a scope
+// does not become a dual package.
+func convertOnce(src []byte, opts Options, noDual bool) (*Result, *converter, error) {
+	doc, err := parse(bytes.NewReader(src))
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if !doc.root.is("Wix") {
-		return nil, fmt.Errorf("the root element is <%s>, not <Wix>", doc.root.qname())
+		return nil, nil, fmt.Errorf("the root element is <%s>, not <Wix>", doc.root.qname())
 	}
 
 	switch opts.Arch {
 	case "", platformX86, platformX64, platformArm64:
 	default:
-		return nil, fmt.Errorf("unknown platform %q; use x86, x64 or arm64", opts.Arch)
+		return nil, nil, fmt.Errorf("unknown platform %q; use x86, x64 or arm64", opts.Arch)
 	}
 
 	conv := newConverter(doc)
@@ -99,22 +150,23 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 	conv.fsys = opts.FS
 	conv.arch = opts.Arch
 	conv.bcgg = opts.BCGG
+	conv.noDual = noDual
 
 	if err := conv.index(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	conv.emit()
 
 	text, err := conv.render(opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	notes := append([]Note(nil), conv.notes...)
 	slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
 
-	return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, nil
+	return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, conv, nil
 }
 
 // dirFileSource returns the FileSource of a Directory or DirectoryRef,
@@ -162,8 +214,11 @@ type converter struct {
 	uiSet         string
 	platform      string
 	// scope is the package's install scope, as package.scope names it.
-	scope        string
-	launchAction string
+	scope string
+	// guessedDual is set when a WiX v3 package without a scope became a
+	// dual package; noDual keeps such a package perMachine.
+	guessedDual, noDual bool
+	launchAction        string
 	// doActions are the DoAction control events by the action they run.
 	doActions map[string]*elem
 	// otherSequences are the sequences without a counterpart, such as
