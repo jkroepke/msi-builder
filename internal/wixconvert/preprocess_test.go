@@ -252,6 +252,14 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<?define Debug ?><?ifdef Debug ?><Property Id="DBG" Value="1" /><?endif ?>`,
 			note: "<?ifdef Debug?> is not evaluated: only its first branch was converted",
 		},
+		"default given twice": {
+			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?><?define Z = "$(var.X)z" ?><Property Id="Q" Value="$(var.Z)" />`,
+			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+		},
+		"default defined again later": {
+			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)-y" ?><?ifdef A ?><?define X = "3" ?><?endif ?><Property Id="Q" Value="$(var.Y)" />`,
+			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -375,13 +383,6 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
 			want: `Out: '{{ if has "D" }}{{ .Ver }}-d{{ else }}{{ .Ver }}{{ end }}'`,
 			vars: []string{"D", "Ver"},
 		},
-		"define from a default defined again": {
-			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)" ?><?define X = "2" ?>
-    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
-    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
-    <Property Id="Q" Value="$(var.Y)" />`,
-			want: `Y: "1"`,
-		},
 		"default in a block read through --var": {
 			body: `<?ifdef D ?><?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)-y" ?><?endif ?>
     <Feature Id="Main"><ComponentRef Id="C" /></Feature>
@@ -389,14 +390,6 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
     <Property Id="Q" Value="$(var.Y)" />`,
 			want: `Y: '{{ if has "D" }}{{ .X }}-y{{ end }}'`,
 			vars: []string{"D"},
-		},
-		"default given twice": {
-			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?>
-    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
-    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
-    <Property Id="Q" Value="$(var.X)" />`,
-			want: `{{ else }}1{{ end }}`,
-			vars: []string{"X"},
 		},
 		"brace before a value": {
 			body: `<?ifndef G ?><?define G = "g" ?><?endif ?><?ifdef E ?><?define Code = "{$(var.G)}" ?><?else ?><?define Code = "a{" ?><?endif ?>
@@ -413,6 +406,13 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
     <Property Id="Q" Value="$(var.Z)" />`,
 			want: `Z: '{{ .Y }}-z'`,
 			vars: []string{"E", "Y"},
+		},
+		"braces in a condition": {
+			body: `<?ifndef M ?><?define M = "m" ?><?endif ?><?if $(var.M) = "{{{" ?><?define X = "1" ?><?else ?><?define X = "{$(var.M)" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.X)" />`,
+			want: "X: '{{ if eq .M \"{{{\" }}1{{ else }}{{ `{` }}{{ .M }}{{ end }}'",
 		},
 		"property in both branches on one line": {
 			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>

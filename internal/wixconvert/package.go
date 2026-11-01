@@ -12,10 +12,53 @@ import (
 // braceSafe writes a literal { that comes just before an action of a
 // vars header value as an action of its own: {{{ would read the { as
 // part of the action. Literal text never holds {{, which escapeTemplate
-// writes as an action. The body needs none: quoteVars splits it into
-// operands.
+// writes as an action, and the text inside actions stays as it is. The
+// body needs none: quoteVars splits it into operands.
 func braceSafe(text string) string {
-	return strings.ReplaceAll(text, "{{{", "{{ `{` }}{{")
+	var out strings.Builder
+
+	for i := 0; i < len(text); {
+		switch {
+		case strings.HasPrefix(text[i:], "{{{"):
+			out.WriteString("{{ `{` }}")
+
+			i++
+		case strings.HasPrefix(text[i:], "{{"):
+			end := actionEnd(text, i)
+			out.WriteString(text[i:end])
+
+			i = end
+		default:
+			out.WriteByte(text[i])
+
+			i++
+		}
+	}
+
+	return out.String()
+}
+
+// actionEnd returns the index after the action that starts at i, past
+// the }} that is not in a string constant.
+func actionEnd(text string, i int) int {
+	var quote byte
+
+	for pos := i + 2; pos < len(text); pos++ {
+		switch {
+		case quote == '"' && text[pos] == '\\':
+			pos++
+		case quote != 0:
+			if text[pos] == quote {
+				quote = 0
+			}
+		case text[pos] == '"' || text[pos] == '`':
+			quote = text[pos]
+		case strings.HasPrefix(text[pos:], "}}"):
+			return pos + 2
+		}
+	}
+
+	return len(text)
 }
 
 // emitVars writes the defines as vars. A define that uses an earlier one
@@ -34,7 +77,7 @@ func (c *converter) emitVars() {
 			continue
 		}
 
-		c.out.child("vars").set(define[0], c.expand(c.pkg, c.defined[define[0]]))
+		c.out.child("vars").set(define[0], braceSafe(c.expand(c.pkg, c.defined[define[0]])))
 	}
 }
 

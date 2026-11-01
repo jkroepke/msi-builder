@@ -661,7 +661,7 @@ func (c *converter) ppDefined(blk *ppBlock, branch ppBranch) (string, error) {
 		return "", fmt.Errorf("<?%s %s?>: not a variable name", branch.target, branch.inst)
 	}
 
-	if c.definesVar(varName(name)) && (!defaultBlock(blk, varName(name), c.doc.procs) || c.definedBefore(blk, varName(name))) {
+	if c.definesVar(varName(name)) && (!defaultBlock(blk, varName(name), c.doc.procs) || c.definedOutside(blk, varName(name))) {
 		// has is true for a variable the vars header defines, also in
 		// builds where the define did not run.
 		return "", fmt.Errorf("<?%s %s?>: the file defines the variable", branch.target, branch.inst)
@@ -1207,31 +1207,17 @@ func (c *converter) definesVar(name string) bool {
 	})
 }
 
-// definedBefore reports whether a <?define?> before blk sets the
-// variable in some builds only, or without a value: the header var has a
-// value in every build, so has tells nothing.
-func (c *converter) definedBefore(blk *ppBlock, name string) bool {
-	for _, proc := range c.doc.procs {
-		if proc.block == blk {
-			return false
-		}
+// definedOutside reports whether a <?define?> outside blk sets the
+// variable: a default then gives the variable its value in some builds
+// only, which the vars header, where --var replaces the default, does
+// not tell apart.
+func (c *converter) definedOutside(blk *ppBlock, name string) bool {
+	return slices.ContainsFunc(c.doc.procs, func(proc procInst) bool {
+		defined, _, _ := strings.Cut(proc.inst, "=")
 
-		// A define with a value that every build runs makes has true in
-		// WiX too.
-		defined, _, valued := strings.Cut(proc.inst, "=")
-		if proc.target != piDefine || varName(strings.TrimSpace(defined)) != name {
-			continue
-		}
-
-		// An earlier default leaves the header var defined in every
-		// build too, so a later default never applies, as in WiX.
-		earlierDefault := len(proc.pos) == 1 && defaultBlock(proc.pos[0].block, name, c.doc.procs)
-		if !valued || len(proc.pos) > 0 && !earlierDefault {
-			return true
-		}
-	}
-
-	return false
+		return proc.target == piDefine && varName(strings.TrimSpace(defined)) == name &&
+			!slices.ContainsFunc(proc.pos, func(p ppPos) bool { return p.block == blk })
+	})
 }
 
 // defineName returns the variable a <?define?> sets, or "".
