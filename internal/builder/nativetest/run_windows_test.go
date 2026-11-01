@@ -50,20 +50,31 @@ func buildRunProbe(t *testing.T, arch string) string {
 	return path
 }
 
-// quietArgs returns the msiexec arguments for a silent run with a verbose
-// log that never restarts the machine. /norestart sets REBOOT=ReallySuppress
-// on /i, but a /f repair passes neither it nor other command-line
-// properties to the server: a /fa repair that scheduled a held file's
-// replacement returned 1641 and restarted the machine (PROP-04). So a
-// /f<modes> repair runs as /i with REINSTALL=ALL REINSTALLMODE=<modes>, the
-// server command line /fa gave, and REBOOT=ReallySuppress, which kept such a
-// repair at 3010 (PROP-04, DisableShutdown).
-func quietArgs(log string, args ...string) []string {
-	if len(args) >= 2 && len(args[0]) > 2 && strings.EqualFold(args[0][:2], "/f") {
-		args = append([]string{"/i", args[1], "REINSTALL=ALL", "REINSTALLMODE=" + args[0][2:]}, args[2:]...)
+// repairArgs rewrites a /f<modes> repair as /i with REINSTALL=ALL
+// REINSTALLMODE=<modes>, the server command line /fa gave; a bare /f uses
+// omus, its documented default. /norestart sets REBOOT=ReallySuppress on /i,
+// but /f did not pass REBOOT to the server, even when given on the command
+// line: a /fa repair that scheduled a held file's replacement returned 1641
+// and restarted the machine (PROP-04). Other arguments are kept.
+func repairArgs(args []string) []string {
+	if len(args) < 2 || len(args[0]) < 2 || !strings.EqualFold(args[0][:2], "/f") {
+		return args
 	}
 
-	return append(args, "/qn", "/norestart", "REBOOT=ReallySuppress", "/l*v", log)
+	modes := args[0][2:]
+	if modes == "" {
+		modes = "omus"
+	}
+
+	return append([]string{"/i", args[1], "REINSTALL=ALL", "REINSTALLMODE=" + modes}, args[2:]...)
+}
+
+// quietArgs returns the msiexec arguments for a silent run with a verbose
+// log that never restarts the machine: repairArgs, then /qn /norestart and
+// REBOOT=ReallySuppress, which kept such a repair at 3010 (PROP-04,
+// DisableShutdown).
+func quietArgs(log string, args ...string) []string {
+	return append(repairArgs(args), "/qn", "/norestart", "REBOOT=ReallySuppress", "/l*v", log)
 }
 
 // msiexecCode runs msiexec with a verbose log and returns its exit code;
@@ -71,8 +82,10 @@ func quietArgs(log string, args ...string) []string {
 func msiexecCode(t *testing.T, log string, args ...string) int {
 	t.Helper()
 
+	args = quietArgs(log, args...)
+
 	//nolint:gosec // the arguments are test-controlled paths
-	out, err := exec.CommandContext(t.Context(), "msiexec", quietArgs(log, args...)...).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "msiexec", args...).CombinedOutput()
 	if err == nil {
 		return 0
 	}

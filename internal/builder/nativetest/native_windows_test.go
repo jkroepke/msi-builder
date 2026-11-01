@@ -360,8 +360,10 @@ func testService(t *testing.T) []byte {
 func msiexecQuiet(t *testing.T, log string, args ...string) {
 	t.Helper()
 
+	args = quietArgs(log, args...)
+
 	//nolint:gosec // the arguments are test-controlled paths
-	out, err := exec.CommandContext(t.Context(), "msiexec", quietArgs(log, args...)...).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "msiexec", args...).CombinedOutput()
 	if err == nil {
 		return
 	}

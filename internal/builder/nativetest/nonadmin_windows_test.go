@@ -108,7 +108,10 @@ func (u nonAdminUser) run(t *testing.T, cmdline string) int {
 func (u nonAdminUser) msiexec(t *testing.T, log string, args ...string) int {
 	t.Helper()
 
-	// msiexec takes PROPERTY="value", not a quoted whole argument.
+	// msiexec takes PROPERTY="value", not a quoted whole argument. A /f
+	// repair runs as /i (see repairArgs) so REBOOT reaches the server.
+	args = repairArgs(args)
+
 	quoted := make([]string, 0, len(args))
 	for _, arg := range args {
 		if name, value, ok := strings.Cut(arg, "="); ok && !strings.HasPrefix(arg, "/") {
@@ -120,7 +123,7 @@ func (u nonAdminUser) msiexec(t *testing.T, log string, args ...string) int {
 		quoted = append(quoted, arg)
 	}
 
-	return u.run(t, fmt.Sprintf(`msiexec.exe %s /qn /norestart /l*v %s`, strings.Join(quoted, " "), syscall.EscapeArg(log)))
+	return u.run(t, fmt.Sprintf(`msiexec.exe %s /qn /norestart REBOOT=ReallySuppress /l*v %s`, strings.Join(quoted, " "), syscall.EscapeArg(log)))
 }
 
 // policy runs reg.exe on the user's Installer policy key. A standard user

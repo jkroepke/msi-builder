@@ -1340,8 +1340,8 @@ the silent shutdown of an unrelated holder was observed in PROP-04);
 `close` covers the programs the package knows about. With `Disable`, a file
 that a program `close` does not end still holds is replaced at the next
 restart: a silent `/fa` repair then returned 1641 and restarted the machine
-although `/norestart` was given (PROP-04). `/f` passes no command-line
-property, so run such a repair as `msiexec /i <package> REINSTALL=ALL
+although `/norestart` was given (PROP-04). `/f` did not pass `REBOOT` to
+the server, so run such a repair as `msiexec /i <package> REINSTALL=ALL
 REINSTALLMODE=a REBOOT=ReallySuppress`; with `DisableShutdown` such a
 repair returned 3010 instead. The value is case-sensitive: `disable`
 behaved like `0`. Not adopted from WiX:

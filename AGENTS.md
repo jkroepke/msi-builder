@@ -331,14 +331,18 @@ go test ./... -shuffle=on -race
   `workflow_dispatch` on it, then read the job log. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
   `/norestart` becomes `REBOOT=ReallySuppress` on `/i`, but a `/f` repair
-  passes no command-line property to the server: a `/fa` repair with
+  did not pass `REBOOT` to the server, even when given on the command line
+  (other properties were not checked): a `/fa` repair with
   `MSIRESTARTMANAGERCONTROL=Disable` that scheduled a held file's
   replacement returned 1641 and restarted the machine (PROP-04); the four
-  hosted runners lost with no job log were probably this. `msiexecCode` and
-  `msiexecQuiet` run a `/f<modes>` repair as `/i` with `REINSTALL=ALL
-  REINSTALLMODE=<modes> REBOOT=ReallySuppress` (`quietArgs`), which returned
-  3010 instead; direct msiexec calls in the tests do not, so use the helpers
-  for repairs.
+  hosted runners lost with no job log were probably this. `msiexecCode`,
+  `msiexecQuiet`, `nonAdminUser.msiexec` and the environment broadcast test
+  run a `/f<modes>` repair (a bare `/f` as `omus`) as `/i` with
+  `REINSTALL=ALL REINSTALLMODE=<modes> REBOOT=ReallySuppress`
+  (`repairArgs`). That form returned 3010 with `DisableShutdown` and a held
+  file; with `Disable` it is expected to return 3010 too but was not run.
+  Other direct msiexec calls in the tests do not rewrite, so use the
+  helpers for repairs.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with
