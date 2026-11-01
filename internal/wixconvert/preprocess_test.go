@@ -244,6 +244,18 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<?ifndef V ?><?define V = "1" ?><?endif ?><?define V = "$(var.V)-x" ?><Property Id="P" Value="$(var.V)" />`,
 			note: "<?ifndef V?> is not evaluated: only its first branch was converted",
 		},
+		"default given twice": {
+			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
+			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+		},
+		"default after a block that defines the variable": {
+			body: `<?ifdef D ?><?define X = "d" ?><?endif ?><?ifndef X ?><?define X = "def" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
+			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+		},
+		"ifdef of a variable defined without a value": {
+			body: `<?define Debug ?><?ifdef Debug ?><Property Id="DBG" Value="1" /><?endif ?>`,
+			note: "<?ifdef Debug?> is not evaluated: only its first branch was converted",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -367,20 +379,20 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
 			want: `Out: '{{ if has "D" }}{{ .Ver }}-d{{ else }}{{ .Ver }}{{ end }}'`,
 			vars: []string{"D", "Ver"},
 		},
-		"default given twice": {
-			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?>
-    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
-    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
-    <Property Id="Q" Value="$(var.X)" />`,
-			want: `{{ else }}1{{ end }}`,
-			vars: []string{"X"},
-		},
 		"define from a default defined again": {
 			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)" ?><?define X = "2" ?>
     <Feature Id="Main"><ComponentRef Id="C" /></Feature>
     <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
     <Property Id="Q" Value="$(var.Y)" />`,
 			want: `Y: "1"`,
+		},
+		"default in a block read through --var": {
+			body: `<?ifdef D ?><?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)-y" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.Y)" />`,
+			want: `Y: '{{ if has "D" }}{{ .X }}-y{{ end }}'`,
+			vars: []string{"D"},
 		},
 		"property in both branches on one line": {
 			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>

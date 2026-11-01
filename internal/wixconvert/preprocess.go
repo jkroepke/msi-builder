@@ -661,7 +661,7 @@ func (c *converter) ppDefined(blk *ppBlock, branch ppBranch) (string, error) {
 		return "", fmt.Errorf("<?%s %s?>: not a variable name", branch.target, branch.inst)
 	}
 
-	if c.definesVar(varName(name)) && !defaultBlock(blk, varName(name), c.doc.procs) {
+	if c.definesVar(varName(name)) && (!defaultBlock(blk, varName(name), c.doc.procs) || c.definedBefore(blk, varName(name))) {
 		// has is true for a variable the vars header defines, also in
 		// builds where the define did not run.
 		return "", fmt.Errorf("<?%s %s?>: the file defines the variable", branch.target, branch.inst)
@@ -988,17 +988,6 @@ type defineEval struct {
 	frames   []*defineFrame
 }
 
-// openDefaults returns the defaults that the block ending now may record:
-// none inside another kept block, whose template the reference would
-// leave out.
-func (e *defineEval) openDefaults() map[string]string {
-	if len(e.frames) > 0 {
-		return nil
-	}
-
-	return e.defaults
-}
-
 // defaultRef is the value a later define reads from a default.
 func defaultRef(name string) string { return "{{ ." + name + " }}" }
 
@@ -1017,9 +1006,11 @@ func (c *converter) conditionalValues(names map[string]bool) map[string]string {
 	values := make(map[string]string)
 
 	for name := range names {
+		// The variable's own value takes the default in; the defines
+		// that read it read the variable, so that --var reaches them.
 		value, ok := eval.env[name]
-		if def, isDefault := eval.defaults[name]; isDefault && value == defaultRef(name) {
-			value = def
+		if def, isDefault := eval.defaults[name]; isDefault {
+			value = strings.ReplaceAll(value, defaultRef(name), def)
 		}
 
 		if ok {
@@ -1055,7 +1046,7 @@ func (e *defineEval) step(proc procInst) {
 			top := e.frames[len(e.frames)-1]
 			e.frames = e.frames[:len(e.frames)-1]
 			top.branches = append(top.branches, e.env)
-			e.env = e.conv.mergeBranches(top, e.openDefaults())
+			e.env = e.conv.mergeBranches(top, e.defaults)
 		}
 	}
 }
@@ -1121,7 +1112,7 @@ func (c *converter) mergeBranches(frame *defineFrame, defaults map[string]string
 		if isDefault(frame, name) {
 			env[name] = frame.branches[0][name]
 
-			if defaults != nil && c.lastDefinedIn(name, blk) {
+			if c.lastDefinedIn(name, blk) {
 				// Later defines read the variable, so that --var
 				// reaches them.
 				defaults[name] = env[name]
@@ -1195,9 +1186,34 @@ func (c *converter) branchValue(frame *defineFrame, name string) string {
 	return text.String()
 }
 
-// definesVar reports whether a <?define?> of the file sets the variable.
+// definesVar reports whether a <?define?> of the file sets the variable,
+// also one without a value.
 func (c *converter) definesVar(name string) bool {
-	return slices.ContainsFunc(c.doc.procs, func(proc procInst) bool { return defineName(proc) == name })
+	return slices.ContainsFunc(c.doc.procs, func(proc procInst) bool {
+		if proc.target != piDefine {
+			return false
+		}
+
+		defined, _, _ := strings.Cut(proc.inst, "=")
+
+		return varName(strings.TrimSpace(defined)) == name
+	})
+}
+
+// definedBefore reports whether a <?define?> before blk sets the
+// variable: the header var then always has a value, so has tells nothing.
+func (c *converter) definedBefore(blk *ppBlock, name string) bool {
+	for _, proc := range c.doc.procs {
+		if proc.block == blk {
+			return false
+		}
+
+		if defined, _, _ := strings.Cut(proc.inst, "="); proc.target == piDefine && varName(strings.TrimSpace(defined)) == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // defineName returns the variable a <?define?> sets, or "".
