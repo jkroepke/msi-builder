@@ -315,6 +315,11 @@ firewall:
 The rule is added on install and removed on uninstall. `[#hello.exe]` is
 the installed path of the file `hello.exe`, the program the rule allows.
 `profiles` limits the rule to `domain`, `private` or `public` networks.
+Adding a rule needs administrator rights, so in a package that installs
+for one user or for all users the rule's component needs `scope:
+perMachine` (see the install scope below): an install for all users adds
+the rule, and one for a single user leaves it out.
+
 `protocol: any` with a `port` opens the port for TCP and UDP. If the rule
 cannot be added, the install fails; `ignoreFailure: true` installs without
 the rule instead, or, for `any` with a port, possibly with only one of the
@@ -766,7 +771,8 @@ mark itself with an HKCU value; msi-builder writes one under
 package a `PATH` entry goes to the machine `PATH` when the user installs
 for all users and to their own `PATH` otherwise, and a component with
 `scope: perMachine` holds what only an all-users install writes, such as
-HKLM values:
+HKLM values. One component may add several folders to `PATH`, each in an
+entry of its own:
 
 ```yaml
 package:
@@ -778,6 +784,7 @@ components:
       - source: hello.exe
     environment:
       - { name: PATH, value: '[INSTALLDIR]', action: append }
+      - { name: PATH, value: '[INSTALLDIR]Scripts', action: append }
   - id: MachineSettings
     directory: INSTALLDIR
     scope: perMachine

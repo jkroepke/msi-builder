@@ -135,7 +135,14 @@ versioning after 1.0.
   from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
   for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
-  from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
+  from the observed behaviour only: never read WiX source for it. A package
+  that chooses its install context with context conditions or
+  `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a dual scope (`context.go`),
+  because execute-sequence setters leave the install inconsistent (INST-07).
+  A WiX v3 package without a scope only does when it reads
+  `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
+  per-machine packages per-user in review, so they stay perMachine.
+  The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
   Nameless and `.` Directories are settled before the directories link
   (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
@@ -327,9 +334,9 @@ go test ./... -shuffle=on -race
   tests contend on, and the combined run was more than six times as slow.
 - To learn what Windows does before writing a test, a temporary nativetest
   that collects its observations and reports them with one `t.Errorf` runs
-  on the `windows-latest` runner: push the branch and start CI with
-  `workflow_dispatch` on it, then read the job log. Replace the probe with a
-  test that asserts the observed behavior before the pull request merges.
+  on the `windows-latest` runner from a probe workflow (see "CI probes"
+  below), then read the job log. Replace the probe with a test that asserts
+  the observed behavior before the pull request is ready for review.
   `/norestart` becomes `REBOOT=ReallySuppress` on `/i`, but a `/f` repair
   did not pass `REBOOT` to the server, even when given on the command line
   (and SEC-02 saw it drop `SVC_ACCOUNT` and `FAILNOW`): a `/fa` repair with
@@ -350,9 +357,8 @@ go test ./... -shuffle=on -race
   `builder.Build`, `msidb.Unmarshal` it, add rows (`schema.New` for a missing
   table), replace `_Validation` with `schema.Validation` of the other tables
   and `Marshal` it again; SEARCH-05 probed 70 locator rows in one install
-  that way (`docs/spec/msitest/results/SEARCH-05/probe`). A probe opened as a
-  pull request runs on every push too; keep the raw results in
-  `docs/spec/msitest/results` before deleting it.
+  that way (`docs/spec/msitest/results/SEARCH-05/probe`). Keep the raw
+  results in `docs/spec/msitest/results` before deleting the probe.
 - Native tests run in shuffled order, so a test that checks what an install
   creates must not share registry keys or folders with other tests: give it
   its own root and delete it before and after. Whether a key's parent exists
@@ -514,6 +520,56 @@ Follow the template in `.github/PULL_REQUEST_TEMPLATE.md`. Titles start with
 request carries one release label. Sign off each commit (`git commit -s`).
 Report in the pull request which checks ran, including the Windows run, and
 which could not run and why.
+
+Open every pull request as a draft and keep it a draft until it is ready.
+GitHub Actions minutes are tight: `ci.yaml` runs no build, test or lint job
+on a draft, only its `fail` job, which fails on purpose so that a draft never
+shows a green required check. Marking the pull request ready for review
+(`ready_for_review`) starts the full run, and each later push runs it again.
+Run the local checks of `CONTRIBUTING.md` while the pull request is a draft,
+mark it ready when they pass, and enable auto-merge after that.
+
+### CI probes
+
+An experiment that needs a GitHub-hosted runner, such as a temporary
+nativetest that reports what Windows does, runs from its own workflow,
+`.github/workflows/probe.yaml`, on the draft pull request's branch. Trigger
+it on pushes to that branch only and run nothing but the probe:
+
+```yaml
+name: Probe
+on:
+  push:
+    branches:
+      - <the pull request branch>
+permissions: {}
+jobs:
+  probe:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@<pinned sha> # copy the pin from ci.yaml
+        with:
+          persist-credentials: 'false'
+      - uses: actions/setup-go@<pinned sha> # copy the pin from ci.yaml
+        with:
+          go-version-file: 'go.mod'
+      - shell: bash
+        run: go test ./internal/builder/nativetest/ -v -count=1 -run 'TestProbe<Name>'
+```
+
+Delete `probe.yaml` before marking the pull request ready for review: the
+`Detect changes` job of `ci.yaml` fails while the file exists, so the probe
+never reaches `main`. GitHub only offers `workflow_dispatch` for workflows on
+the default branch, so rerun a probe with a new push or with "Re-run jobs" on
+its run. Every msiexec call of a probe passes `/norestart` and
+`REBOOT=ReallySuppress`; the test helpers add both. A `/f` repair did not
+pass `REBOOT` to the install server, so `/norestart` does not stop it from
+restarting: one returned 1641 and restarted the machine, which probably lost
+the hosted runner and its job log (PROP-04). Run a repair as
+`/i <package> REINSTALL=ALL REINSTALLMODE=<modes>` with
+`REBOOT=ReallySuppress` instead, as `repairArgs` does.
 
 Automatic releases are controlled by the repository Actions variable
 `RELEASE_ENABLED`: the `release` job in `ci.yaml` runs only when it is

@@ -366,7 +366,21 @@ and event log sources; one with `scope: perUser` installs only per user.
 The builder adds `ALLUSERS=1` or `NOT ALLUSERS` to the component's
 `condition`, which must leave room for it in the 255 characters of
 `Component.Condition`. Services and `serviceControl` stay refused, and so
-do the folders ICE105 rejects.
+do the folders ICE105 rejects. A `firewall` rule needs a component with
+`scope: perMachine`, since netsh runs elevated; a rule under a feature
+gets a carrier with that scope, and the netsh actions test `ALLUSERS=1`
+too, so a per-user install adds no rule and needs no elevation for it
+(INST-08). In a `perUserOrMachine` package ICE105 warns about the netsh
+actions, which run without impersonation, and the builder passes that
+warning on.
+
+A package that chooses its context itself, such as a per-user package
+that a bootstrapper installs with `ALLUSERS=1`, or one whose own actions
+set `ALLUSERS` or `MSIINSTALLPERUSER` and whose components test
+`MSIINSTALLPERUSER`, is a dual package here: `ALLUSERS=1` and
+`MSIINSTALLPERUSER` on the command line pick the context, and
+`components[].scope` keeps machine and user data in it (INST-07; the
+decision and its reasons are in MSISPEC chapter 16).
 
 ```yaml
 package:
@@ -1850,8 +1864,13 @@ scope.
 
 `append` and `prepend` build the `[~];` form, and a `PATH`-like value without
 them gets a warning, since `set` replaces the whole variable. A component may
-not list the same variable (names compared without case) twice with the same
-action and scope.
+list the same variable (names compared without case) with the same action
+and scope more than once only to add several parts with `append` or
+`prepend`, each with its own value, such as a program folder and its
+`Scripts` folder: each entry is an `Environment` row of its own, which the
+install adds and the uninstall removes (ENVVAR-04). The first row keeps the
+key it would have alone; the later ones are keyed by their value too. Any
+other repeat, and the same part twice, is an error.
 
 **Top-level `files` shorthand.** Not in version 1. Every listed file belongs
 to an explicit component, so that its GUID and key path are visible in
