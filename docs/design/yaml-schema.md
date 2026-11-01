@@ -2317,6 +2317,11 @@ customActions:
     schedule:
       - { sequence: execute, after: AppSearch, condition: PREVMACHINE }
       - { sequence: ui, after: AppSearch, condition: PREVMACHINE }
+  - id: SetInstallDirFromPrevious
+    setProperty: { name: INSTALLDIR, value: '[%ProgramW6432]\Example\' }
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+      - { sequence: ui, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
 
 standardActions:
   - action: FindRelatedProducts
@@ -2330,8 +2335,16 @@ in, and after the `ui` sequence ran it the `execute` sequence skips it. A
 dual-scope package that picks the context from a previous install (here a
 search of a value only the per-machine install writes) therefore moves it
 behind the action that sets `ALLUSERS`; at its default number (25, before
-AppSearch) it is expected to miss a previous install in the other context,
-so that both versions stay installed (UPG-15 pending).
+AppSearch) it misses a previous install in the other context, so that both
+versions stay installed (UPG-15). Setting `ALLUSERS` this late does not
+move the folders, which were resolved for the per-user context when the
+package opened: without the INSTALLDIR setter the package is registered
+per machine with its files in `[LocalAppDataFolder]Programs` (UPG-15,
+INST-07), and validate warns about the `ALLUSERS` setter. The second setter
+puts the files in Program Files; other per-user folders, such as the Start
+menu, stay. The scope page and `ALLUSERS=1` on the command line choose the
+context before the folders are resolved and are the better way where the
+installer can use them.
 
 Each placement has exactly one of `before`, `after` or `at` (a number below
 CostInitialize, 800) and no `condition` or `when`: the action keeps its own

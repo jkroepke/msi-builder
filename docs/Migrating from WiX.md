@@ -921,7 +921,13 @@ A `FindRelatedProducts`, `AppSearch` or `LaunchConditions` element with
 `InstallUISequence` becomes a `standardActions` entry. Packages that pick
 the install context from a previous install move `FindRelatedProducts`
 behind the action that sets `ALLUSERS`, because it only finds products in
-the context it runs in (section 8.10 of the specification):
+the context it runs in (section 8.10 of the specification). Convert drops
+the `ALLUSERS` setter itself from a dual-scope package, with a note, and
+keeps the move, now behind AppSearch: setting `ALLUSERS` after the package
+opened registers it per machine but keeps the per-user folders (UPG-15,
+INST-07), so the scope page or `ALLUSERS=1` on the command line choose the
+context instead. A package that keeps the setter also needs one for
+INSTALLDIR (`docs/design/yaml-schema.md`, "Moving standard actions"):
 
 ```xml
 <SetProperty Id="ALLUSERS" Action="SetAllUsersFromPrevious" Value="1" After="AppSearch" Sequence="both" Condition="PREVMACHINE" />
@@ -934,17 +940,12 @@ the context it runs in (section 8.10 of the specification):
 ```
 
 ```yaml
-customActions:
-  - id: SetAllUsersFromPrevious
-    setProperty: { name: ALLUSERS, value: "1" }
-    schedule:
-      - { sequence: ui, after: AppSearch, condition: PREVMACHINE }
-      - { sequence: execute, after: AppSearch, condition: PREVMACHINE }
+# TODO(line 1): the action SetAllUsersFromPrevious, which sets ALLUSERS, was left out: ...
 standardActions:
   - action: FindRelatedProducts
     schedule:
-      - { sequence: ui, after: SetAllUsersFromPrevious }
-      - { sequence: execute, after: SetAllUsersFromPrevious }
+      - { sequence: ui, after: AppSearch }
+      - { sequence: execute, after: AppSearch }
 ```
 
 Other standard actions keep their place, and a condition on a standard
