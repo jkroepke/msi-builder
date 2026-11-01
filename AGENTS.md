@@ -123,6 +123,11 @@ versioning after 1.0.
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
   WiX 5 package on CI). The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
+  Nameless and `.` Directories are settled before the directories link
+  (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
+  (`name: .`), directly in a standard folder they become it, and in
+  TARGETDIR they become the standard folder an unconditioned SetDirectory
+  sets (`[WindowsVolume]`), which is then `consumed` and left out.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a
