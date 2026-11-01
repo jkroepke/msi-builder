@@ -1341,7 +1341,7 @@ the silent shutdown of an unrelated holder was observed in PROP-04);
 that a program `close` does not end still holds is replaced at the next
 restart: a silent `/fa` repair then returned 1641 and restarted the machine
 although `/norestart` was given (PROP-04), so pass `REBOOT=ReallySuppress`
-to such a repair. Not adopted from WiX:
+to such a repair (documented to suppress the restart, untested). Not adopted from WiX:
 closing a program by name wherever it runs, end-session messages
 (`WM_QUERYENDSESSION`), registering programs for a restart after the
 install, and a reboot prompt for programs that refuse to exit.

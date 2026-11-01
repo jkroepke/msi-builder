@@ -336,7 +336,9 @@ go test ./... -shuffle=on -race
   four hosted runners lost with no job log were probably this. `msiexecCode`
   and `msiexecQuiet` therefore also pass `REBOOT=ReallySuppress` (documented
   to suppress the restart, untested); direct msiexec calls in the tests do
-  not yet, so use the helpers for repairs.
+  not yet, so use the helpers for repairs. Keep held-file repair probes off
+  the hosted runner until a VM run shows that `REBOOT=ReallySuppress` stops
+  the restart.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with
