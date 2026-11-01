@@ -38,7 +38,10 @@ components:
 // <marker> and exits with 0; "visible <marker>" does the same with a
 // visible window and also opens a hidden one, which writes <marker>.hidden
 // when it gets WM_CLOSE; "hold <marker> <file>" is "window <marker>" with
-// <file> held open; "console" sleeps without a window. The window modes
+// <file> held open; "restartable <marker>" is "window <marker>" registered
+// with RegisterApplicationRestart to be started again as "restarted
+// <marker>", which writes "<pid> <UTC time>" to <marker>.restarted and
+// opens the window of <marker>.again; "console" sleeps without a window. The window modes
 // write <marker>.endsession and exit on WM_ENDSESSION, as Restart Manager
 // sends it to a program it shuts down.
 const closeHelperSource = `//go:build windows
@@ -48,6 +51,7 @@ package main
 import (
 	"os"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
@@ -84,6 +88,7 @@ var (
 	destroyWindow    = user32.NewProc("DestroyWindow")
 	postQuitMessage  = user32.NewProc("PostQuitMessage")
 	getModuleHandle  = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
+	registerRestart  = syscall.NewLazyDLL("kernel32.dll").NewProc("RegisterApplicationRestart")
 )
 
 // held keeps the file of "hold" open while the window runs.
@@ -97,6 +102,20 @@ func main() {
 		}
 		held = f
 		window(os.Args[2], false)
+		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == "restartable" {
+		line, _ := syscall.UTF16PtrFromString("restarted " + os.Args[2])
+		if r, _, err := registerRestart.Call(uintptr(unsafe.Pointer(line)), 0); r != 0 {
+			panic(err)
+		}
+		window(os.Args[2], false)
+		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == "restarted" {
+		stamp := strconv.Itoa(os.Getpid()) + " " + time.Now().UTC().Format(time.RFC3339Nano)
+		_ = os.WriteFile(os.Args[2]+".restarted", []byte(stamp), 0o644)
+		window(os.Args[2]+".again", false)
 		return
 	}
 	if len(os.Args) > 2 && (os.Args[1] == "window" || os.Args[1] == "visible") {

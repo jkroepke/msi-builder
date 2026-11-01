@@ -4,6 +4,7 @@ package nativetest_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,9 +51,10 @@ func restartLines(log string) string {
 // a service it does not install (CLOSE-04). It expects that in a silent
 // install Restart Manager shuts down the holder and the program, and that a
 // copy of the program in another folder, which is not registered, keeps
-// running. It then checks whether a repair with
-// MSIRESTARTMANAGERCONTROL=Disable on the command line starts no session,
-// so that the action registers nothing and the programs keep running.
+// running. A repair with MSIRESTARTMANAGERCONTROL=Disable on the command
+// line still has a session (observed); the same package with the property
+// in its Property table starts none, so the action registers nothing and
+// the programs keep running.
 //
 //nolint:paralleltest // msiexec runs one installation at a time
 func TestMsiexecRestartResources(t *testing.T) {
@@ -96,16 +98,27 @@ func TestMsiexecRestartResources(t *testing.T) {
 
 	props := []string{"HELD_FILE=" + held, "OTHER_PROGRAM=" + prog}
 
+	// The same package with Restart Manager turned off in the Property
+	// table, as another product.
+	offPath := buildConfig(t, dir, "restartoff", restartOffConfig(), map[string][]byte{"app.exe": helper})
+
+	defer func() {
+		_, _ = exec.CommandContext(context.Background(), "msiexec", "/x", offPath, "/qn", "/norestart").CombinedOutput()
+		_ = os.RemoveAll(installDir + "Off")
+	}()
+
 	for _, step := range []struct {
-		name    string
-		args    []string
-		disable bool
+		name string
+		args []string
+		kind string
 	}{
-		{"install", append([]string{"/i", path}, props...), false},
-		// Whether the command line can turn Restart Manager off is open
-		// (spec 17.11): a failure of this step answers it, it is not a
-		// regression of the action.
-		{"repair-disabled", append([]string{"/fomus", path, "MSIRESTARTMANAGERCONTROL=Disable"}, props...), true},
+		{"install", append([]string{"/i", path}, props...), "registered"},
+		// The property on the command line: observed to leave Restart
+		// Manager on (CI, 2026-11-01). A maintenance install of a managed
+		// product drops the other public properties, so only the service
+		// is registered.
+		{"repair-cmdline", []string{"/fomus", path, "MSIRESTARTMANAGERCONTROL=Disable"}, "cmdline"},
+		{"install-disabled", append([]string{"/i", offPath}, props...), "disabled"},
 	} {
 		holder := startHelper(t, holderExe, "hold", filepath.Join(dir, step.name+".holder"), held)
 		run := startHelper(t, prog, "window", filepath.Join(dir, step.name+".prog"))
@@ -115,9 +128,11 @@ func TestMsiexecRestartResources(t *testing.T) {
 			waitFile(t, filepath.Join(dir, step.name+marker+".ready"))
 		}
 
+		pid := servicePID(t, restartService)
 		log := filepath.Join(dir, step.name+".log")
 		code := msiexecCode(t, log, step.args...)
-		t.Logf("%s: msiexec exit code %d, service %q\n%s", step.name, code, serviceState(t, restartService), restartLines(log))
+		t.Logf("%s: msiexec exit code %d, service %q, PID %s before, %s after\n%s", step.name, code,
+			serviceState(t, restartService), pid, servicePID(t, restartService), restartLines(log))
 
 		// 3010: Restart Manager could not shut something down and the
 		// installer wants a reboot; the checks below tell what.
@@ -127,9 +142,15 @@ func TestMsiexecRestartResources(t *testing.T) {
 
 		text := readLog(log)
 
-		if step.disable {
+		switch step.kind {
+		case "disabled":
 			checkNoSession(t, step.name, text, map[string]*running{"holder": holder, "program": run})
-		} else {
+		case "cmdline":
+			if strings.Contains(text, "BuilderRestart: no Restart Manager session") ||
+				!strings.Contains(text, "BuilderRestart: service "+restartService+": registered") {
+				t.Errorf("%s: MSIRESTARTMANAGERCONTROL on the command line now turns Restart Manager off; update spec 17.11", step.name)
+			}
+		default:
 			checkRegistered(t, step.name, text, []string{
 				"BuilderRestart: file " + held + ": registered",
 				"BuilderRestart: service " + restartService + ": registered",
@@ -153,6 +174,35 @@ func TestMsiexecRestartResources(t *testing.T) {
 			<-proc.done
 		}
 	}
+}
+
+// restartOffConfig returns restartConfig with Restart Manager turned off in
+// the Property table, as another product.
+func restartOffConfig() string {
+	return strings.NewReplacer(
+		"MsiBuilderRestart", "MsiBuilderRestartOff",
+		"3c1f5e0a-8d27-4b6e-9a43-2f7d0b9c1e85", "8e4a1c27-5f93-4d0b-a6e2-1b7c9d3f5a60",
+		"components:\n", "properties: { MSIRESTARTMANAGERCONTROL: Disable }\ncomponents:\n",
+	).Replace(restartConfig)
+}
+
+// servicePID returns the process ID sc queryex reports for a service, or
+// "?".
+func servicePID(t *testing.T, name string) string {
+	t.Helper()
+
+	out, err := exec.CommandContext(t.Context(), "sc", "queryex", name).CombinedOutput()
+	if err != nil {
+		return "?"
+	}
+
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if key, value, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(key) == "PID" {
+			return strings.TrimSpace(value)
+		}
+	}
+
+	return "?"
 }
 
 // checkNoSession checks a step with Restart Manager off: the action reports
@@ -285,4 +335,93 @@ func TestMsiexecClosesAppsWithRestartManager(t *testing.T) {
 		_ = keep.cmd.Process.Kill()
 		<-keep.done
 	}
+}
+
+// restartAppConfig registers one program from the command line with
+// Restart Manager (CLOSE-05).
+const restartAppConfig = `schema: msi-builder/v1
+product: { name: MsiBuilderRestartApp, manufacturer: msi-builder tests, version: 1.0.0, upgradeCode: 6d2b9e40-1c7a-4f35-8b06-9e3a5c1d7f28 }
+package: { platform: x64, compression: none }
+installDir: { name: MsiBuilderRestartApp }
+components:
+  - files: [{ source: app.exe }]
+    restartResources:
+      - program: '[RESTART_PROGRAM]'
+`
+
+// TestMsiexecRestartsRegisteredProgram installs a package that registers a
+// running program which called RegisterApplicationRestart more than 60
+// seconds before (CLOSE-05), the case of a shell that must pick up a new
+// extension: does Restart Manager shut it down, does the installer start
+// it again, and when, compared with the end of msiexec?
+//
+//nolint:paralleltest // msiexec runs one installation at a time
+func TestMsiexecRestartsRegisteredProgram(t *testing.T) {
+	if testing.Short() {
+		t.Skip("installing needs msiexec time and elevation")
+	}
+
+	helper := closeHelper(t)
+	dir := longPath(t.TempDir())
+	path := buildConfig(t, dir, "restartapp", restartAppConfig, map[string][]byte{"app.exe": helper})
+	installDir := filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilderRestartApp")
+
+	defer func() {
+		_, _ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn", "/norestart").CombinedOutput()
+		_ = os.RemoveAll(installDir)
+	}()
+
+	prog := filepath.Join(longPath(t.TempDir()), "shell.exe")
+	if err := os.WriteFile(prog, helper, 0o700); err != nil { //nolint:gosec // an executable
+		t.Fatal(err)
+	}
+
+	marker := filepath.Join(dir, "shell")
+	first := startHelper(t, prog, "restartable", marker)
+	waitFile(t, marker+".ready")
+
+	// Restart Manager restarts only programs that have run for 60 seconds
+	// (documented for RegisterApplicationRestart).
+	time.Sleep(65 * time.Second)
+
+	t.Cleanup(func() {
+		data, err := os.ReadFile(marker + ".restarted")
+		if err != nil {
+			return
+		}
+
+		var pid int
+		if _, err := fmt.Sscan(string(data), &pid); err == nil {
+			if proc, err := os.FindProcess(pid); err == nil {
+				_ = proc.Kill()
+			}
+		}
+	})
+
+	log := filepath.Join(dir, "install.log")
+	code := msiexecCode(t, log, "/i", path, "RESTART_PROGRAM="+prog)
+	end := time.Now().UTC()
+	t.Logf("install: msiexec exit code %d, returned at %s\n%s", code, end.Format(time.RFC3339Nano), restartLines(log))
+
+	if code != 0 && code != 3010 {
+		t.Fatalf("install failed with %d\n%s", code, readLog(log))
+	}
+
+	if got := first.exited(15 * time.Second); got == -1 {
+		t.Error("the registered program is still running")
+	}
+
+	_, err := os.Stat(marker + ".endsession")
+	t.Logf("the program got WM_ENDSESSION: %v", err == nil)
+
+	// Record whether and when it came back; the spec answers the timing.
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		if data, err := os.ReadFile(marker + ".restarted"); err == nil {
+			t.Logf("restarted: %s (msiexec returned at %s)", data, end.Format(time.RFC3339Nano))
+
+			return
+		}
+	}
+
+	t.Log("the program was not restarted within 30 seconds after msiexec returned")
 }

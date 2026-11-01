@@ -1229,11 +1229,13 @@ the package turns it off: msi-builder never sets
 `MSIRESTARTMANAGERCONTROL`, and the installer's default uses Restart
 Manager. `close` runs first, so a program that quits on `WM_CLOSE` is gone
 before the installer looks for files in use; what still holds a package
-file then goes to Restart Manager, which in a silent install is expected
-to shut it down, also a program with `terminate: false` and an unrelated
-process that only has the file open (an accepted risk, see "Restart
-Manager" below; CLOSE-03 records what happens to the program with
-`terminate: false`). Not
+file then goes to Restart Manager, which in a silent install shuts down
+what it can, also an unrelated process that only has the file open (an
+accepted risk, see "Restart Manager" below). In CLOSE-03 it reported that
+it shut everything down but left console programs started without a
+console running: `close`'s deferred action ended `cli.exe`, and `keep.exe`
+with `terminate: false` kept running, while the uninstall still returned
+0. Not
 adopted from WiX: closing a program by name wherever it runs, end-session
 messages (`WM_QUERYENDSESSION`), registering programs for a restart after
 the install, and a reboot prompt for programs that refuse to exit.
@@ -1260,8 +1262,9 @@ properties:
 
 `DisableShutdown` keeps Restart Manager for finding the processes but
 shuts nothing down. Microsoft documents that a custom action cannot change
-the property; whether the msiexec command line can is what CLOSE-04
-checks. The `windows_exporter` example turns it off, because its service
+the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
+line left Restart Manager on in a repair (CLOSE-04), so the package itself
+has to set it. The `windows_exporter` example turns it off, because its service
 and `close` already stop everything it installs.
 
 `restartResources` on a component adds what the package does not
@@ -1287,11 +1290,13 @@ program in another folder is not registered; the action runs as the
 installing user, so it registers only processes that user may open: from
 an elevated prompt that may include another user's copy or a service
 process running that file, without elevation those are only logged
-(inferred from the access rights, not tested). Restart Manager is expected
-to shut down what it finds the same way as for the package's own files,
-and to restart only programs that registered for a restart (it restarted
-none in the close-apps evaluation); that the action can join the session
-and what is shut down is what CLOSE-04 checks. A service of a per-user
+(inferred from the access rights, not tested). In CLOSE-04 the action
+joined the session of a silent per-machine install and registered all
+three kinds, and Restart Manager shut down the program holding the file
+and the registered program, while the copy in another folder kept running.
+It restarts only programs that registered for a restart; CLOSE-05 records
+whether and when. The shell (`explorer.exe`) is no exception: registering
+it shuts the desktop down until the installation ends. A service of a per-user
 package is an error, an entry listed twice in one component too, a `file`
 that ends in a backslash (a folder, which Restart Manager does not take)
 gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` (nothing is
