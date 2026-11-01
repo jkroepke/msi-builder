@@ -114,9 +114,9 @@ func TestMsiexecRestartResources(t *testing.T) {
 	}{
 		{"install", append([]string{"/i", path}, props...), "registered"},
 		// The property on the command line: observed to leave Restart
-		// Manager on (CI, 2026-11-01). A maintenance install of a managed
-		// product drops the other public properties, so only the service
-		// is registered.
+		// Manager on (CI, 2026-11-01). The repair dropped the other public
+		// properties too, so only the service is registered; presumably it
+		// dropped this one the same way (not examined).
 		{"repair-cmdline", []string{"/fomus", path, "MSIRESTARTMANAGERCONTROL=Disable"}, "cmdline"},
 		{"install-disabled", append([]string{"/i", offPath}, props...), "disabled"},
 	} {

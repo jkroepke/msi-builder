@@ -388,8 +388,8 @@ Windows Installer also has a helper of its own, Restart Manager, and
 msi-builder leaves it on. In a silent install it shuts down the processes
 that hold a file being replaced or removed, without asking. In a test on
 2026-10-25 that included an unrelated program that only had the file
-open. A program without a window or console of its own, such as one with
-`terminate: false`, kept running in msi-builder's tests. msi-builder accepts
+open. Console programs started without a console kept running in
+msi-builder's tests; `close` ends them, unless `terminate: false`. msi-builder accepts
 that risk, because it lets an upgrade replace files without a reboot. A
 package that cannot accept it turns Restart Manager off:
 

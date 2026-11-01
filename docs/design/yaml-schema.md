@@ -1386,8 +1386,8 @@ properties:
 `DisableShutdown` is documented to keep Restart Manager for finding the processes but
 shut nothing down. Microsoft documents that a custom action cannot change
 the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
-line left Restart Manager on in a repair (CLOSE-04), so the package itself
-has to set it. The `windows_exporter` example turns it off, because its service
+line of a repair did not reach the engine, like the repair's other public
+properties (CLOSE-04), so the package itself sets it. The `windows_exporter` example turns it off, because its service
 and `close` already stop everything it installs.
 
 `restartResources` on a component adds what the package does not
@@ -1420,8 +1420,9 @@ and the registered program (both got `WM_ENDSESSION`), while the copy in
 another folder kept running; the service was stopped and started again.
 It restarts only programs that registered for a restart, when the
 installation ends: in CLOSE-05 the restarted program was running about
-0.1 seconds after msiexec returned. The shell (`explorer.exe`) is no exception: registering
-it shuts the desktop down until the installation ends. A service of a per-user
+0.1 seconds after msiexec returned. The shell (`explorer.exe`) is expected to be no exception: registering
+it would shut the desktop down until the installation ends (reported, not
+tested). A service of a per-user
 package is an error, an entry listed twice in one component too, a `file`
 that ends in a backslash (a folder, which Restart Manager does not take)
 gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` (nothing is
