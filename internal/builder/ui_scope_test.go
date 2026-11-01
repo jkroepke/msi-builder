@@ -148,3 +148,34 @@ func TestScopePageOnlyForDual(t *testing.T) {
 		t.Errorf("WelcomeDlg Next goes to %v", got)
 	}
 }
+
+// TestScopePageAlias checks that a public directory named "." moves with
+// the scope to its parent's folder, without an extra backslash, so that
+// the unchanged check on Next can match it.
+func TestScopePageAlias(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perMachineOrUser", "x64", `directories:
+  - id: ProgramFiles64Folder
+    children:
+      - id: INSTALLDIR
+        name: Acme App
+        configurable: true
+        children: [{ id: BINDIR, name: ., configurable: true }]
+ui: { enabled: true }
+`)
+
+	targets := map[string]string{}
+	for _, row := range rows(t, res.Database, "CustomAction") {
+		targets[fmt.Sprint(row[0])] = fmt.Sprint(row[3])
+	}
+
+	for action, target := range map[string]string{
+		"SetInstallScopeUser_BINDIR":    `[LocalAppDataFolder]Programs\Acme App\`,
+		"SetInstallScopeMachine_BINDIR": `[%ProgramW6432]\Acme App\`,
+	} {
+		if targets[action] != target {
+			t.Errorf("%s sets %q, want %q", action, targets[action], target)
+		}
+	}
+}

@@ -284,22 +284,7 @@ func (b *build) directories() error {
 				continue
 			}
 
-			info := &dirInfo{id: dir.ID}
-
-			switch {
-			case parent == nil && config.IsStandardFolder(dir.ID):
-				info.parent = targetDir
-				info.standard = true
-				info.canonical = dir.ID
-			case parent == nil:
-				info.parent = targetDir
-				info.long = dir.Name
-				info.canonical = "TARGETDIR\\" + strings.ToLower(dir.Name)
-			default:
-				info.parent = parent.id
-				info.long = dir.Name
-				info.canonical = parent.canonical + "\\" + strings.ToLower(dir.Name)
-			}
+			info := newDirInfo(dir, parent)
 
 			if dir.Configurable {
 				b.secure[dir.ID] = true
@@ -313,6 +298,33 @@ func (b *build) directories() error {
 	walk(b.cfg.Directories, nil)
 
 	return nil
+}
+
+// newDirInfo resolves a directory node below parent, nil for a top-level
+// node: a standard folder, a named folder, or a second id for the parent
+// folder (DefaultDir ".").
+func newDirInfo(dir *config.Directory, parent *dirInfo) *dirInfo {
+	info := &dirInfo{id: dir.ID}
+
+	switch {
+	case parent == nil && config.IsStandardFolder(dir.ID):
+		info.parent = targetDir
+		info.standard = true
+		info.canonical = dir.ID
+	case parent == nil:
+		info.parent = targetDir
+		info.long = dir.Name
+		info.canonical = "TARGETDIR\\" + strings.ToLower(dir.Name)
+	case dir.Name == config.AliasName:
+		info.parent = parent.id
+		info.canonical = parent.canonical
+	default:
+		info.parent = parent.id
+		info.long = dir.Name
+		info.canonical = parent.canonical + "\\" + strings.ToLower(dir.Name)
+	}
+
+	return info
 }
 
 func (b *build) addDir(d *dirInfo) {
@@ -350,6 +362,8 @@ func (b *build) writeDirectoryTable() {
 			}
 
 			tbl.Add(dir.id, dir.parent, name)
+		case dir.long == "":
+			tbl.Add(dir.id, dir.parent, config.AliasName)
 		default:
 			key := b.folderKey(dir.parent) + "\x1f" + strings.ToLower(dir.long)
 			if _, ok := names[key]; !ok {
@@ -760,7 +774,8 @@ func (b *build) sequenceFiles() error { //nolint:cyclop // one pass over the for
 }
 
 // resolveKeyPath picks the component's key path: the explicit one, else the
-// first file, else the first registry value, else the directory.
+// first file, else the first registry value, else the first value of its
+// own file types, else the directory.
 func (b *build) resolveKeyPath(path string, info *componentInfo) error { //nolint:cyclop // one pass over the format; splitting would scatter it
 	comp := info.cfg
 
@@ -792,6 +807,9 @@ func (b *build) resolveKeyPath(path string, info *componentInfo) error { //nolin
 			info.keyFile = files[max(0, slices.IndexFunc(files, func(f *fileInfo) bool { return f.cfg == comp.Files[0] }))]
 		} else if len(comp.Registry) > 0 {
 			info.keyPath = b.registryID(info, comp.Registry[0])
+			info.attributes |= compRegistryKeyPath
+		} else if id, _ := b.fileTypeKeyPath(comp); id != "" {
+			info.keyPath = id
 			info.attributes |= compRegistryKeyPath
 		}
 	case byRef(keyPath) != nil:
@@ -869,6 +887,10 @@ func (b *build) componentGUID(path string, info *componentInfo) error { //nolint
 			if b.registryID(info, r) == info.keyPath {
 				location = "registry|" + strings.ToLower(r.Root+"\\"+r.Key+"\\"+r.Name)
 			}
+		}
+
+		if id, key := b.fileTypeKeyPath(comp); location == "" && id == info.keyPath {
+			location = "filetype|" + key
 		}
 	default:
 		location = "directory|" + info.dir.canonical

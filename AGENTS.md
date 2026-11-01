@@ -19,7 +19,9 @@ asking the maintainer, since every exported name is bound by semantic
 versioning after 1.0.
 
 - [`pkg/config`](pkg/config): the YAML schema (`docs/design/yaml-schema.md`,
-  `pkg/config/schema.json`), parsing and validation. The builder consumes a
+  `pkg/config/schema.json`), parsing and validation. The schema's
+  `properties` lists Windows Installer properties with their values and
+  refuses exactly `builderProperties` (`TestJSONSchemaBuilderProperties`). The builder consumes a
   validated `*config.Config` and never reads YAML. Folder sources (a file
   `source` ending in `/`) are the one part that lists folders:
   `Config.ExpandFolders` (`folder.go`) replaces their component with one per
@@ -51,6 +53,11 @@ versioning after 1.0.
   `_Validation`, summary information, then the streaming write and a
   verification pass (`finish.go`). `internal/builder/nativetest` holds the Windows
   msi.dll and msiexec tests.
+  A component's own `fileTypes` (and `shortcuts`) name a file of any
+  component through `fileTarget`, which falls back to `[DIR]name` across
+  features (ICE69). A component with nothing but file types is keyed on
+  the first value with data that `fileTypeRows` returns; the validator's
+  `writesValue` must accept exactly the file types that have one.
 - [`internal/msidb`](internal/msidb): the database: column types, typed rows,
   stream-name encoding, string pool and code pages, catalog, column-major table
   streams, binary streams; `MarshalTo` writes a package, `Unmarshal`/`Decode`
@@ -121,8 +128,55 @@ versioning after 1.0.
   the same include/exclude matcher as the build; among the globs whose source
   folder holds a file on disk (`Options.Exists`), when any does, it goes to
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
-  WiX 5 package on CI). The fixtures are our own sample app: never copy
+  WiX 5 package on CI). Without `--msi`, `wixcodes.go` computes the codes WiX
+  generates from the key path (MSISPEC 8.10: UUIDv5 over the UTF-16LE path of
+  the key file or registry value), for `--arch` (`Options.Arch`; neither the
+  folders nor a WiX 3 Package Platform count) and `--bcgg`, and the `guids` of a `Files` glob
+  from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
+  for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
+  keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
+  from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
+  Nameless and `.` Directories are settled before the directories link
+  (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
+  (`name: .`), directly in a standard folder they become it, and in
+  TARGETDIR they become the standard folder an unconditioned SetDirectory
+  sets (`[WindowsVolume]`), which is then `consumed` and left out.
+  Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
+  branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
+  a block only when every element directly in it is one whose output stays
+  in one entry (`directAllowed`) and no ID repeats in branches that apply
+  together, else it falls back to the first branch. Kept entries carry
+  `opens`; `omap.node` writes them as marker comments, which
+  `applyBlocks` turns into `{{ if }}`/`{{ else }}`/`{{ range }}`/`{{ end }}`
+  lines, closing at the next line not indented deeper. IDs keep
+  `$(var.X)` until `expandLeftMap` fills them in inside their loops. A
+  block is also unkept when a file or component in it is referenced from
+  outside its branch (`checkReferences`); when the converter needs one
+  value of a variable a kept block defines (`literal` calls `needFixed`),
+  `Convert` runs again with those blocks forced to their first branch.
+  Defines follow WiX order through `defineEval`: a define takes the value
+  each variable has at that point, one that reads a variable no define has
+  set yet reads `{{ .X }}` (--var stands in for -d), and a header var
+  always exists, so `has` is true in every build: an `<?ifdef X?>` of a
+  variable the file defines, or a default whose variable another define
+  sets, falls back. A hand-written WiX semantics simulator that compares
+  rendered properties for every -d assignment (differential fuzzing) found
+  the order bugs fastest; keep repros of new finds in `preprocess_test.go`.
+  `variables.go`: `fillRedefined` runs before the planning and rewrites
+  the source, so that every reader of a variable that defines outside the
+  blocks set more than once holds the value it sees in WiX (all readers,
+  also after the last define, or IDs written the same way stop matching;
+  loop variables hide defines; a reader on the line of a later define
+  gets a TODO), then
+  `fillStandardFolders` fills a standard folder variable that only
+  defines outside the blocks set (its last value) into
+  every attribute that is just the variable and every `[$(var.X)]` (all
+  readers, never only some attributes, or the literal and the variable
+  become two roots); `standardVar` makes a block-set directory ID such
+  as `$(var.PF)` a standard folder when every define sets one (the ID
+  keeps the variable everywhere), and `serviceKey`
+  matches services and their controls by the filled-in name.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a
@@ -261,11 +315,24 @@ go test ./... -shuffle=on -race
   run in the native step: the step before it creates the standard user
   `msitest` and exports `MSI_BUILDER_NONADMIN_USER` and
   `MSI_BUILDER_NONADMIN_PASSWORD`.
+- A `shell: bash` step on Windows runs Git Bash, which rewrites an
+  environment value that starts with `/` into a Windows path
+  (`/x` becomes `C:/Program Files/Git/x`) for the native programs it
+  starts, such as `go test`. Values that pass through `GITHUB_ENV` into
+  such a step must not start with `/`; the test user's password is hex for
+  that reason (a base64 one failed one run in 64 and locked the user out
+  after ten tries).
+- Linux runs `-race` and coverage as two runs (`-covermode=set` without
+  `-race`): `-race` forces atomic coverage counters, which the parallel
+  tests contend on, and the combined run was more than six times as slow.
 - To learn what Windows does before writing a test, a temporary nativetest
   that collects its observations and reports them with one `t.Errorf` runs
   on the `windows-latest` runner: push the branch and start CI with
   `workflow_dispatch` on it, then read the job log. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
+  A repair while another process holds an installed file open lost the
+  hosted runner every time (PROP-04, no job log at all), so probe Restart
+  Manager elsewhere.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with

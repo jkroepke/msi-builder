@@ -323,15 +323,47 @@ func TestConvertBuiltCodes(t *testing.T) {
 		t.Errorf("unmatched components in lines %v, want [17 20 27]", lines)
 	}
 
-	// Without the package, the late removal names every component, also
-	// the shortcut component.
+	// Without the package but with --arch, convert computes the code of
+	// every component, also of the shortcut components, and the late
+	// removal needs no note.
+	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{Arch: "x64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n := strings.Count(string(res.YAML), "guid: '{"); n != 7 {
+		t.Errorf("%d computed codes, want 7:\n%s", n, res.YAML)
+	}
+
+	if slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool { return strings.HasPrefix(n.Message, "WiX generated the Guid") }) {
+		t.Errorf("notes %v name a component without a code", res.Notes)
+	}
+
+	// The 64-bit folder makes package.platform x64, but does not tell the
+	// -arch WiX built with, so the HKCU key paths, whose bitness follows
+	// it, stay open.
 	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of a.txt, Main, notes.txt, readme.txt, Menu and 2 more components; " +
-		"msi-builder generates other codes"}
+	open := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of Menu, the component in line 27, which convert cannot compute"}
+	if !slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool {
+		return n.Line == open.Line && strings.HasPrefix(n.Message, open.Message)
+	}) {
+		t.Errorf("notes %v lack %v", res.Notes, open)
+	}
+
+	// Below a 6432 folder, the files need the platform too.
+	src := strings.Replace(codesSource, "ProgramFiles64Folder", "ProgramFiles6432Folder", 1)
+
+	res, err = wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of a.txt, Main, notes.txt, readme.txt, Menu and 2 more components, " +
+		"which convert cannot compute"}
 
 	if !slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool {
 		return n.Line == want.Line && strings.HasPrefix(n.Message, want.Message)
@@ -476,8 +508,8 @@ func TestConvertBuiltCodesFiles(t *testing.T) {
 }
 
 // globNotes returns the lines of the Files glob notes and fails on any
-// other note about codes but the late removal of the files in lines 8 and
-// 10.
+// other note about codes but the late removal of the file in line 8: convert
+// computes the code of the one in line 10.
 func globNotes(t *testing.T, notes []wixconvert.Note, built bool) []int {
 	t.Helper()
 
@@ -489,7 +521,7 @@ func globNotes(t *testing.T, notes []wixconvert.Note, built bool) []int {
 			strings.HasPrefix(note.Message, "hello.msi has no component for a file of this Files glob"):
 			lines = append(lines, note.Line)
 		case strings.Contains(note.Message, "no matching component"), strings.HasPrefix(note.Message, "WiX generated the Guid"):
-			if built || !strings.Contains(note.Message, "the component in line 8, helper.exe;") {
+			if built || !strings.Contains(note.Message, "the component in line 8, which convert cannot compute") {
 				t.Errorf("unexpected note %v", note)
 			}
 		}
@@ -986,6 +1018,393 @@ func TestConvertRemoveFolderExBothOwnFolder(t *testing.T) {
 	}
 }
 
+// TestConvertFolderCases checks the folder cases of real-world packages: a
+// nameless Directory in TARGETDIR that a SetDirectory points at
+// [WindowsVolume] becomes that standard folder without the action, a
+// nameless or "." Directory below a named folder stays a second id for it,
+// one directly in a standard folder becomes that folder, and a RemoveFile
+// on a property keeps the property.
+func TestConvertFolderCases(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="WINDOWSVOLUME" Value="[WindowsVolume]" />
+    <Directory Id="WINDOWSVOLUME">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Directory Id="BINDIR" Name=".">
+          <Component Id="Tool"><File Source="hellod.exe" /></Component>
+        </Directory>
+        <Directory Id="LIBDIR">
+          <Component Id="Lib"><File Source="hello.dll" /></Component>
+        </Directory>
+        <Component Id="App">
+          <File Source="hello.exe" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Example" Name="Tools" Value="[BINDIR];[LIBDIR]" />
+          <RemoveFile Id="Logs" Property="LOGDIR" Name="*.log" On="uninstall" />
+          <RemoveFile Id="Own" Property="INSTALLFOLDER" Name="*.tmp" On="install" />
+        </Component>
+      </Directory>
+    </Directory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAROOT">
+        <Directory Id="DATADIR" Name="Hello">
+          <Component Id="Data"><CreateFolder /></Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="LOGDIR"><RegistrySearch Root="HKLM" Key="SOFTWARE\Example" Name="Logs" Type="directory" /></Property>
+    <Feature Id="Main"><ComponentRef Id="App" /><ComponentRef Id="Tool" /><ComponentRef Id="Lib" /><ComponentRef Id="Data" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"- id: WindowsVolume\n", "id: BINDIR\n", "id: LIBDIR\n", "name: .\n", "property: LOGDIR",
+		"directory: CommonAppDataFolder/Hello"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	for _, unwanted := range []string{"setDirectory", "WINDOWSVOLUME", "DATAROOT", "property: INSTALLFOLDER", "has no Name"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("the YAML holds %q:\n%s", unwanted, out)
+		}
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+	}
+}
+
+// TestConvertFolderAliasesKept checks that a nameless Directory keeps its
+// row when something besides one unconditioned SetDirectory sets it: a WiX
+// v3 SetDirectory with its condition in the text, or a dialog control
+// bound to one directly in a standard folder.
+func TestConvertFolderAliasesKept(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="OPTROOT" Value="[WindowsVolume]">NOT OPTROOT</SetDirectory>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="OPTROOT">
+        <Directory Id="INSTALLFOLDER" Name="Hello">
+          <Component Id="App" Guid="*"><File Source="hello.exe" /></Component>
+        </Directory>
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="DATAROOT">
+          <Component Id="Data" Guid="*"><CreateFolder /></Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <UI><Dialog Id="Pick" Width="370" Height="270"><Control Id="Path" Type="PathEdit" X="20" Y="20" Width="300" Height="18" Property="DATAROOT" /></Dialog></UI>
+    <Feature Id="Main"><ComponentRef Id="App" /><ComponentRef Id="Data" /></Feature>
+  </Product>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"OPTROOT", "setDirectory", "condition: NOT OPTROOT", "the Directory DATAROOT has no Name"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestConvertFoldedFolderNotes checks the notes around folded directories:
+// a SetDirectory that another action is sequenced after keeps its row (and
+// its todo note), a RemoveFolderEx or RemoveFile on a folder that became a
+// standard folder gets a note, and the install half of a RemoveFile on a
+// property is left out of a per-machine package.
+func TestConvertFoldedFolderNotes(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="VOL1" Value="[WindowsVolume]" />
+    <SetProperty Id="AFTERVOL" Value="1" After="SetVOL1" Sequence="execute" />
+    <SetDirectory Id="VOL2" Value="[WindowsVolume]" />
+    <Directory Id="VOL1"><Directory Id="ONE" Name="one"><Component Id="One"><File Source="hello.exe" /></Component></Directory></Directory>
+    <Directory Id="VOL2">
+      <Component Id="Wipe"><CreateFolder /><util:RemoveFolderEx On="uninstall" Property="VOL2" /></Component>
+    </Directory>
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="PFALIAS">
+        <Component Id="Logs"><CreateFolder /><RemoveFile Id="L" Name="*.log" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="SOFTWARE\\Example" Name="Dir" Value="[PFALIAS]" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="SHARED">
+        <Component Id="Shared"><CreateFolder><util:PermissionEx User="Users" GenericAll="yes" /></CreateFolder></Component>
+      </Directory>
+      <Directory Id="DATA" Name="Hello">
+        <Component Id="Data"><CreateFolder />
+          <RemoveFile Id="I" Property="CFGDIR" Name="*.tmp" On="install" />
+          <RemoveFile Id="B" Property="CFGDIR" Name="*.bak" On="both" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="CFGDIR"><RegistrySearch Root="HKLM" Key="SOFTWARE\Example" Name="Cfg" Type="directory" /></Property>
+    <Feature Id="Main"><ComponentRef Id="One" /><ComponentRef Id="Wipe" /><ComponentRef Id="Logs" /><ComponentRef Id="Data" /><ComponentRef Id="Shared" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"the Directory VOL1 has no Name", "the grant applies to CommonAppDataFolder itself", "RemoveFolderEx on VOL2 was not converted", "RemoveFile on PFALIAS", "standard folder ProgramFiles64Folder", "value: '[ProgramFiles64Folder]'",
+		"the install half of RemoveFile On=\"install\"", "the install half of RemoveFile On=\"both\"", "name: '*.bak'"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "'*.tmp'") {
+		t.Errorf("the install-only row on a property was kept:\n%s", out)
+	}
+}
+
+// TestConvertFolderAliasOrder checks that a nameless Directory in a
+// Fragment that comes before its nameless parent still sees that parent
+// become WindowsVolume, and that a nameless configurable install folder
+// stays a configurable alias of its parent.
+func TestConvertFolderAliasOrder(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <DirectoryRef Id="OPTROOT">
+      <Directory Id="APPROOT">
+        <Directory Id="APPDIR" Name="Hello">
+          <Component Id="Top"><File Id="t" Source="hello.exe" Name="top.exe" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Example" Name="Root" Value="[APPROOT]" /></Component>
+          <Directory Id="INSTALLFOLDER">
+            <Component Id="App"><File Source="hello.exe" /></Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </DirectoryRef>
+  </Fragment>
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="OPTROOT" Value="[WindowsVolume]" />
+    <Directory Id="OPTROOT" />
+    <Feature Id="Main" ConfigurableDirectory="INSTALLFOLDER"><ComponentRef Id="Top" /><ComponentRef Id="App" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"'[WindowsVolume]'", "- id: INSTALLFOLDER\n            name: .\n            configurable: true"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+	}
+}
+
+// TestConvertAliasInstallDir checks a nameless install folder below a
+// named one: when the wizard names it, it becomes the configurable
+// installDir in upper case and stays a "." child of its parent; with only
+// a conventional name it is its parent's second id and the parent installs.
+func TestConvertAliasInstallDir(t *testing.T) {
+	t.Parallel()
+
+	const wizard = `<ui:WixUI Id="WixUI_InstallDir" InstallDirectory="InstallFolder" />`
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="APPDIR" Name="Hello">
+        <Component Id="Top"><File Id="t" Source="hello.exe" Name="top.exe" /></Component>
+        <Directory Id="ID">
+          <Component Id="App"><File Source="hello.exe" /></Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    WIZARD
+    <Feature Id="Main"><ComponentRef Id="Top" /><ComponentRef Id="App" /></Feature>
+  </Package>
+</Wix>`
+
+	for _, tc := range []struct {
+		name, id, wizard string
+		want, not        []string
+	}{
+		{
+			name: "wizard", id: "InstallFolder", wizard: wizard,
+			want: []string{"installDir:\n", "  id: INSTALLFOLDER\ndirectories:", "- id: INSTALLFOLDER\n            name: .\n            configurable: true"},
+		},
+		{
+			name: "conventional", id: "INSTALLFOLDER",
+			want: []string{"installDir:\n  id: APPDIR\n  name: Hello\n"},
+			not:  []string{"configurable: true"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := strings.ReplaceAll(strings.ReplaceAll(src, "WIZARD", tc.wizard), `"ID"`, `"`+tc.id+`"`)
+
+			res, err := wixconvert.Convert(strings.NewReader(in), wixconvert.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := string(res.YAML)
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the YAML lacks %q:\n%s", want, out)
+				}
+			}
+
+			for _, not := range tc.not {
+				if strings.Contains(out, not) {
+					t.Errorf("the YAML has %q:\n%s", not, out)
+				}
+			}
+
+			cfg, err := config.Parse(res.YAML, config.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := config.Validate(cfg).Err(); err != nil {
+				t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+// TestConvertConfigurableFolders checks folders a feature or the wizard
+// lets the user move: a second ConfigurableDirectory, here a "." alias,
+// stays in the tree as configurable; a nameless folder directly in a
+// standard folder that the wizard names keeps its row with a note instead
+// of becoming the standard folder; and a RemoveFolder On="both" on a
+// property, which loses its install half, does not repeat an uninstall row.
+func TestConvertConfigurableFolders(t *testing.T) {
+	t.Parallel()
+
+	head := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+`
+
+	for _, tc := range []struct {
+		name, body string
+		valid      bool
+		want       []string
+	}{
+		{
+			name: "second ConfigurableDirectory", valid: true,
+			body: `<StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="Top"><File Id="t" Source="hello.exe" Name="top.exe" /></Component>
+        <Directory Id="PLUGINS"><Component Id="App"><File Source="hello.exe" /></Component></Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" ConfigurableDirectory="INSTALLFOLDER"><ComponentRef Id="Top" />
+      <Feature Id="Plug" ConfigurableDirectory="PLUGINS"><ComponentRef Id="App" /></Feature>
+    </Feature>`,
+			want: []string{"- id: PLUGINS\n            name: .\n            configurable: true"},
+		},
+		{
+			name: "wizard names a nameless root",
+			body: `<StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="PFALIAS">
+        <Directory Id="APPDIR" Name="Hello"><Component Id="App"><File Source="hello.exe" /></Component></Directory>
+      </Directory>
+    </StandardDirectory>
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="PFALIAS" />
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>`,
+			want: []string{"the Directory PFALIAS has no Name"},
+		},
+		{
+			name: "both on a property", valid: true,
+			body: `<Property Id="LOGDIR"><RegistrySearch Id="s" Root="HKLM" Key="SOFTWARE\Ex" Name="Logs" Type="directory" /></Property>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="App"><File Source="hello.exe" />
+          <RemoveFolder Id="r3" Property="LOGDIR" On="uninstall" />
+          <RemoveFolder Id="r4" Property="LOGDIR" On="both" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>`,
+			want: []string{"the uninstall half equals another row"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := head + "    " + tc.body + "\n  </Package>\n</Wix>"
+
+			res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := string(res.YAML)
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the YAML lacks %q:\n%s", want, out)
+				}
+			}
+
+			if !tc.valid {
+				return
+			}
+
+			cfg, err := config.Parse(res.YAML, config.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := config.Validate(cfg).Err(); err != nil {
+				t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {
@@ -1001,7 +1420,7 @@ func TestConvertUnmappedNotes(t *testing.T) {
         <Component><File Source="hellod.exe"><fw:FirewallException Name="Hello" Port="4985" /></File></Component>
       </Directory>
     </Directory>
-    <SetDirectory Id="VOLUME" Value="[WindowsVolume]" />
+    <SetDirectory Id="VOLUME" Value="[DATAVOLUME]" />
     <CustomAction Id="Notes" Directory="INSTALLFOLDER" ExeCommand="explorer.exe https://example.com/notes" Return="asyncNoWait" />
     <ui:WixUI Id="WixUI_Minimal" />
     <UI><Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="Notes" Condition="NOT Installed" /></UI>
@@ -1847,9 +2266,10 @@ func TestConvertLocalActionRefAndIcon(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"the ProgId Example.Doc takes its icon from doc.ico", `HKCR\Example.Doc\DefaultIcon = [#doc.ico],0`,
+		"progId: Example.Doc\n", "description: Hello document\n", "iconFile: doc.ico\n",
 		"progId: Example.Own\n", "iconIndex: 0\n", "iconIndex: 2\n", "iconIndex: 1\n",
-		"the ProgId Example.Elsewhere takes its icon from other.dll (a file this source does not define), not from the file it opens",
+		"the ProgId Example.Elsewhere takes its icon from other.dll (a file this source does not define), not from the file it opens; " +
+			"name the file with iconFile (index 0)",
 		"the ProgId Example.Table takes its icon from the <Icon> App.ico, which only advertised ProgIds use",
 	} {
 		if !strings.Contains(out, want) {
@@ -2276,8 +2696,8 @@ func TestConvertSharedProgIDAndExistenceSearch(t *testing.T) {
 	out := string(res.YAML)
 	for _, want := range []string{
 		"extension: hla\n", "extension: hlb\n", "the ProgId Example.Shared is declared again",
-		"so the condition and features of the component that declared it again no longer apply",
-		`was in a component with the condition ASSOC="1"`,
+		// The conditioned component keeps its file type and names the file.
+		"    condition: ASSOC=\"1\"\n    fileTypes:\n", "        file: app\n",
 		"type: directory\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -2480,6 +2900,121 @@ func TestConvertRawRegistryFolderSearch(t *testing.T) {
 
 		if err := config.Validate(cfg).Err(); err != nil {
 			t.Errorf("the converted file does not validate: %v\n%s", err, out)
+		}
+	}
+}
+
+// TestConvertProgIDPlacement keeps an optional ProgId in a component with a
+// folder source on the file it opens, with a note, and notes a second
+// declaration merged into a conditioned component.
+func TestConvertProgIDPlacement(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="cmpA" Condition="ASSOC=&quot;1&quot;">
+          <RegistryValue Root="HKLM" Key="SOFTWARE\Example\A" Value="1" KeyPath="yes" />
+          <ProgId Id="Example.Shared" Description="Shared">
+            <Extension Id="hla"><Verb Id="open" TargetFile="app" Argument="&quot;%1&quot;" /></Extension>
+          </ProgId>
+        </Component>
+        <Component>
+          <File Id="app" Source="hello.exe" />
+          <ProgId Id="Example.Shared" Description="Shared">
+            <Extension Id="hlb"><Verb Id="open" TargetFile="app" Argument="&quot;%1&quot;" /></Extension>
+          </ProgId>
+        </Component>
+        <Component Id="docs">
+          <Files Include="docs\**" />
+          <ProgId Id="Example.Docs" Description="Docs">
+            <Extension Id="hld"><Verb Id="open" TargetFile="app" Argument="&quot;%1&quot;" /></Extension>
+          </ProgId>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" Title="Hello"><ComponentRef Id="app" /><ComponentRef Id="cmpA" /></Feature>
+    <Feature Id="Docs" Title="Docs"><ComponentRef Id="docs" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"whose condition and features replace those of the component that declared it again",
+		"the ProgId Example.Docs was in a component with a folder source",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted file does not validate: %v\n%s", err, out)
+	}
+}
+
+// TestConvertServiceConfig checks the MsiServiceConfig settings of a
+// ServiceConfig: the SID type and the preshutdown delay in milliseconds
+// become sidType and preshutdownTimeout; values without a counterpart,
+// RequiredPrivilege and events other than install and reinstall a todo.
+func TestConvertServiceConfig(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component>
+          <File Source="hello.exe" />
+          <ServiceInstall Name="Hello" Start="auto" Type="ownProcess" ErrorControl="normal">
+            <ServiceConfig %s />
+          </ServiceInstall>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>`
+
+	for _, tc := range []struct{ attrs, want string }{
+		{`ServiceSid="restricted" PreShutdownDelay="180000" OnInstall="yes" OnReinstall="yes"`, "sidType: restricted\n        preshutdownTimeout: 180000ms\n"},
+		{`ServiceSid="none" OnInstall="yes" OnReinstall="yes"`, "sidType: none\n"},
+		{`ServiceSid="other" OnInstall="yes" OnReinstall="yes"`, `ServiceSid="other" has no counterpart`},
+		{`PreShutdownDelay="0" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="0" is not a number of milliseconds`},
+		{`PreShutdownDelay="[DELAY]" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="[DELAY]" is not a number of milliseconds`},
+		{`RequiredPrivilege="SeBackupPrivilege" OnInstall="yes" OnReinstall="yes"`, "RequiredPrivilege has no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes" OnReinstall="yes" OnUninstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "sidType: restricted\n"},
+		{`PreShutdownDelay="060000" OnInstall="yes" OnReinstall="yes"`, "preshutdownTimeout: 60000ms\n"},
+	} {
+		res, err := wixconvert.Convert(strings.NewReader(fmt.Sprintf(src, tc.attrs)), wixconvert.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if out := string(res.YAML); !strings.Contains(out, tc.want) {
+			t.Errorf("%s: the YAML lacks %q:\n%s", tc.attrs, tc.want, out)
+		}
+
+		cfg, err := config.Parse(res.YAML, config.Options{})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.attrs, err)
+		}
+
+		if err := config.Validate(cfg).Err(); err != nil {
+			t.Errorf("%s: the converted file does not validate: %v", tc.attrs, err)
 		}
 	}
 }

@@ -18,3 +18,7 @@ func SprigUntilStep(start, stop, step int) ([]int, error) { return untilStep(sta
 
 // SprigSeq is seq, for comparing it with sprig's.
 func SprigSeq(params ...int) (string, error) { return seq(params...) }
+
+// BuilderPropertyNames returns the sorted properties the builder or the
+// installer sets, which properties cannot define.
+func BuilderPropertyNames() []string { return slices.Sorted(maps.Keys(builderProperties)) }

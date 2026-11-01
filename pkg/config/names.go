@@ -9,6 +9,10 @@ func set(names ...string) map[string]bool {
 	return m
 }
 
+// AliasName is the directory name that makes a directory a second id for
+// its parent folder: DefaultDir "." (specification section 8.3).
+const AliasName = "."
+
 // standardFolders are the Windows Installer folder properties a top-level
 // directory may name.
 var standardFolders = set( //nolint:gochecknoglobals // lookup table
@@ -91,6 +95,7 @@ var standardActions = set( //nolint:gochecknoglobals // lookup table
 
 // builderProperties are written by the builder or set by the engine, so a
 // package cannot define them in properties (ICE87 covers the request ones).
+// The JSON Schema refuses the same names (TestJSONSchemaBuilderProperties).
 var builderProperties = set( //nolint:gochecknoglobals // lookup table
 	"ProductCode", "ProductName", "ProductVersion", "ProductLanguage", "Manufacturer",
 	"UpgradeCode", "ALLUSERS", "SecureCustomProperties", "MsiHiddenProperties",

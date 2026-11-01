@@ -149,8 +149,10 @@ func ApplyDefaults(cfg *Config) { //nolint:cyclop,gocognit,gocyclo // a flat lis
 	for _, comp := range cfg.Components {
 		defaultComponent(comp, pkg.Scope)
 
+		defaultFileTypes(comp.FileTypes)
+
 		for _, file := range comp.Files {
-			defaultFileTypes(file)
+			defaultFileTypes(file.FileTypes)
 
 			for _, shortcut := range file.Shortcuts {
 				if shortcut != nil {

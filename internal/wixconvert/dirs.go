@@ -14,29 +14,18 @@ var installDirNames = []string{"INSTALLFOLDER", "INSTALLDIR", "APPLICATIONFOLDER
 // chooseInstallDir picks the directory that becomes installDir: the one
 // the wizard or a feature makes configurable, else one with a
 // conventional name, else the first folder below Program Files.
-func (c *converter) chooseInstallDir() { //nolint:cyclop // the fallbacks in their order of preference
-	var candidates []string
+func (c *converter) chooseInstallDir() {
+	var chosen []string
 
-	if c.wixUI != nil {
-		candidates = append(candidates, c.wixUI.attr("InstallDirectory"))
+	for _, setter := range c.wizardDirs() {
+		chosen = append(chosen, setter.id)
 	}
 
-	for _, p := range c.properties {
-		if p.attr("Id") == "WIXUI_INSTALLDIR" {
-			candidates = append(candidates, p.attr("Value"))
-		}
-	}
+	c.eachFeature(func(f *feature) { chosen = append(chosen, f.e.attr("ConfigurableDirectory")) })
 
-	c.eachFeature(func(f *feature) { candidates = append(candidates, f.e.attr("ConfigurableDirectory")) })
-
-	candidates = append(candidates, installDirNames...)
-
-	for _, id := range candidates {
-		if d := c.dirs[id]; d != nil && !d.std && d.name != "" && c.top(d) != nil {
-			c.installDir = d
-
-			break
-		}
+	c.installDir = c.firstInstallDir(chosen, true)
+	if c.installDir == nil {
+		c.installDir = c.firstInstallDir(installDirNames, false)
 	}
 
 	if c.installDir == nil {
@@ -53,6 +42,27 @@ func (c *converter) chooseInstallDir() { //nolint:cyclop // the fallbacks in the
 			c.renames[id] = upper
 		}
 	}
+}
+
+// firstInstallDir returns the first of ids that can be installDir. A
+// directory named "." qualifies only when the wizard or a feature makes it
+// configurable: it then stays in the tree as a configurable alias of its
+// parent, so that moving it moves only its own components, as in the
+// source. An alias that only has a conventional name is its parent's
+// second id, not the install folder.
+func (c *converter) firstInstallDir(ids []string, configurable bool) *dir {
+	for _, id := range ids {
+		folder := c.dirs[id]
+		if folder == nil || folder.std || folder.name == "" || c.top(folder) == nil {
+			continue
+		}
+
+		if folder.name != config.AliasName || configurable {
+			return folder
+		}
+	}
+
+	return nil
 }
 
 // programFilesDir returns the folder a package installs its program into
@@ -187,14 +197,15 @@ func (c *converter) stdID(id string) string {
 // those that formatted text or an ID-valued attribute refers to.
 func (c *converter) markNeededDirs() {
 	idAttrs := map[string][]string{
-		"Shortcut":        {"WorkingDirectory"},
+		elemShortcut:      {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
-		"SetDirectory":    {"Id"},
-		"RemoveFile":      {attrDirectory},
-		"RemoveFolder":    {attrDirectory},
+		elemSetDirectory:  {"Id"},
+		elemRemoveFile:    {attrDirectory, attrProperty},
+		elemRemoveFolder:  {attrDirectory, attrProperty},
 		"Property":        {"Id"},
 		"DirectorySearch": {"Id"},
 		"RemoveFolderEx":  {attrProperty},
+		elemFeature:       {"ConfigurableDirectory"},
 	}
 
 	own := make(map[*elem]string)
@@ -239,9 +250,9 @@ func ownFolder(comp *comp) string {
 
 	for _, k := range comp.e.kids {
 		switch {
-		case k.is("File"):
+		case k.is(elemFile):
 			return comp.dir
-		case k.is("CreateFolder") && k.attr(attrDirectory) != "":
+		case k.is(elemCreateFolder) && k.attr(attrDirectory) != "":
 			folder = k.attr(attrDirectory)
 		}
 	}
@@ -265,6 +276,14 @@ func (c *converter) treeDirs() map[*dir]bool { //nolint:cyclop // one pass in a 
 		}
 
 		for x := d; x != nil && !x.std; x = x.parent {
+			tree[x] = true
+		}
+	}
+
+	// An alias install dir has no path of its own, so it stays in the tree
+	// below its parent.
+	if inst := c.installDir; inst != nil && inst.name == config.AliasName {
+		for x := inst; x != nil && !x.std; x = x.parent {
 			tree[x] = true
 		}
 	}
@@ -313,6 +332,11 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		}
 	}
 
+	// A folder a feature lets the user move is configurable.
+	configurable := make(map[string]bool)
+
+	c.eachFeature(func(f *feature) { configurable[f.e.attr("ConfigurableDirectory")] = true })
+
 	var roots []*omap
 
 	rootByID := make(map[string]*omap)
@@ -329,7 +353,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		nodes[folder] = entry
 
 		if folder.parent == nil || folder.parent.std {
-			rootID := "TARGETDIR"
+			rootID := folderTargetDir
 			if folder.parent != nil {
 				rootID = c.stdID(folder.parent.id)
 			}
@@ -354,7 +378,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 				"sets it; msi-builder has no such folder, give it a name or use a standard folder", folder.id)
 		}
 
-		if folder == c.installDir {
+		if folder == c.installDir || configurable[folder.id] {
 			entry.set("configurable", true)
 		}
 
@@ -372,6 +396,260 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 	}
 }
 
+// foldAliasDirs handles the Directories without a name of their own,
+// which name their parent folder (DefaultDir "."). Below a named folder
+// such a directory stays a second id for it, written as name ".". Directly
+// in a standard folder it is that folder, and directly in TARGETDIR it is
+// the standard folder a SetDirectory sets it to, typically [WindowsVolume]
+// for a folder such as C:\opt; the SetDirectory is then left out. A
+// directory that another action sets keeps its own row.
+func (c *converter) foldAliasDirs() {
+	order := c.dirOrder
+	fold := &aliasFold{setters: c.dirSetters(), done: make(map[*dir]bool), added: make(map[string]*dir), limit: len(order)}
+
+	for _, folder := range order {
+		c.wixDirs[folder.id] = folder
+	}
+
+	for _, folder := range order {
+		c.settleAlias(fold, folder, 0)
+	}
+
+	kept := make([]*dir, 0, len(order))
+
+	for _, folder := range order {
+		target := c.folded[folder.id]
+		if target == "" {
+			kept = append(kept, folder)
+		}
+
+		if std := fold.added[target]; std != nil {
+			kept = append(kept, std)
+
+			delete(fold.added, target)
+		}
+	}
+
+	c.dirOrder = kept
+}
+
+// aliasFold is the state of foldAliasDirs.
+type aliasFold struct {
+	setters map[string][]*elem
+	done    map[*dir]bool
+	// added are the standard folders that folding introduced.
+	added map[string]*dir
+	limit int
+}
+
+// settleAlias settles a folder after its parent, whatever the order of the
+// source, so that a child sees whether its parent became a standard folder.
+func (c *converter) settleAlias(fold *aliasFold, folder *dir, depth int) {
+	if fold.done[folder] || depth > fold.limit {
+		return
+	}
+
+	fold.done[folder] = true
+
+	if parent := c.wixDirs[folder.parentID]; parent != nil {
+		c.settleAlias(fold, parent, depth+1)
+	}
+
+	target := c.aliasTarget(folder, fold.setters[folder.id])
+	if target == "" {
+		c.keepMovedRoot(folder, fold.setters[folder.id])
+
+		return
+	}
+
+	std := c.dirs[target]
+	if std == nil {
+		std = &dir{id: target, std: true, line: folder.line}
+		c.dirs[target] = std
+		fold.added[target] = std
+	}
+
+	c.dirs[folder.id] = std
+	c.renames[folder.id] = target
+	c.folded[folder.id] = target
+}
+
+// platformFolded maps the folders that nameless Directories became, such
+// as ProgramFiles6432Folder, to the folder of the platform, which is known
+// only now.
+func (c *converter) platformFolded() {
+	for id, target := range c.folded {
+		c.folded[id] = c.stdID(target)
+		c.renames[id] = c.stdID(target)
+	}
+}
+
+// dirSetters returns, by ID, the elements that set a directory or name it
+// in the UI.
+func (c *converter) dirSetters() map[string][]*elem {
+	setters := make(map[string][]*elem)
+
+	for _, setter := range c.setters {
+		setters[setter.attr("Id")] = append(setters[setter.attr("Id")], setter)
+	}
+
+	// Anything else that sets the directory or names it in the UI keeps
+	// its row: a type-35 or type-51 action, a Property element (also one
+	// a search fills), a dialog control or a SetTargetPath event.
+	for _, custom := range c.actionOrder {
+		if custom.has("Value") {
+			for _, id := range []string{custom.attr(attrDirectory), custom.attr(attrProperty)} {
+				if id != "" {
+					setters[id] = append(setters[id], custom)
+				}
+			}
+		}
+	}
+
+	for _, prop := range c.properties {
+		setters[prop.attr("Id")] = append(setters[prop.attr("Id")], prop)
+	}
+
+	// The wizard's install folder is one too.
+	for _, setter := range c.wizardDirs() {
+		setters[setter.id] = append(setters[setter.id], setter.elm)
+	}
+
+	c.uiDirRefs(c.doc.root, setters)
+
+	return setters
+}
+
+// keepMovedRoot keeps the row of a nameless folder in TARGETDIR or a
+// standard folder that something moves, which then gets a todo note.
+func (c *converter) keepMovedRoot(folder *dir, setters []*elem) {
+	if parent := c.dirs[folder.parentID]; !folder.std && unnamed(folder.name) && (parent == nil || parent.std) && len(setters) > 0 {
+		c.needDirs[folder.id] = true
+	}
+}
+
+// anchored reports whether an element below elm is sequenced Before or
+// After the action name.
+func (c *converter) anchored(elm *elem, name string) bool {
+	if elm == nil {
+		return false
+	}
+
+	if elm.attr("Before") == name || elm.attr("After") == name {
+		return true
+	}
+
+	return slices.ContainsFunc(elm.kids, func(kid *elem) bool { return c.anchored(kid, name) })
+}
+
+// uiDirRefs adds the dialog controls bound to a property and the
+// SetTargetPath events of the UI to setters, by the ID they change.
+func (c *converter) uiDirRefs(elm *elem, setters map[string][]*elem) {
+	if elm == nil {
+		return
+	}
+
+	if id := uiDirRef(elm); id != "" {
+		setters[id] = append(setters[id], elm)
+	}
+
+	for _, kid := range elm.kids {
+		c.uiDirRefs(kid, setters)
+	}
+}
+
+// uiDirRef returns the directory a dialog control, a SetTargetPath event, a
+// property event or a feature's ConfigurableDirectory lets the user set.
+func uiDirRef(elm *elem) string {
+	switch {
+	case elm.is("Control"), elm.is("Publish") && elm.attr("Event") != "SetTargetPath":
+		return elm.attr(attrProperty)
+	case elm.is("Publish"):
+		return strings.TrimSuffix(strings.TrimPrefix(elm.attr("Value"), "["), "]")
+	case elm.is(elemFeature):
+		return elm.attr("ConfigurableDirectory")
+	}
+
+	return ""
+}
+
+// dirSetter is a directory ID and the element that names it.
+type dirSetter struct {
+	elm *elem
+	id  string
+}
+
+// wizardDirs returns the folders the WixUI wizard installs into: its
+// InstallDirectory and the WIXUI_INSTALLDIR property.
+func (c *converter) wizardDirs() []dirSetter {
+	var dirs []dirSetter
+
+	if c.wixUI != nil && c.wixUI.has("InstallDirectory") {
+		dirs = append(dirs, dirSetter{id: c.wixUI.attr("InstallDirectory"), elm: c.wixUI})
+	}
+
+	for _, prop := range c.properties {
+		if prop.attr("Id") == propWixUIInstallDir && prop.has("Value") {
+			dirs = append(dirs, dirSetter{id: prop.attr("Value"), elm: prop})
+		}
+	}
+
+	return dirs
+}
+
+// aliasTarget returns the standard folder that a directory without a name
+// stands for, or "" when it keeps a row of its own; it names one below a
+// named folder ".".
+func (c *converter) aliasTarget(folder *dir, setters []*elem) string {
+	if folder.std || folder.sub || !unnamed(folder.name) {
+		return ""
+	}
+
+	parent := c.dirs[folder.parentID]
+
+	switch {
+	case parent != nil && !parent.std:
+		folder.name = config.AliasName
+
+		return ""
+	case len(setters) == 0 && parent != nil && parent.id != folderTargetDir:
+		return parent.id
+	case len(setters) == 1:
+		return c.setterFolder(setters[0])
+	}
+
+	return ""
+}
+
+// unnamed reports whether a WiX directory name names the parent folder.
+func unnamed(name string) bool {
+	return name == "" || name == config.AliasName
+}
+
+// setterFolder returns the standard folder an unconditioned SetDirectory
+// sets its directory to, such as [WindowsVolume], and leaves the action
+// out; "" for any other value.
+func (c *converter) setterFolder(setter *elem) string {
+	// A setter that runs in one sequence only, or that another action is
+	// sequenced against, keeps its row and its action.
+	if !setter.is(elemSetDirectory) || c.condition(setter) != "" || setter.attr("Sequence") != "" && setter.attr("Sequence") != "both" ||
+		c.anchored(c.doc.root, setterName(setter)) {
+		return ""
+	}
+
+	value := strings.TrimSpace(c.literal(setter.attr("Value")))
+	inner, ok := strings.CutPrefix(value, "[")
+	inner, closed := strings.CutSuffix(inner, "]")
+
+	if !ok || !closed || !config.IsStandardFolder(inner) || inner == folderTargetDir {
+		return ""
+	}
+
+	c.consumed[setter] = true
+
+	return inner
+}
+
 // defaultInstallParent reports whether msi-builder picks the folder as the
 // install dir's parent by itself.
 // folderProgramFiles is the 32-bit Program Files folder.
@@ -379,7 +657,7 @@ const folderProgramFiles = "ProgramFilesFolder"
 
 func (c *converter) defaultInstallParent(id string) bool {
 	switch id {
-	case "ProgramFiles6432Folder":
+	case folderProgramFiles6432:
 		return true
 	case "ProgramFiles64Folder":
 		return c.platform != platformX86
@@ -426,7 +704,7 @@ func (c *converter) dirValue(id string, tree map[*dir]bool) string {
 		names = append(dirNames(cur.name), names...)
 	}
 
-	return joinPath("TARGETDIR", names)
+	return joinPath(folderTargetDir, names)
 }
 
 // relative returns a path below the install dir, with "./" when its first
@@ -466,4 +744,4 @@ func joinPath(start string, names []string) string {
 	return strings.Join(append([]string{start}, names...), "/")
 }
 
-func isFile(e *elem) bool { return e.is("File") || e.is("Files") }
+func isFile(e *elem) bool { return e.is(elemFile) || e.is("Files") }

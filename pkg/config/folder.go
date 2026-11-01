@@ -434,6 +434,7 @@ func (v *validator) folderComponentFields(compPath string, comp *Component) {
 		{"createFolder", comp.CreateFolder},
 		{"folderPermissions", comp.FolderPermissions != nil},
 		{"shortcuts", len(comp.Shortcuts) > 0},
+		{"fileTypes", len(comp.FileTypes) > 0},
 	} {
 		if field.set {
 			v.errorf(compPath+"."+field.name, "not allowed on a component with a folder source, which becomes one component per file; "+

@@ -11,9 +11,15 @@ import (
 // omap is a YAML mapping that keeps its keys in insertion order and carries
 // comments for the keys.
 type omap struct {
-	keys     []string
 	values   map[string]any
 	comments map[string][]string
+	// keyOpens are the template actions a key sits in. The key of an
+	// entry that repeats in other branches ends in keySep and a suffix,
+	// which the output leaves out.
+	keyOpens map[string][]openRef
+	keys     []string
+	// opens are the template actions the mapping sits in, as a list item.
+	opens []openRef
 	// head are comment lines above the mapping, shown above "- " when it
 	// is a list item.
 	head []string
@@ -21,6 +27,32 @@ type omap struct {
 	flow bool
 	// keep writes the mapping even when it is empty, as {}.
 	keep bool
+}
+
+// keySep starts the suffix that tells apart the keys of a mapping that
+// repeat in branches of a block.
+const keySep = "\x00"
+
+// condItem is a string list item that sits in template actions.
+type condItem struct {
+	value string
+	opens []openRef
+}
+
+// setIn sets a key that sits in template actions.
+func (m *omap) setIn(key string, opens []openRef, value any) {
+	if len(opens) == 0 {
+		m.set(key, value)
+
+		return
+	}
+
+	if m.keyOpens == nil {
+		m.keyOpens = make(map[string][]openRef)
+	}
+
+	m.set(key, value)
+	m.keyOpens[key] = opens
 }
 
 func newMap() *omap {
@@ -181,6 +213,11 @@ func node(value any) *yaml.Node {
 		return sequence(val, node, yaml.Style(0))
 	case []string:
 		return sequence(val, scalar, yaml.FlowStyle)
+	case condItem:
+		item := scalar(val.value)
+		item.HeadComment = markerText(val.opens)
+
+		return item
 	case bool:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: strconv.FormatBool(val)}
 	case int:
@@ -217,6 +254,10 @@ func (m *omap) node() *yaml.Node { //nolint:cyclop // one pass in a fixed order;
 		mapping.HeadComment = commentText(m.head)
 	}
 
+	if len(m.opens) > 0 {
+		mapping.HeadComment = strings.TrimSuffix(markerText(m.opens)+"\n"+mapping.HeadComment, "\n")
+	}
+
 	var pending []string
 
 	for _, key := range m.keys {
@@ -234,10 +275,16 @@ func (m *omap) node() *yaml.Node { //nolint:cyclop // one pass in a fixed order;
 			continue
 		}
 
-		keyNode := scalar(key)
+		display, _, _ := strings.Cut(key, keySep)
+		keyNode := scalar(display)
+
 		if len(pending) > 0 {
 			keyNode.HeadComment = commentText(pending)
 			pending = nil
+		}
+
+		if opens := m.keyOpens[key]; len(opens) > 0 {
+			keyNode.HeadComment = strings.TrimSuffix(markerText(opens)+"\n"+keyNode.HeadComment, "\n")
 		}
 
 		mapping.Content = append(mapping.Content, keyNode, node(value))

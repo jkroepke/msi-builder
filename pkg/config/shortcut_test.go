@@ -20,7 +20,7 @@ func TestShortcutsOnlyFields(t *testing.T) {
 		"ServiceControl", "RestartResources",
 		"EventLog",
 		"Environment", "Purge", "CreateFolder", "Condition", "Scope", "Permanent", "NeverOverwrite", "Preserve",
-		"SharedDLLRefCount", "Transitive", "KeyPath", "Bitness", "FolderPermissions", "Shortcuts",
+		"SharedDLLRefCount", "Transitive", "KeyPath", "Bitness", "FolderPermissions", "Shortcuts", "FileTypes",
 	}
 
 	var got []string

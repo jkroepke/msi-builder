@@ -771,6 +771,39 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc, verbs: [{id: open}, {id: Open}]}]\n", 1),
 			sevError, "components[0].files[0].fileTypes[0].verbs[1].id", "listed twice",
 		},
+		"fileTypes file under a file": {
+			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc, file: app.exe}]\n", 1),
+			sevError, "components[0].files[0].fileTypes[0].file", "opens that file",
+		},
+		"fileTypes iconFile unknown": {
+			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc, iconFile: doc.ico}]\n", 1),
+			sevError, "components[0].files[0].fileTypes[0].iconFile", "not defined in any component",
+		},
+		"component fileTypes without file": {
+			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, extensions: [{extension: acme}]}]\n",
+			sevError, "components[1].fileTypes[0].file", "required",
+		},
+		"component fileTypes unknown file": {
+			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, file: other.exe}]\n",
+			sevError, "components[1].fileTypes[0].file", "not defined in any component",
+		},
+		"component fileTypes progId twice": {
+			base + strings.Replace(appComponent, "      - source: app.exe\n", "      - source: app.exe\n        fileTypes: [{progId: Acme.Doc}]\n", 1) +
+				"  - id: Assoc\n    fileTypes: [{progId: ACME.doc, file: app.exe}]\n",
+			sevError, "components[1].fileTypes[0].progId", "registers",
+		},
+		"component fileTypes folderPermissions": {
+			base + appComponent + "  - id: Assoc\n    folderPermissions: {sddl: 'D:(A;;FA;;;SY)'}\n    fileTypes: [{progId: Acme.Doc, file: app.exe, extensions: [{extension: acme}]}]\n",
+			sevError, "components[1].folderPermissions", "createFolder",
+		},
+		"component fileTypes on a folder source": {
+			base + "components:\n  - id: Tree\n    files: [{source: dist/}]\n    fileTypes: [{progId: Acme.Doc, file: app.exe}]\n  - id: App\n    files: [{source: app.exe}]\n",
+			sevError, "components[0].fileTypes", "folder source",
+		},
+		"component fileTypes no key path": {
+			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, file: app.exe, verbs: [], extensions: [{extension: acme, openWithOnly: true}]}]\n",
+			sevError, "components[1].fileTypes", "key path",
+		},
 		"registry value twice": {
 			base + strings.Replace(appComponent, "    files:", "    registry: [{root: HKLM, key: Software\\App, name: a, value: x}, {root: HKLM, key: software\\app, name: A, value: y}]\n    files:", 1),
 			sevError, "components[0].registry[1]", "already writes this registry value",
@@ -815,6 +848,38 @@ func TestValidate(t *testing.T) {
 			pkg("{platform: x64, longFileNames: false}") + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"service-*.log\"}]\n    files:", 1),
 			sevError, "components[0].removeFiles[0].name", "8.3 pattern",
 		},
+		"removeFiles directory and property": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", directory: INSTALLDIR, property: LOGDIR}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0]", "not both",
+		},
+		"removeFiles property is a directory": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: INSTALLDIR}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "use directory: INSTALLDIR",
+		},
+		"removeFiles property nothing sets": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR}]\n    files:", 1),
+			sevWarning, "components[0].removeFiles[0].property", "nothing in the package sets LOGDIR",
+		},
+		"removeFiles property bad name": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: \"LOG DIR\"}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "not a property name",
+		},
+		"alias of a standard folder": {
+			strings.Replace(base, "        name: App\n", "        name: .\n", 1),
+			sevError, "directories[0].children[0].name", "standard folder",
+		},
+		"alias of a nested standard folder": {
+			strings.Replace(base, "        configurable: true\n", "        configurable: true\n        children: [{id: CommonAppDataFolder, children: [{id: DATA, name: .}]}]\n", 1),
+			sevError, "directories[0].children[0].children[0].children[0].name", "standard folder",
+		},
+		"removeFiles property on install": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR, on: both}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].on", "standard user",
+		},
+		"removeFiles property ROOTDRIVE": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: ROOTDRIVE}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "installer picks itself",
+		},
 		"recovery restart delay negative": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {restartDelay: -1s, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.restartDelay", "negative",
@@ -834,6 +899,27 @@ func TestValidate(t *testing.T) {
 		"recovery reset days too long": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {resetAfterDays: 30000, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.resetAfterDays", "too long",
+		},
+		"service sid type unknown": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, sidType: open}]\n    files:", 1),
+			sevError, "components[0].services[0].sidType", "not one of",
+		},
+		"preshutdown zero": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 0s}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "positive",
+		},
+		"preshutdown fraction": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 1500us}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "whole number of milliseconds",
+		},
+		"preshutdown too long": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 600h}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "at most 2147483647",
+		},
+		"restricted next to an unrestricted shared service": {
+			base + strings.Replace(appComponent, "    files:",
+				"    services: [{name: svc, type: shareProcess, sidType: restricted}, {name: other, type: shareProcess}]\n    files:", 1),
+			sevWarning, "components[0].services[0].sidType", "every service of that process",
 		},
 		"recovery four steps": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {actions: [restart, restart, restart, restart]}}]\n    files:", 1),
@@ -2179,5 +2265,34 @@ func TestInstallDirBesideTargetDirTree(t *testing.T) {
 
 	if !find(validate(t, doc), config.SeverityWarning, "installDir", "next to APPDIR") {
 		t.Error("no warning about APPDIR")
+	}
+}
+
+// TestSharedSidTypesQuiet checks that the shared-process SID warning stays
+// quiet when every shareProcess service of the component is restricted,
+// for a restricted ownProcess service, and across components, which run
+// other executables.
+func TestSharedSidTypesQuiet(t *testing.T) {
+	t.Parallel()
+
+	for name, services := range map[string]string{
+		"all restricted": "    services: [{name: svc, type: shareProcess, sidType: restricted}, " +
+			"{name: other, type: shareProcess, sidType: restricted}]\n",
+		"own process": "    services: [{name: svc, sidType: restricted}, {name: other, type: shareProcess}]\n",
+	} {
+		doc := base + strings.Replace(appComponent, "    files:", services+"    files:", 1)
+		for _, d := range validate(t, doc) {
+			if strings.HasSuffix(d.Path, ".sidType") {
+				t.Errorf("%s: %s: %s", name, d.Path, d.Message)
+			}
+		}
+	}
+
+	doc := base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, type: shareProcess, sidType: restricted}]\n    files:", 1) +
+		"  - id: Other\n    directory: INSTALLDIR\n    files: [{source: other.exe}]\n    services: [{name: other, type: shareProcess}]\n"
+	for _, d := range validate(t, doc) {
+		if strings.HasSuffix(d.Path, ".sidType") {
+			t.Errorf("across components: %s: %s", d.Path, d.Message)
+		}
 	}
 }

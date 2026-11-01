@@ -260,7 +260,7 @@ way:
 | no `installDir` | `INSTALLDIR`, configurable, named after the product, under `ProgramFiles64Folder` (`ProgramFilesFolder` on x86, `LocalAppDataFolder\Programs` for `perUser`). Not added when `directories` already defines that ID (section 4.4); added next to a tree with a configurable directory, or an upper-case one below Program Files, it warns, since components without `directory` go there. |
 | component without `directory` | the install dir |
 | `directory: bin` or `directory: CommonAppDataFolder/Hello/logs` | directory nodes for the path, with generated IDs such as `INSTALLDIR_bin` (section 4.4) |
-| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the directory ID |
+| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the first own file type's ProgID, else the directory ID |
 | no `features` | one feature `MainFeature`, titled with the product name, holding every component, with the install dir as its configurable directory |
 | a component written inside `features[].components` | the same component in `components`, referenced by ID |
 | `features[].components` entry that is only an ID | a reference to that component; in Go, `config.ComponentRef(id)` |
@@ -659,6 +659,27 @@ directories:
   `CommonFilesFolder` or `SystemFolder` gets a warning (ICE80): those are the
   32-bit folders on 64-bit Windows.
 - `configurable: true` requires an upper-case ID.
+- `name: .` makes the directory a second ID for its parent folder
+  (`DefaultDir` `.`, specification section 8.3): its components install
+  into the parent's folder and share its short names and the GUID path, it
+  follows the parent when the parent moves, and setting the alias itself on
+  the command line (with `configurable: true`) moves only its own
+  components (FILE-16). Converted WiX packages keep the IDs their text refers
+  to that way. A `.` directly below a top-level node would be a second ID for
+  a standard folder or `TARGETDIR` and is an error; use that folder's ID.
+  Folder paths in `components[].directory` cannot name an alias.
+- `WindowsVolume` is a standard folder like the others: a top-level node or
+  a path such as `WindowsVolume/opt/app` installs to `C:\opt\app` on a
+  system on drive C. Its row sits below `TARGETDIR` with `DefaultDir` `.` and
+  takes the `WindowsVolume` property, so it stays on the Windows volume
+  when `TARGETDIR` points elsewhere (with `ROOTDRIVE` expected the same,
+  from section 8.3 of the specification; not tested), and a configurable folder
+  below it still moves on the command line (FILE-16). ICE99 reports an
+  error for the key, because `WindowsVolume` is also a public property; the
+  engine resolved it correctly in FILE-16, so the builder writes it anyway
+  (a private key set by an action would be ICE clean, but adds actions for
+  no change on Windows). It is per machine (ICE105), and `purge` and
+  `removeFolders` refuse it, as every standard folder.
 
 ### 4.5 `features`
 
@@ -836,6 +857,7 @@ components:
         on: uninstall                 # install | uninstall (default) | both
       - directory: LOGS               # no name: the folder itself, once empty
       - { name: stale.txt, on: install }
+      - { name: '*.log', property: LOGDIR }   # a folder a property holds
 ```
 
 The engine removes the files when the component is installed (`install`),
@@ -849,6 +871,23 @@ FILE-03: a pattern never matches in subfolders, so the folder row only
 removes a folder whose subfolders are gone, and `uninstall` rows also run
 when a major upgrade removes the old product, so logs or data matched by
 them do not survive an upgrade. Use `purge` for a data folder that must.
+`property` replaces `directory` with a property that holds the folder's
+full path when RemoveFiles runs (the `RemoveFile.DirProperty` column takes
+any property), typically one a `search` fills from a path the first install
+wrote to the registry. In FILE-16 the rows removed the matching files of
+such a folder, and an empty property removed nothing, also not in the
+current folder of either msiexec process. The
+builder warns when nothing in the package sets the property; a directory ID
+is an error there, use `directory`. Unlike `removeFolders`, nothing checks
+the folder: the engine deletes what matches wherever the property points,
+and a property with a `search` is public and secure, so the command line can
+set it whenever the search finds nothing. For that reason `on: install` and
+`both` are errors with a property outside a `perUser` package: a standard
+user can start a repair of a per-machine product, which runs elevated and
+reinstalls the component (as SEC-03 found for grants). An uninstall-time
+row runs only when the component is removed; whether a standard user can
+start that elevated, by removing a feature in a maintenance install, was
+not tested.
 The builder already removes the folders of shortcuts and of components in
 the user profile on uninstall; a folder entry for one of them warns, since
 it only adds a second row.
@@ -1099,6 +1138,7 @@ files:
       - progId: Example.Document                 # a key under HKEY_CLASSES_ROOT
         description: Example document            # the type's name in Explorer
         iconIndex: 0                             # DefaultIcon: "[#viewer.exe]",0; leave out for none
+        # iconFile: document.ico                 # take the icon from another packaged file
         extensions:
           - extension: exdoc                     # without the dot
             contentType: application/x-exdoc     # optional Content Type value
@@ -1160,6 +1200,75 @@ an error). Uninstalling removes only that entry and keeps other programs'
 entries (REG-04). Any number of ProgIDs may list an extension with
 `openWithOnly`; the default may be registered once. Explorer's "Open with"
 choice of the user (`UserChoice`) still wins over the package's default.
+
+**File type icons from other files.** `iconFile` names another packaged
+file, the ID or name of an `.ico`, `.exe` or `.dll` in any component,
+whose icon `DefaultIcon` shows instead of the opened file's:
+`"[#document.ico]",0`, with `iconIndex` picking the icon (default 0 with
+`iconFile`). A file that a folder source adds has a generated ID and cannot
+be named. An `icons` entry cannot be used: the engine copies those to disk
+for `Shortcut` rows, advertisement and the Add/Remove Programs icon
+(documented), and a `Registry` row has no way to name one (specification
+chapter 16). The `.ico` installs with its component like any file.
+
+**File types with features of their own.** A component can list
+`fileTypes` of its own, each naming the file it opens with `file`, the ID
+or name of a packaged file in any component. Their rows go into that
+component, so they install with its features, not those of the file, and
+each extension can be picked in the feature tree:
+
+```yaml
+components:
+  - id: Viewer
+    files: [{ source: viewer.exe }, { source: document.ico }]
+  - id: AssocExdoc
+    fileTypes:
+      - progId: Example.exdoc
+        file: viewer.exe                         # a file of any component
+        description: Example document
+        iconFile: document.ico
+        extensions: [{ extension: exdoc }]
+  - id: AssocExlog
+    fileTypes:
+      - progId: Example.exlog
+        file: viewer.exe
+        description: Example log
+        iconFile: document.ico
+        extensions: [{ extension: exlog }]
+features:
+  - id: Main
+    components: [Viewer]
+    features:
+      - { id: Exdoc, title: .exdoc files, components: [AssocExdoc] }
+      - { id: Exlog, title: .exlog files, default: off, components: [AssocExlog] }
+```
+
+They take the keys of a file's `fileTypes`, and `file` is required. When a
+feature of the listing component does not also install the file's
+component, the command and the icon name the file by its folder and long
+name, `"[INSTALLDIR]viewer.exe" "%1"`, instead of `[#id]`, by the rule of
+component shortcuts (SHORTCUT-04 observed ICE69 on shortcuts; Microsoft
+lists the `Registry` table for ICE69 too). Like a component shortcut, a
+file in another component of the same feature is named `[#id]`, which
+ICE69 reports as a warning (observed on shortcuts; for `Registry` rows
+documented, not tested). With the file's feature as the parent, as above,
+the file should always be there, since a child feature installs only with
+its parent (documented for the default feature attributes, not tested
+here). A component with nothing but
+file types is keyed on the first value with data they write: the ProgID's
+description, else its `DefaultIcon`, a verb's text or command or the default
+of an extension it owns, in the order they are written (an `openWithOnly` entry alone is not enough, which is an
+error). In a per-user package that value is under
+`HKCU\Software\Classes`, which should serve as the HKCU key path a profile folder needs (ICE38
+reported nothing for such a package per user, REG-09; a per-user install
+was not run).
+Adding a feature later should write only its rows and removing it remove
+only those, with the uninstall removing the rest (observed per machine,
+REG-09). Give each optional
+extension its own ProgID, as above: a ProgID is registered once per
+package, and the rows of one ProgID in two components would presumably be
+removed with the first of them, leaving the other extension pointing at
+nothing (inferred, not tested; specification chapter 16).
 
 **Closing running programs.** `close` on a program stops its running
 copies when its component is installed, repaired or removed, so that an
@@ -1482,7 +1591,8 @@ action per grant that runs when its component is installed or repaired
 (`$Component=3`) and the block's condition holds, so an action running as
 the installing user cannot change the list after the engine formatted it.
 A package with services has at most 44 grants, 19 when a service uses
-`delayedAutoStart` or `failureActionsOnNonCrashFailures`, fewer with other
+`delayedAutoStart`, `failureActionsOnNonCrashFailures`, `sidType` or
+`preshutdownTimeout`, fewer with other
 actions after `InstallServices` such as `recovery`; the builder says how
 many fit. The account and the
 folder still come from properties, and a standard user can start a
@@ -1616,6 +1726,8 @@ services:
         condition: ENABLED_COLLECTORS
     dependencies: [wmiApSrv]
     failureActionsOnNonCrashFailures: true   # MsiServiceConfig ConfigType 4
+    sidType: unrestricted        # none | unrestricted | restricted (ConfigType 5)
+    preshutdownTimeout: 3m       # ConfigType 7
     control:
       startOnInstall: true
       stopOnInstall: true
@@ -1657,6 +1769,33 @@ it back. With `false` the install succeeds and leaves such a service stopped;
 `startOnInstall` defaults to `false` for `start: disabled` and may not be
 set to `true` there: StartServices cannot start a disabled service and ends
 the install with error 1920 (SVC-05).
+
+`sidType` sets the service SID type. Microsoft documents that
+`unrestricted` adds the service's own SID (`NT SERVICE\<name>`) to its
+process token, so an ACL that grants the service SID (a `grant` to
+`NT SERVICE\<name>`) presumably applies to the service (inferred); that `restricted` also adds
+the service SID, Everyone, the service logon SID and the write-restricted
+SID (S-1-5-33) to the token's restricted SID list, which presumably limits
+where the service can write (inferred); `none` presumably leaves the SID
+out (inferred). `none` matters for a service
+that is already registered, since InstallServices reconfigures it
+(SVC-06). Microsoft also documents that a change takes effect at the next
+system start; whether a service started by the same install already runs
+with the new SID is not tested.
+`preshutdownTimeout` is, as Microsoft documents, how long the service
+manager waits for a service that accepts preshutdown notifications before
+shutdown goes on; a whole
+number of milliseconds from 1 ms to about 24.8 days. Both become
+`MsiServiceConfig` rows for install and repair, which `MsiConfigureServices`
+applies: the values were set at install, and a `/fa` repair restored them
+after they had been changed (SVC-10). Without `preshutdownTimeout` the
+service keeps its own timeout. Microsoft documents that a restricted service in a
+shared process needs every service of that process restricted, so a
+`shareProcess` service with `sidType: restricted` next to another
+`shareProcess` service of the same component (the same executable) that is
+not restricted is a warning.
+A service's required privileges (ConfigType 6) are not
+supported; see `MSISPEC.md` section 10.3.
 
 `deleteOnInstall` (default `false`) adds event 8: DeleteServices removes a
 service of the same name that is already registered, for example by an old
@@ -1806,9 +1945,9 @@ components:
 The folder must be the component's only file. Settings that name one file
 or one component cannot be copied to many: `guid` (other than `auto`),
 `keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `restartResources`, `eventLog`,
-`environment`, `purge`, `createFolder` and `folderPermissions` on the
-component, and `name`, `id`, `version`, `language` and `shortcuts` on the
-file, are errors. Put them on a component of their own and exclude its file
+`environment`, `purge`, `createFolder`, `folderPermissions`, `shortcuts` and
+`fileTypes` on the component, and `name`, `id`, `version`, `language`,
+`shortcuts` and `fileTypes` on the file, are errors. Put them on a component of their own and exclude its file
 from the folder, or, for a GUID, list the file in `guids`. `include`,
 `exclude` and `guids` on a file that is not a folder are errors too, and so is a `firewall` rule whose `component` is a folder
 component. The generated components take the component's place in
@@ -1840,8 +1979,8 @@ the folder is the YAML file's folder or one above it.
   component code of its own: with a late `removeOld`, the first upgrade from
   that tool's package deletes every file whose code changed (UPG-11), and a
   kept code keeps the file (UPG-12, a WiX `Files` glob upgraded by the
-  converted package). `msi-builder convert --msi` fills it from the old
-  package. The other files keep their `auto` GUID, so files added later
+  converted package). `msi-builder convert` fills it with the codes WiX
+  computes for a `Files` glob, or with `--msi` from the old package. The other files keep their `auto` GUID, so files added later
   need no entry. A path the folder does not add, because the file is gone
   or a pattern leaves it out, is a warning, since a file may well leave in
   a later version; a path with `\`, a leading `/` or a `.` or `..` folder,
@@ -1913,6 +2052,16 @@ Public names have no lower-case letter. `secure: true` on a private name is
 an error. The request properties (`ADDLOCAL`, `REMOVE`, `REINSTALL`, …) and
 the properties the builder owns (`ProductCode`, `ProductVersion`, `ALLUSERS`,
 `SecureCustomProperties`, …) cannot be set here (ICE87).
+
+The JSON Schema (`pkg/config/schema.json`) lists the Windows Installer
+properties a package may set, such as `MSIRESTARTMANAGERCONTROL`, `REBOOT`,
+`ARPSYSTEMCOMPONENT`, `MSIFASTINSTALL` and `INSTALLLEVEL`, with a description
+and their documented values, so that an editor completes and checks them. It
+refuses the properties the builder writes, whose hover text names the key to
+use instead (`ARPNOMODIFY` is `product.arp.noModify`), and the request
+properties such as `ADDLOCAL`. Any other name takes any value. The descriptions follow Microsoft's documentation and
+are not verified on Windows; MSISPEC case PROP-04 plans the check for
+`MSIRESTARTMANAGERCONTROL`.
 
 **Search.** `search` fills a property from the target machine before the
 install. It is one search or a list of them; each search has exactly one of
@@ -2257,6 +2406,7 @@ firewall:
     port: '[LISTEN_PORT]'
     remoteAddresses: '[REMOTE_ADDR]'  # empty means any
     profiles: all                     # all | domain | private | public, or a list
+    ignoreFailure: false              # true: install without the rule if netsh fails
 ```
 
 The builder writes deferred, no-impersonate `netsh advfirewall` actions: on
@@ -2265,13 +2415,26 @@ rollback that deletes; on removal it deletes, with a rollback that adds. The
 `component` is usually an empty component with its own GUID, in the feature
 that switches the rule.
 
+`protocol` is `tcp` (the default), `udp` or `any`. `netsh` takes a port only
+with TCP or UDP, so a rule with `protocol: any` and a `port` is added twice
+under its name, once for TCP and once for UDP, and removed together; without
+a port, `any` is one rule for every protocol (MSISPEC CA-10).
+
+A rule whose add fails, for example because `netsh` rejects an argument that
+a property filled in at runtime, fails the install with
+1603 and rolls it back. With `ignoreFailure: true` the install goes on and
+the rule is missing (with `protocol: any` and a port, each of the two adds
+goes on by itself, so one protocol can be open without the other); use it for a rule the program can do without, such as
+one that only lets other machines connect. The removal never fails on a rule
+(MSISPEC section 17.3).
+
 `remoteAddresses` is passed to netsh's `remoteip=` unquoted, so it has no
 spaces or double quotes. A value with property references goes through a
 property that falls back to `any` when any property it references is empty
 at runtime. `any` and `*` mean any address and cannot be combined with other
 entries: netsh rejects `any` before or after an address and `*` before one
-and, since the add action has no Continue flag, the install fails (MSISPEC
-CA-02), so the build reports an error. `*` after an address is rejected as
+and the add action fails the install (MSISPEC
+CA-02, CA-04), so the build reports an error. `*` after an address is rejected as
 well, although that case is not tested. Keywords such as `localsubnet` combine with addresses.
 Neither the name nor the description may contain a double quote; netsh drops
 quotes inside the quoted description (MSISPEC CA-04). The name is literal

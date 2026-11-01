@@ -2,6 +2,7 @@ package wixconvert
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/jkroepke/msi-builder/pkg/config"
@@ -64,17 +65,126 @@ func (c *converter) expand(elm *elem, text string) string {
 func (c *converter) expandVars(elm *elem, text string) string {
 	return preprocessorVar.ReplaceAllStringFunc(text, func(m string) string {
 		parts := preprocessorVar.FindStringSubmatch(m)
-		if parts[1] == "sys" {
+		if parts[1] == varSys {
 			c.todof(nil, "", elm.line, "%s is a WiX system variable; replace it", m)
 
 			return m
 		}
 
-		name := varName(parts[2])
-		c.usedVars[name] = true
+		var loops []string
+		if elm != nil {
+			loops = elm.loops
+		}
 
-		return varAction(name)
+		return "{{ " + c.varOperand(parts[2], loops) + " }}"
 	})
+}
+
+// expandLeft fills in the variables of a value that convert wrote as it
+// is in the source, such as an Id, inside the loops of its entry.
+func (c *converter) expandLeft(text string, loops []string) string {
+	found := false
+
+	for _, m := range preprocessorVar.FindAllStringSubmatch(text, -1) {
+		found = found || m[1] != varSys
+	}
+
+	if !found {
+		return text
+	}
+
+	if !action.MatchString(text) {
+		text = escapeTemplate(text)
+	}
+
+	return preprocessorVar.ReplaceAllStringFunc(text, func(m string) string {
+		parts := preprocessorVar.FindStringSubmatch(m)
+		if parts[1] == varSys {
+			return m
+		}
+
+		return "{{ " + c.varOperand(parts[2], loops) + " }}"
+	})
+}
+
+// expandLeftOut fills in the variables left in the output's values and
+// keys.
+func (c *converter) expandLeftOut(value any, loops []string) any {
+	switch val := value.(type) {
+	case string:
+		return c.expandLeft(val, loops)
+	case []string:
+		for i, s := range val {
+			val[i] = c.expandLeft(s, loops)
+		}
+	case condItem:
+		val.value = c.expandLeft(val.value, append(slices.Clone(loops), opensLoops(val.opens)...))
+
+		return val
+	case []any:
+		for i, item := range val {
+			val[i] = c.expandLeftOut(item, loops)
+		}
+	case *omap:
+		if val != nil {
+			c.expandLeftMap(val, append(slices.Clone(loops), opensLoops(val.opens)...))
+		}
+	}
+
+	return value
+}
+
+func (c *converter) expandLeftMap(mapping *omap, loops []string) {
+	for i, key := range mapping.keys {
+		keyLoops := append(slices.Clone(loops), opensLoops(mapping.keyOpens[key])...)
+
+		value, ok := mapping.values[key]
+		if ok {
+			mapping.values[key] = c.expandLeftOut(value, keyLoops)
+		}
+
+		display, suffix, cut := strings.Cut(key, keySep)
+		if renamed := c.expandLeft(display, keyLoops); renamed != display {
+			if cut {
+				renamed += keySep + suffix
+			}
+
+			mapping.keys[i] = renamed
+			c.renameKey(mapping, key, renamed)
+		}
+	}
+}
+
+// renameKey moves the value, comments and actions of a key.
+func (c *converter) renameKey(mapping *omap, from, dest string) {
+	if v, ok := mapping.values[from]; ok {
+		delete(mapping.values, from)
+		mapping.values[dest] = v
+	}
+
+	if v, ok := mapping.comments[from]; ok {
+		delete(mapping.comments, from)
+		mapping.comments[dest] = v
+	}
+
+	if v, ok := mapping.keyOpens[from]; ok {
+		delete(mapping.keyOpens, from)
+		mapping.keyOpens[dest] = v
+	}
+}
+
+// opensLoops returns the loop variables that opens bring in.
+func opensLoops(opens []openRef) []string {
+	var loops []string
+
+	for _, open := range opens {
+		if name, ok := strings.CutPrefix(open.Action, "range $"); ok {
+			name, _, _ = strings.Cut(name, " ")
+			loops = append(loops, name)
+		}
+	}
+
+	return loops
 }
 
 // bindValue resolves the bind variables the converter can fill in.
@@ -114,7 +224,7 @@ func (c *converter) noteDirRefs(s string) {
 }
 
 func isStandardFolder(id string) bool {
-	return config.IsStandardFolder(id) || id == "ProgramFiles6432Folder" ||
+	return config.IsStandardFolder(id) || id == folderProgramFiles6432 ||
 		id == "CommonFiles6432Folder" || id == "System6432Folder"
 }
 

@@ -169,7 +169,8 @@ func (b *build) dirPath(dir *dirInfo) (string, string) {
 	var names []string
 
 	for dir != nil && !dir.standard {
-		if dir.long != "." {
+		// An alias (DefaultDir ".") adds no name.
+		if dir.long != "" && dir.long != "." {
 			names = append(names, dir.long)
 		}
 

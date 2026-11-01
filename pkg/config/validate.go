@@ -83,7 +83,7 @@ func Validate(cfg *Config) Diagnostics {
 	checker.components(cfg, known)
 	checker.folderComponents(cfg, known)
 	checker.shortcuts(cfg, known)
-	checker.fileTypes(cfg)
+	checker.fileTypes(cfg, known)
 	checker.properties(cfg)
 	checker.launchConditions(cfg)
 	checker.customActions(cfg, known)
@@ -429,10 +429,12 @@ func compareVersion3(left, right Version) int {
 		cmp.Compare(left.Build, right.Build))
 }
 
-func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,gocognit // a flat list of independent checks
+func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop // a flat list of independent checks
 	seen := make(map[string]bool)
 
 	var walk func([]*Directory, string, bool)
+
+	inStandard := standardChildren(cfg.Directories)
 
 	walk = func(ds []*Directory, prefix string, top bool) {
 		names := make(map[string]string)
@@ -454,21 +456,7 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop,goco
 				seen[dir.ID] = true
 			}
 
-			problem := nameProblem(dir.Name, "folder name")
-
-			switch {
-			case top && !standardFolders[dir.ID]:
-				v.errorf(dirPath+".id", "a top-level directory must be a standard folder such as ProgramFiles64Folder")
-			case top && dir.Name != "":
-				v.errorf(dirPath+".name", "a standard folder has no name")
-			case !top && !v.required(dirPath+".name", dir.Name):
-			case !top && problem != "" && dir.origin == productNamePath:
-				v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)
-			case !top && problem != "" && dir.origin != "":
-				v.errorf(dir.origin, "%s", problem)
-			case !top && problem != "":
-				v.errorf(dirPath+".name", "%s", problem)
-			}
+			v.directoryName(dirPath, dir, top, inStandard[dir])
 
 			if dir.Configurable && !IsPublicProperty(dir.ID) {
 				v.errorf(dirPath+".id", "a configurable directory needs an upper-case id")
@@ -583,12 +571,66 @@ func (v *validator) rememberIDs(cfg *Config) {
 	}
 }
 
+// standardChildren returns the children of top-level nodes and of standard
+// folders nested deeper: an alias there would be a second id for a
+// standard folder or TARGETDIR.
+func standardChildren(roots []*Directory) map[*Directory]bool {
+	inStandard := make(map[*Directory]bool)
+
+	var mark func([]*Directory, bool)
+
+	mark = func(ds []*Directory, top bool) {
+		for _, dir := range ds {
+			for _, child := range dir.Children {
+				inStandard[child] = top || standardFolders[dir.ID]
+			}
+
+			mark(dir.Children, false)
+		}
+	}
+
+	mark(roots, true)
+
+	return inStandard
+}
+
+// directoryName checks the name of a directory node: none at the top
+// level, a valid folder name below it, or AliasName for a second id of a
+// named parent folder (inTop marks a child of a top-level node or of a
+// standard folder).
+func (v *validator) directoryName(dirPath string, dir *Directory, top, inTop bool) { //nolint:cyclop // a flat list of independent checks
+	// Only a node written in directories can be an alias; a generated
+	// one, from product.name or a path, needs a real name.
+	alias := dir.Name == AliasName && dir.origin == ""
+
+	problem := nameProblem(dir.Name, "folder name")
+	if alias {
+		problem = ""
+	}
+
+	switch {
+	case top && !standardFolders[dir.ID]:
+		v.errorf(dirPath+".id", "a top-level directory must be a standard folder such as ProgramFiles64Folder")
+	case top && dir.Name != "":
+		v.errorf(dirPath+".name", "a standard folder has no name")
+	case top || !v.required(dirPath+".name", dir.Name):
+	case alias && inTop:
+		v.errorf(dirPath+".name", "%q names the parent folder itself, here a standard folder; use that folder's id instead", dir.Name)
+	case problem != "" && dir.origin == productNamePath:
+		v.errorf(dir.origin, "%q cannot be used as a folder name; set installDir.name", dir.Name)
+	case problem != "" && dir.origin != "":
+		v.errorf(dir.origin, "%s", problem)
+	case problem != "":
+		v.errorf(dirPath+".name", "%s", problem)
+	}
+}
+
 // sameFolder warns when two sibling directories name the same folder: the
 // rows install to one place, but setting one on the command line leaves the
 // other behind.
 func (v *validator) sameFolder(names map[string]string, dirPath string, dir *Directory, top bool) {
 	// A standard folder's path comes from its property, not its name.
-	if top || dir.Name == "" || standardFolders[dir.ID] {
+	if top || dir.Name == "" || dir.Name == AliasName || standardFolders[dir.ID] {
 		return
 	}
 
@@ -830,7 +872,10 @@ func directoryPaths(dirs []*Directory, parent string, out map[string]string) map
 	for _, dir := range dirs {
 		dirPath := dir.ID
 
-		if parent != "" {
+		switch {
+		case parent != "" && dir.Name == AliasName:
+			dirPath = parent
+		case parent != "":
 			dirPath = parent + `\` + strings.ToLower(dir.Name)
 		}
 
@@ -911,6 +956,45 @@ func (v *validator) components(cfg *Config, known *refs) {
 		v.movableGrants(cfg, known, p, comp)
 		v.componentEvents(p, comp, userData)
 	}
+
+	v.sharedSidTypes(cfg)
+}
+
+// sharedSidTypes warns about a restricted shareProcess service next to a
+// shareProcess service of the same component, which runs the same image,
+// that is not restricted: Microsoft documents that a restricted service in a
+// shared process needs every service of that process restricted
+// (documented, unverified: SERVICE_SID_INFO). Services of other components
+// run other executables, so they are not compared.
+func (v *validator) sharedSidTypes(cfg *Config) {
+	for i, comp := range cfg.Components {
+		others := unrestrictedShared(comp)
+		if len(others) == 0 {
+			continue
+		}
+
+		for j, svc := range comp.Services {
+			if svc != nil && svc.Type == "shareProcess" && svc.SidType == "restricted" {
+				v.warnf(fmt.Sprintf("%s.services[%d].sidType", comp.Path(i), j), "a restricted service in a shared "+
+					"process needs every service of that process restricted; %s is shareProcess without sidType: restricted",
+					strings.Join(others, ", "))
+			}
+		}
+	}
+}
+
+// unrestrictedShared returns the names of a component's shareProcess
+// services without sidType: restricted.
+func unrestrictedShared(comp *Component) []string {
+	var names []string
+
+	for _, svc := range comp.Services {
+		if svc != nil && svc.Type == "shareProcess" && svc.SidType != "restricted" {
+			names = append(names, svc.Name)
+		}
+	}
+
+	return names
 }
 
 // componentID checks a component's id and records it in seen.
@@ -1090,7 +1174,7 @@ func (v *validator) componentPermissions(compPath string, comp *Component) {
 		v.permissions(fmt.Sprintf("%s.registry[%d].permissions", compPath, j), value.Permissions, permRegistry)
 	}
 
-	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0
+	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0 && !fileTypesOnly(comp)
 	if v.permissions(compPath+".folderPermissions", comp.FolderPermissions, permFolder) && !comp.CreateFolder && !directoryKey {
 		v.errorf(compPath+".folderPermissions", "the component creates no folder row; set createFolder: true")
 	}
@@ -1164,8 +1248,14 @@ func (v *validator) permissions(field string, perm *Permissions, kind string) bo
 // userRegistryKeyPath reports whether the component's key path, resolved as
 // the builder does, is a registry value under HKCU (HKMU is HKCU in a
 // per-user package).
-func userRegistryKeyPath(c *Component, perUser bool) bool {
-	key := registryKeyPath(c)
+func userRegistryKeyPath(comp *Component, perUser bool) bool {
+	// A per-user package writes file types to HKCU\Software\Classes, so a
+	// component keyed on one of their values has an HKCU key path.
+	if perUser && fileTypesOnly(comp) {
+		return true
+	}
+
+	key := registryKeyPath(comp)
 
 	return key != nil && (key.Root == "HKCU" || perUser && key.Root == "HKMU")
 }
@@ -1617,7 +1707,7 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 
 		v.oneOf(entryPath+".on", entry.On, RemoveOnInstall, RemoveOnUninstall, RemoveOnBoth)
 
-		row := [3]string{cmp.Or(entry.Directory, comp.Directory), strings.ToLower(entry.Name), entry.On}
+		row := [3]string{removeFileFolder(comp, entry), strings.ToLower(entry.Name), entry.On}
 		if seen[row] {
 			v.errorf(entryPath, "this component already removes %q there", entry.Name)
 		}
@@ -1628,7 +1718,55 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 			v.errorf(entryPath+".directory", "directory %q is not defined", entry.Directory)
 		}
 
+		if entry.Property != "" {
+			v.removeFileProperty(cfg, known, entryPath, entry)
+		}
+
 		v.removeFilePattern(entryPath+".name", entry.Name, *cfg.Package.LongFileNames)
+	}
+}
+
+// engineFolderProperties are folder properties the installer sets itself
+// (specification section 8.3): ROOTDRIVE, the drive with the most free
+// space, and the source folder of the package.
+var engineFolderProperties = map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"ROOTDRIVE": true, "SourceDir": true, "SOURCEDIR": true, "PrimaryVolumePath": true,
+}
+
+// removeFileFolder names the folder of a removeFiles entry: its directory,
+// the component's, or [property].
+func removeFileFolder(comp *Component, entry *RemoveFile) string {
+	if entry.Property != "" {
+		return "[" + entry.Property + "]"
+	}
+
+	return cmp.Or(entry.Directory, comp.Directory)
+}
+
+// removeFileProperty checks the property of a removeFiles entry, whose
+// value the engine reads as the folder's full path when RemoveFiles runs.
+func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath string, entry *RemoveFile) {
+	field := entryPath + ".property"
+	name := entry.Property
+
+	switch {
+	case entry.Directory != "":
+		v.errorf(entryPath, "give directory or property, not both")
+	case !IsIdentifier(name) || len(name) > MaxIdentifierLength:
+		v.errorf(field, "%q is not a property name", name)
+	case known.dirs[name] != nil || IsStandardFolder(name): // TARGETDIR is one
+		v.errorf(field, "%s is a directory; use directory: %s", name, name)
+	case engineFolderProperties[name]:
+		v.errorf(field, "%s is a folder the installer picks itself, not one of the product; name a folder the package installs or remembers", name)
+	case entry.On != RemoveOnUninstall && cfg.Package.Scope != ScopePerUser:
+		// A standard user may start a repair of a per-machine product,
+		// which runs elevated and reinstalls the component, with the
+		// property on the command line; nothing checks the folder.
+		v.errorf(entryPath+".on", "on: %s with a property runs on every repair, which a standard user can start elevated with "+
+			"%s set to any folder; remove these files on uninstall, or name a directory of the package", entry.On, name)
+	case !setProperties(cfg)[name]:
+		v.warnf(field, "nothing in the package sets %s, so only the command line can name the folder, and the row "+
+			"does nothing without it; use a property with a search that finds the folder again at uninstall", name)
 	}
 }
 
@@ -1696,6 +1834,12 @@ func (v *validator) service(svcPath string, svc *Service, keyFile *File, perUser
 	if svc.DelayedAutoStart && svc.Start != "auto" {
 		v.errorf(svcPath+".delayedAutoStart", "needs start: auto")
 	}
+
+	if svc.SidType != "" {
+		v.oneOf(svcPath+".sidType", svc.SidType, "none", "unrestricted", "restricted")
+	}
+
+	v.preshutdownTimeout(svcPath+".preshutdownTimeout", svc.PreshutdownTimeout)
 
 	if svc.Password != "" && !strings.Contains(svc.Password, "[") {
 		v.errorf(svcPath+".password", "use a hidden property such as [SERVICE_PASSWORD], never a literal password")
@@ -1861,6 +2005,21 @@ func (v *validator) recoveryDuration(field string, value *Duration, unit time.Du
 		v.errorf(field, "must be a whole number of %s", map[time.Duration]string{time.Millisecond: "milliseconds", time.Second: "seconds"}[unit])
 	case int64(time.Duration(*value)/unit) > math.MaxInt32:
 		v.errorf(field, "is too long for sc.exe")
+	}
+}
+
+// preshutdownTimeout checks a service's preshutdown timeout, written as
+// milliseconds into a MsiServiceConfig row. Zero is refused: the engine
+// documents an empty argument, not zero, for the default.
+func (v *validator) preshutdownTimeout(field string, value *Duration) {
+	switch {
+	case value == nil:
+	case *value <= 0:
+		v.errorf(field, "must be positive")
+	case time.Duration(*value)%time.Millisecond != 0:
+		v.errorf(field, "must be a whole number of milliseconds")
+	case int64(time.Duration(*value)/time.Millisecond) > math.MaxInt32:
+		v.errorf(field, "must be at most %d milliseconds", math.MaxInt32)
 	}
 }
 
@@ -2544,10 +2703,6 @@ func (v *validator) firewall(cfg *Config, known *refs) { //nolint:cyclop // a fl
 
 		v.remoteAddresses(p+".remoteAddresses", rule.RemoteAddresses)
 
-		if rule.Protocol == "any" && rule.Port != "" {
-			v.errorf(p+".port", "a port needs protocol tcp or udp")
-		}
-
 		for j, prof := range rule.Profiles {
 			v.oneOf(fmt.Sprintf("%s.profiles[%d]", p, j), prof, "all", "domain", "private", "public")
 		}
@@ -2949,6 +3104,10 @@ func componentRoots(comp *Component) []string {
 		if len(file.FileTypes) > 0 {
 			roots = append(roots, "HKCR")
 		}
+	}
+
+	if len(comp.FileTypes) > 0 {
+		roots = append(roots, "HKCR")
 	}
 
 	for _, env := range comp.Environment {

@@ -1,0 +1,101 @@
+# CA-10: firewall rules for any protocol and ignoreFailure (CI)
+
+- Runner: GitHub `windows-latest` (Windows Server 2025, x64), elevated,
+  2026-11-01
+- CI run 41298591380 (commit f44ad00, from the PR's checks), job
+  `Build & Test (windows-latest, native)`, PR #206
+- Tests in `internal/builder/nativetest/firewall_windows_test.go`:
+  `TestNetshAnyProtocolPort`, `TestMsiexecFirewallAnyProtocol`,
+  `TestMsiexecFirewallIgnoreFailure`, `TestMsiexecFirewallWixBlackBox`,
+  `TestMsiexecFirewallServiceStopped` (run with
+  `MSI_BUILDER_STOP_FIREWALL=1` in this run and again at commit 1871a3d,
+  where `Stop-Service` failed the same way)
+
+Every rule name starts with `MsiBuilderCA10`, and the cleanups delete only
+those names.
+
+## netsh with protocol any and a port
+
+The test runs (command line from the test code, not printed in the log):
+
+```text
+netsh advfirewall firewall add rule name=MsiBuilderCA10Netsh dir=in action=allow protocol=any localport=12345 program=C:\MsiBuilderCA10\app.exe
+```
+
+Log output: `exit status 1`, then "Ports can only be specified if the
+protocol is TCP or UDP." and the usage text.
+
+No rule was added.
+
+## msi-builder rule with protocol any and a port
+
+`protocol: any`, `port: '12345,12350-12352'`. After the install,
+`show rule name=MsiBuilderCA10Any dir=in` lists two rules:
+
+| Protocol | LocalPort | RemoteIP |
+| --- | --- | --- |
+| TCP | `12345,12350-12352` | Any |
+| UDP | `12345,12350-12352` | Any |
+
+After the uninstall no rule of the name is left.
+
+A later run (CI run 41304214097, commit e9824f0) added a rule
+`MsiBuilderCA10AnyNoPort` with `protocol: any` and no port: one rule,
+protocol Any, no local port, removed by the uninstall.
+
+## A failing add with and without ignoreFailure
+
+`remoteAddresses: '[REMOTE]'`, installed with `REMOTE=not-an-address`:
+
+| Rule | Exit code | Rules | `app.exe` installed |
+| --- | --- | --- | --- |
+| without `ignoreFailure` | 1603 | none | no (rolled back) |
+| `ignoreFailure: true` | 0 | none | yes; uninstall exit 0 |
+
+## WiX 5 package (black box)
+
+WiX 5.0.2 with `WixToolset.Firewall.wixext` 5.0.2, one file with two
+exceptions: `Port="12346"` without `Protocol`, and `Port="12347"
+Protocol="tcp" IgnoreFailure="yes"` with `<fw:RemoteAddress Value="[REMOTE]" />`.
+Installed with `REMOTE=not-an-address`:
+
+- Exit code 0.
+- `MsiBuilderCA10WixPort`: one rule, protocol TCP, local port 12346
+  (`Get-NetFirewallPortFilter`: `protocol=TCP localport=12346`). No UDP rule.
+- `MsiBuilderCA10WixIgnore`: no rule.
+
+CI run 41304214097 (commit e9824f0) added a third exception without
+`Port` or `Protocol`, `MsiBuilderCA10WixNoPort`: one rule, protocol Any,
+no local port. The other two results were the same.
+
+## Firewall service stopped
+
+The test added the stop right for Administrators to the service's security
+descriptor (`(A;;CCLCSWRPLORCWDWO;;;BA)` became
+`(A;;CCLCSWRPWPLORCWDWO;;;BA)`; the log does not print the grant, but
+the test stops with a failure when `sc sdset` fails, and it went on) and ran
+`Stop-Service mpssvc -Force`:
+
+```text
+Stop-Service : Service 'Windows Defender Firewall (mpssvc)' cannot be stopped due to the following error: Cannot stop
+mpssvc service on computer '.'.
+Running
+```
+
+The service kept running, so both packages installed their rule (exit 0)
+and uninstalled with exit 0; that says nothing about a stopped service.
+`sc start` reported 1056 (already running), and the original descriptor
+was restored.
+
+A third run (CI run 41300545753, commit 596cae4) asked why with
+`sc queryex mpssvc` after the failed stop:
+
+```text
+STATE              : 4  RUNNING
+                        (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+```
+
+The service does not accept a stop control at all, so no access right
+lets an administrator stop it.
+
+Not tested: an install while the firewall service is stopped.
