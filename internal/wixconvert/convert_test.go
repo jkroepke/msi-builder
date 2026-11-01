@@ -2243,7 +2243,7 @@ func TestConvertSharedProgIDAndExistenceSearch(t *testing.T) {
   <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
     <MajorUpgrade DowngradeErrorMessage="newer" />
     <Property Id="TOOLDIR">
-      <RegistrySearch Root="HKLM" Key="SOFTWARE\Example\Tool" Name="Path" Type="raw">
+      <RegistrySearch Root="HKLM" Key="SOFTWARE\Example\Tool" Name="Path" Type="directory">
         <DirectorySearch />
       </RegistrySearch>
     </Property>
@@ -2286,7 +2286,7 @@ func TestConvertSharedProgIDAndExistenceSearch(t *testing.T) {
 	}
 
 	if strings.Count(out, "progId: Example.Shared") != 1 || strings.Contains(out, "directory:") ||
-		strings.Contains(out, "DirectorySearch without Path") {
+		strings.Contains(out, "DirectorySearch without Path") || strings.Count(out, "type: directory\n") != 1 {
 		t.Errorf("want one Example.Shared file type and no directory search:\n%s", out)
 	}
 
@@ -2361,6 +2361,7 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
 		"the ProgId Example.Same is declared again",
 		"<MIME> in an Extension has no counterpart",
 		`the DirectorySearch without Path has Depth="3"`,
+		"the DirectorySearch without Path below a raw RegistrySearch stands for the folder that holds the path in the value",
 		"only checks that the folder the outer RegistrySearch finds exists",
 	} {
 		if !strings.Contains(out, want) {
@@ -2369,9 +2370,9 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
 	}
 
 	if strings.Contains(out, "extension: hlv") || strings.Count(out, "extension: hls") != 1 ||
-		strings.Count(out, "only checks that the folder") != 1 || strings.Count(out, "type: directory") != 1 ||
+		strings.Count(out, "only checks that the folder") != 1 || strings.Contains(out, "    type: directory\n") ||
 		strings.Contains(out, "condition and features of the component") || strings.Contains(out, `Depth="2"`) {
-		t.Errorf("want hlv left out, one hls, one existence note and one directory type:\n%s", out)
+		t.Errorf("want hlv left out, one hls, one existence note and no directory type:\n%s", out)
 	}
 
 	cfg, err := config.Parse(res.YAML, config.Options{})
@@ -2381,5 +2382,49 @@ func TestConvertProgIDOtherFileAndSearchTypes(t *testing.T) {
 
 	if err := config.Validate(cfg).Err(); err != nil {
 		t.Errorf("the converted file does not validate: %v\n%s", err, out)
+	}
+}
+
+func TestConvertRawRegistryFolderSearch(t *testing.T) {
+	t.Parallel()
+
+	for _, typ := range []string{` Type="raw"`, ""} {
+		src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Property Id="OLDDIR">
+      <RegistrySearch Root="HKLM" Key="SOFTWARE\Example\Old" Name="InstallLocation"` + typ + `>
+        <DirectorySearch AssignToProperty="yes"><DirectorySearch /></DirectorySearch>
+      </RegistrySearch>
+    </Property>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Id="app" Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" Title="Hello"><ComponentRef Id="app" /></Feature>
+  </Package>
+</Wix>`
+
+		res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		out := string(res.YAML)
+		if !strings.Contains(out, "below a raw RegistrySearch returns the folder that holds the path in the value") ||
+			!strings.Contains(out, "if only that matters, the raw value is enough") ||
+			strings.Contains(out, "    type: directory\n") || strings.Contains(out, "stands for the folder") {
+			t.Errorf("type %q: want the raw value with the raw note:\n%s", typ, out)
+		}
+
+		cfg, err := config.Parse(res.YAML, config.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := config.Validate(cfg).Err(); err != nil {
+			t.Errorf("the converted file does not validate: %v\n%s", err, out)
+		}
 	}
 }

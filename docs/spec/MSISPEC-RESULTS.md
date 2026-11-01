@@ -261,6 +261,7 @@ Silent-failure cases a producer has to guard against itself:
 | SEARCH-06 | Confirmed | [ci](msitest/results/SEARCH-06/ci/log.md); GitHub `windows-latest` and `windows-11-arm` runners, 2026-10-29, CI runs 40962873234 (raw search) and 40966065131 (directory search): every variant (perUser, x86, x64 in `ProgramFilesFolder`, arm64, both dual scopes in both contexts, the per-user ones also as a standard user) writes the value to the root and view of its scope and platform and upgrades into the custom folder; `HKCU\Software` is shared by both views |
 | SEARCH-07 | Confirmed | [probe](msitest/results/SEARCH-07/probe/log.md); GitHub `windows-latest` runner, 2026-10-29, CI runs 40962873234 (probe) and 40966065131 (msi-builder's directory search): a raw search applies a missing folder as it is, which works on the system drive but fails with 1327 and 1603 on an unmounted drive; a directory search finds only an existing folder, so both missing cases install into the default folder |
 | SEARCH-08 | Confirmed | [ci](msitest/results/SEARCH-08/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI run 41231619181: `CompLocator` `Type` 0 returns the folder of a folder-keyed component and `Type` 1 its parent; `Type` 0 finds nothing for a file key path; an HKLM registry key path finds nothing with either type (HKCU not tested); `removeFolders` on a search of the package's own folder-keyed component removed only the install folder and kept a foreign file in its parent |
+| SEARCH-09 | Confirmed | [ci](msitest/results/SEARCH-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI run 41244973608: a directory `RegLocator` (`Type` 16) finds an existing folder with or without a trailing backslash in the data and returns it with one; a missing folder and a file path find nothing; a path-less `DrLocator` under a directory `RegLocator` gives the same results, under a raw one (`Type` 18) it returns the containing folder whether the folder exists or not |
 | UPG-01 | Confirmed | [higher](msitest/results/UPG-01/higher/log.md) removes; equal, lower and fourth-field-only stay side by side |
 | UPG-02 | Confirmed | [LaunchCondition](msitest/results/UPG-02/launchcondition/log.md) and [type 19](msitest/results/UPG-02/type19/log.md): 1603, newer stays |
 | UPG-03 | Confirmed | [log](msitest/results/UPG-03/same-productcode/log.md); 1638 |
@@ -290,6 +291,7 @@ Silent-failure cases a producer has to guard against itself:
 | CA-06 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40925575633 (PR #117): `add rule name=all` fails in any case and quoted; `delete rule name=all` deletes every rule the other filters select, `"all"` and `\"all\"` included; unscoped with `dir=in` it deleted every inbound rule (208, two of them probe rules); names with spaces around `all` are ordinary names; [details](#reserved-firewall-rule-name-ca-06) |
 | CA-07 | Confirmed | [ci](msitest/results/CA-07/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40940932552: `localport=80,443,8000-8010` from the package and from a property is stored as written; uninstall removes the rule |
 | CA-08 | Confirmed | GitHub `windows-latest` runner, 2026-10-30, CI runs 41053365815 and 41058632106 (`TestMsiexecProgressText`, `TestFullUIProgressText`): the full-UI progress page shows a deferred action's `ActionText` description with `[ProductName]` resolved; the verbose log writes descriptions formatted; the German transform replaces the row; a `/qn` log has no description for an immediate action; [details](#progress-texts-ca-08) |
+| CA-09 | Confirmed | [ci](msitest/results/CA-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI runs 41236083486 and 41239378858 (PR #183): in `ALLUSERS=2` packages a no-impersonate action conditioned `ALLUSERS=1` runs as LocalSystem per machine (install, repair, uninstall) and not per user, also not in an administrator's per-user install; unconditioned it runs per user as the installing user, administrator or standard user, in both dual scopes; ICE105 warns about it in `perUserOrMachine` with or without the condition and is silent in `perMachineOrUser`, and treats a `System64Folder` Directory row the same way |
 | SHORTCUT-01 | Confirmed | [hkcu-folder](msitest/results/SHORTCUT-01/hkcu-folder/log.md), [file-component](msitest/results/SHORTCUT-01/file-component/log.md), [file-component-folder](msitest/results/SHORTCUT-01/file-component-folder/log.md), [advertised](msitest/results/SHORTCUT-01/advertised/log.md), [per-user](msitest/results/SHORTCUT-01/per-user/log.md); every layout installs and removes both shortcuts, the Start menu subfolder goes without a `RemoveFile` row; [details](#shortcuts-shortcut-01) |
 | SHORTCUT-02 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40882369236 (PR #98): the engine converts `PropVariantValue` to the property's type and formats it; a CLSID needs braces; an unknown name or a bad value is warning 1946 and the install goes on; [details](#shortcut-properties-shortcut-02) |
 | SHORTCUT-03 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI runs 40900720903 and 40908162979 (PR #105): WriteIniValues writes the `.url` as ANSI with CRLF, the shell reads the address, the `RemoveFile` row deletes it at uninstall after the shell added a section; [details](#shortcut-targets-shortcut-03-shortcut-04) |
@@ -1136,6 +1138,26 @@ full-UI test package with two more actions: `SetMarker`, an immediate
   `ActionStart` operation, so it holds the property values of the moment the
   script was written.
 - Not covered: basic UI (`/qb`).
+
+## Context actions (CA-09)
+
+Run on 2026-10-31 in CI runs 41236083486 and 41239378858 on the
+`Build & Test (windows-latest, native)` job (Windows Server 2025 x64, the
+runner's administrator with a full token, and the throwaway standard user
+`msitest`) by `internal/builder/nativetest/contextactions_windows_test.go`.
+Details: [log](msitest/results/CA-09/ci/log.md).
+
+| Install | Server `ALLUSERS` | `scope: perMachine`, no impersonation | `scope: perUser` | no scope |
+| --- | --- | --- | --- | --- |
+| administrator, per machine (install, repair, uninstall) | `1` | `nt authority\system` | not run | administrator |
+| administrator, per user (install, repair, uninstall) | empty | not run | administrator | administrator |
+| standard user, per user (exit 0) | empty | not run | the user | the user |
+| unconditioned copy, administrator per user (`perUserOrMachine`, and `perMachineOrUser` switched to per user) | empty | administrator | administrator | administrator |
+| unconditioned copy, standard user per user (both dual scopes, exit 0) | empty | the user | the user | the user |
+
+- ICE105 posted one warning, `3073 contains msidbCustomActionTypeNoImpersonate execution option. This is invalid for a per user application. [CustomAction.Action]`, for the `perUserOrMachine` package with and without the condition, and nothing for `perMachineOrUser`.
+- A `System64Folder` Directory row (`TestICEActionFolder`) drew `ICE105 warning: System64Folder invalid directory for a per user application. [Directory.Directory]` in `perUserOrMachine` and nothing in `perMachineOrUser`.
+- Not covered: the wizard's scope page (the condition is evaluated in the server, where INST-02 and ENVVAR-03 showed `ALLUSERS` after a switch), an install elevated by `AlwaysInstallElevated`, Server 2016.
 
 ## Closing running programs (CLOSE-01)
 

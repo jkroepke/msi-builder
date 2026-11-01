@@ -2002,6 +2002,7 @@ func (v *validator) customActions(cfg *Config, known *refs) {
 		v.actionKind(cfg, actionPath, action, known)
 		inScript := action.Execute != executeImmediate
 		v.actionRun(cfg, actionPath, action)
+		v.actionScope(actionPath, action)
 		v.checkProgress(actionPath+".progress", action.Progress)
 
 		if len(action.Schedule) == 0 {
@@ -2014,6 +2015,97 @@ func (v *validator) customActions(cfg *Config, known *refs) {
 	}
 
 	v.runDataIDs(cfg)
+}
+
+// elevatedAction reports an action without impersonation that may run in
+// a per-user install. A per-user package fails ICE105. A dual package runs
+// one only with scope: perMachine, which keeps it out of per-user installs;
+// ICE105 itself warns only in perUserOrMachine and ignores the condition
+// (CA-09).
+func (v *validator) elevatedAction(cfg *Config, actionPath string, action *CustomAction, inScript bool) {
+	if !cfg.Package.Scope.Dual() {
+		v.errorf(actionPath+".impersonate", "%s cannot run actions without impersonation (ICE105)", v.perUserPackage())
+
+		return
+	}
+
+	hint := ""
+
+	switch {
+	case action.Scope == ScopePerUser:
+		hint = "; a perUser action runs impersonated, so leave impersonate out"
+	case inScript && executeOnly(action.Schedule):
+		hint = "; add scope: perMachine to run it only in per-machine installs"
+	}
+
+	v.errorf(actionPath+".impersonate", "%s runs an action without impersonation only with scope: perMachine, which keeps it "+
+		"out of per-user installs (CA-09)%s", v.perUserPackage(), hint)
+}
+
+// executeOnly reports whether every placement is in the execute sequence,
+// the only one where an action may have a scope.
+func executeOnly(schedule []Placement) bool {
+	return !slices.ContainsFunc(schedule, func(p Placement) bool { return p.Sequence != sequenceExecute })
+}
+
+// actionFolder rejects a standard folder that ICE105 forbids as an
+// action's working directory in a package that may install per user: the
+// builder adds a Directory row for that folder, whatever the action's
+// scope. A per-user package must pass ICE105 (section 8.2). In a dual one
+// ICE105 warns about the row in perUserOrMachine and is silent in
+// perMachineOrUser (CA-09); msi-builder refuses it in both, as
+// forbiddenFolder does for components. A defined directory below such a
+// folder brings its row through directories, not through the action.
+func (v *validator) actionFolder(field, dir string) {
+	if !v.scope.MayBePerUser() || !ice105Folders[dir] {
+		return
+	}
+
+	use := "use INSTALLDIR"
+	if strings.HasSuffix(field, ".run.directory") {
+		use = "use INSTALLDIR or leave the directory out"
+	}
+
+	reason := "ICE105"
+	if v.scope.Dual() {
+		reason = "ICE105 rejects it per user; msi-builder refuses it in both dual scopes, as for components"
+	}
+
+	v.errorf(field, "%s cannot have the folder %s, which the action's directory adds (%s); "+
+		"%s, and name the program as [%s]program.exe", v.perUserPackage(), dir, reason, use, dir)
+}
+
+// actionScope checks a custom action's scope: perMachine or perUser, only
+// in a dual package, and only in the execute sequence, which runs after the
+// engine has fixed ALLUSERS for the context (INST-02). In the UI sequence
+// ALLUSERS is 2 again once the scope page has run, and an administrative
+// install has no per-user or per-machine context.
+func (v *validator) actionScope(actionPath string, action *CustomAction) {
+	if action.Scope == "" {
+		return
+	}
+
+	v.oneOf(actionPath+".scope", string(action.Scope), string(ScopePerMachine), string(ScopePerUser))
+
+	if !v.scope.Dual() {
+		v.errorf(actionPath+".scope", "only a perUserOrMachine or perMachineOrUser package runs actions "+
+			"in one context; a %s package runs everything %s", v.scope, v.scope)
+	}
+
+	// ICE105 reads only the CustomAction type: it warns about an action
+	// without impersonation in a package that starts per user although the
+	// condition keeps the action out of per-user installs (CA-09).
+	if action.Scope == ScopePerMachine && v.scope == ScopePerUserOrMachine && action.Impersonate != nil && !*action.Impersonate {
+		v.warnf(actionPath+".scope", "ICE105 warns about this action without impersonation, although it runs only per machine")
+	}
+
+	for j, placement := range action.Schedule {
+		if placement.Sequence != sequenceExecute {
+			v.errorf(fmt.Sprintf("%s.schedule[%d].sequence", actionPath, j),
+				"an action with a scope runs only in the execute sequence: the scope page sets ALLUSERS back to 2 in the UI "+
+					"sequence, and an administrative install has no context")
+		}
+	}
 }
 
 // progressWidth is the width of ActionText.Description.
@@ -2128,6 +2220,8 @@ func (v *validator) actionKind(cfg *Config, actionPath string, action *CustomAct
 		if action.Exec.Directory != targetDir && known.dirs[action.Exec.Directory] == nil && !standardFolders[action.Exec.Directory] {
 			v.errorf(actionPath+".exec.directory", "directory %q is not defined", action.Exec.Directory)
 		}
+
+		v.actionFolder(actionPath+".exec.directory", action.Exec.Directory)
 	case action.ExecProperty != nil:
 		v.required(actionPath+".execProperty.property", action.ExecProperty.Property)
 	case action.DLL != nil:
@@ -2147,6 +2241,8 @@ func (v *validator) actionKind(cfg *Config, actionPath string, action *CustomAct
 		if dir := action.Run.Directory; dir != "" && dir != targetDir && known.dirs[dir] == nil && !standardFolders[dir] {
 			v.errorf(actionPath+".run.directory", "directory %q is not defined", dir)
 		}
+
+		v.actionFolder(actionPath+".run.directory", action.Run.Directory)
 
 		if action.Return == "asyncNoWait" {
 			v.errorf(actionPath+".return", "run actions cannot use asyncNoWait; the DLL waits for the command")
@@ -2218,8 +2314,10 @@ func (v *validator) actionRun(cfg *Config, actionPath string, action *CustomActi
 		v.errorf(actionPath+".impersonate", "impersonate: false needs a deferred, rollback or commit action")
 	}
 
-	if !*action.Impersonate && cfg.Package.Scope.MayBePerUser() {
-		v.errorf(actionPath+".impersonate", "%s cannot run actions without impersonation (ICE105)", v.perUserPackage())
+	// A dual package may run an action without impersonation when its
+	// scope keeps it out of per-user installs (CA-09).
+	if !*action.Impersonate && inScript && cfg.Package.Scope.MayBePerUser() && action.Scope != ScopePerMachine {
+		v.elevatedAction(cfg, actionPath, action, inScript)
 	}
 
 	if isExec && action.Return == "" {
