@@ -113,23 +113,17 @@ msi-builder aims at simple, single-product installers such as an exporter or an
 agent with a service. These are not supported:
 
 - **MSIX.** Use [nFPM](https://github.com/goreleaser/nfpm).
-- **Running packages.** msi-builder never installs or executes an MSI. Only its
-  tests do, on Windows without `-short` (elevated).
-- **Transforms (`.mst`), patches (`.msp`), merge modules (`.msm`) and
-  bundles or bootstrappers.** Ship a new major-upgrade MSI instead of a patch.
-- **Multi-language packages.** A package has one language; there are no
-  embedded language transforms. Not in schema v1.
-- **Spanned cabinets.** A file never continues into the next cabinet. A
-  payload above 2 GB is split at file boundaries into several cabinets
-  beside the `.msi` (`package.embedCabinets: false`); a single file is at
-  most 2 GiB − 32 KiB. Cabinets are LZX (the default), MSZIP or stored.
+- **Running packages.** msi-builder never installs or executes an MSI.
+- **Standalone transforms (`.mst`), patches (`.msp`), merge modules
+  (`.msm`) and bundles or bootstrappers.** Ship a new major-upgrade MSI
+  instead of a patch.
+- **Spanned cabinets.** A file never continues into the next cabinet, so a
+  single file is at most 2 GiB − 32 KiB.
 - **Script custom actions** (VBScript, JScript).
-- **Editing existing packages and XML input.** `msi-builder inspect` only
-  reads packages to help debugging. `msi-builder convert` turns a WiX
-  source file into a YAML starting point once; builds never read XML.
+- **Editing existing packages and XML input.** Builds never change an
+  existing MSI or read WiX XML.
 - **Advertised installs and advertised shortcuts.**
-- **Hand-built dialogs.** The UI is a built-in wizard plus optional form
-  pages that ask for properties; there is no free control layout.
+- **Hand-built dialogs.** There is no free control layout.
 
 ## Installation
 

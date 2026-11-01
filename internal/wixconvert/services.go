@@ -909,11 +909,11 @@ func (c *converter) constProperty(name string) (string, bool) {
 	return value, !formattedLeft(value)
 }
 
-// varRef matches a ${NAME} reference that msi-builder fills in on load.
-var varRef = regexp.MustCompile(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`)
+// varRef matches a {{ .NAME }} action that msi-builder fills in on load.
+var varRef = regexp.MustCompile(`\{\{ \.[A-Za-z_][A-Za-z0-9_]* \}\}`)
 
 // formattedLeft reports whether text still holds formatted text or a WiX
-// bind or localization variable once the ${NAME} references are left out.
+// bind or localization variable once the {{ .NAME }} actions are left out.
 func formattedLeft(text string) bool {
 	text = varRef.ReplaceAllString(text, "")
 

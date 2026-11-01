@@ -47,6 +47,8 @@ const (
 	maxFileSize = 0x7FFFFE00
 )
 
+var errFileTooLarge = errors.New("cfb: file would exceed 2 GB")
+
 var signature = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1} //nolint:gochecknoglobals // lookup table
 
 // CLSIDs of the root storage, stored little-endian.
@@ -128,7 +130,7 @@ func EncodeName(name string) ([]uint16, error) {
 			return nil, fmt.Errorf("cfb: name %q contains %q", name, rune(unit))
 		}
 
-		if cased(unit) {
+		if Cased(rune(unit)) {
 			// Compare only knows the ASCII case folding; MSI names never
 			// need more.
 			return nil, fmt.Errorf("cfb: name %q contains the cased character %q", name, rune(unit))
@@ -138,18 +140,32 @@ func EncodeName(name string) ([]uint16, error) {
 	return units, nil
 }
 
-// cased reports whether Windows upper-cases a unit differently from Compare:
-// a non-ASCII BMP character with a case mapping, such as U+00E9 or the
-// fullwidth U+FF41. Surrogate units are never upper-cased (MS-CFB 2.6.4).
-func cased(unit uint16) bool {
-	if unit <= 0x7F || (unit >= 0xD800 && unit <= 0xDFFF) {
+// Cased reports whether a name must not hold char: a non-ASCII BMP character
+// with a case mapping, such as U+00E9 or the fullwidth U+FF41, or one that
+// shares a case folding orbit with another character without a mapping,
+// such as U+FB05 and U+FB06. The reader folds whole orbits, so two names
+// with such a pair would be written as two siblings and read as one. U+00DF
+// stays allowed: its only partner, U+1E9E, has a mapping and is refused.
+// Surrogate units are never upper-cased (MS-CFB 2.6.4).
+func Cased(char rune) bool {
+	if char <= 0x7F || char > 0xFFFF || (char >= 0xD800 && char <= 0xDFFF) {
 		return false
 	}
 
-	r := rune(unit)
+	if hasCaseMapping(char) {
+		return true
+	}
 
-	return unicode.ToUpper(r) != r || unicode.ToLower(r) != r
+	for other := unicode.SimpleFold(char); other != char; other = unicode.SimpleFold(other) {
+		if other > 0x7F && other <= 0xFFFF && !hasCaseMapping(other) {
+			return true
+		}
+	}
+
+	return false
 }
+
+func hasCaseMapping(r rune) bool { return unicode.ToUpper(r) != r || unicode.ToLower(r) != r }
 
 func upper(u uint16) uint16 {
 	if u >= 'a' && u <= 'z' {
@@ -238,7 +254,7 @@ func readSource(src Source) ([]byte, error) {
 		return nil, fmt.Errorf("cfb: stream %q: %w", src.Name, err)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(reader, src.Size+1))
+	data, err := io.ReadAll(io.LimitReader(&progressReader{reader: reader}, src.Size+1))
 	if cerr := reader.Close(); err == nil {
 		err = cerr
 	}
@@ -252,6 +268,58 @@ func readSource(src Source) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// progressReader fails with io.ErrNoProgress after maxEmptyReads reads in
+// a row that return neither a byte nor an error. io.Reader allows such
+// reads, but io.ReadAll and io.Copy into most writers loop on them for ever.
+type progressReader struct {
+	reader io.Reader
+	empty  int
+}
+
+func (p *progressReader) Read(buf []byte) (int, error) {
+	count, err := p.reader.Read(buf)
+	if count > 0 || err != nil || len(buf) == 0 {
+		p.empty = 0
+
+		return count, err //nolint:wrapcheck // the caller wraps it with the stream name
+	}
+
+	p.empty++
+	if p.empty >= maxEmptyReads {
+		return 0, io.ErrNoProgress
+	}
+
+	return 0, nil
+}
+
+// maxEmptyReads is how many reads in a row may return neither a byte nor
+// an error before progressReader and probeEnd give up, as bufio does.
+const maxEmptyReads = 100
+
+// errLonger is the error of a source with bytes past its declared size.
+var errLonger = errors.New("longer than its declared size")
+
+// probeEnd checks that reader has nothing left. A Read may return (0, nil)
+// without being at the end, so it reads until a byte, io.EOF or an error.
+func probeEnd(reader io.Reader) error {
+	var probe [1]byte
+
+	for range maxEmptyReads {
+		extra, err := reader.Read(probe[:])
+
+		switch {
+		case extra > 0:
+			return errLonger
+		case errors.Is(err, io.EOF):
+			return nil
+		case err != nil:
+			return fmt.Errorf("probing the end: %w", err)
+		}
+	}
+
+	return io.ErrNoProgress
 }
 
 // sectorWriter writes whole sectors to w and counts them.
@@ -298,7 +366,7 @@ func (s *sectorWriter) copyFrom(src Source) error {
 		return fmt.Errorf("cfb: stream %q: %w", src.Name, err)
 	}
 
-	copied, err := io.Copy(s.w, io.LimitReader(reader, src.Size))
+	copied, err := io.Copy(s.w, io.LimitReader(&progressReader{reader: reader}, src.Size))
 	s.pos += copied
 
 	if err != nil {
@@ -313,16 +381,7 @@ func (s *sectorWriter) copyFrom(src Source) error {
 		return fmt.Errorf("cfb: stream %q delivered %d bytes, declared %d", src.Name, copied, src.Size)
 	}
 
-	var probe [1]byte
-
-	extra, err := reader.Read(probe[:])
-	if extra > 0 {
-		_ = reader.Close()
-
-		return fmt.Errorf("cfb: stream %q is longer than its declared size", src.Name)
-	}
-
-	if err != nil && !errors.Is(err, io.EOF) {
+	if err := probeEnd(reader); err != nil {
 		_ = reader.Close()
 
 		return fmt.Errorf("cfb: stream %q: %w", src.Name, err)
@@ -362,7 +421,7 @@ func (p *plan) chain(start, count int) {
 }
 
 // newEntry checks one stream source and reads it into memory when it goes
-// into the mini stream.
+// into the mini stream or is empty.
 func newEntry(src Source, prefix string) (*entry, error) {
 	name, err := EncodeName(src.Name)
 	if err != nil {
@@ -373,9 +432,17 @@ func newEntry(src Source, prefix string) (*entry, error) {
 		return nil, fmt.Errorf("cfb: stream %q has no size or source", prefix+src.Name)
 	}
 
+	// A stream larger than the file can never fit; checking it here keeps
+	// the sector arithmetic below from overflowing.
+	if src.Size > maxFileSize {
+		return nil, fmt.Errorf("cfb: stream %q of %d bytes would exceed 2 GB", prefix+src.Name, src.Size)
+	}
+
 	ent := &entry{name: name, size: src.Size, open: src.Open, path: prefix + src.Name}
 
-	if src.Size > 0 && src.Size < miniCutoff {
+	// An empty stream is read too, so that a source that fails or delivers
+	// bytes is rejected like any other source that breaks its size.
+	if src.Size < miniCutoff {
 		ent.small, err = readSource(src)
 		if err != nil {
 			return nil, err
@@ -430,6 +497,9 @@ func newPlan(sources []Source, storages []Storage, opts Options) (*plan, error) 
 	if opts.Version == 4 {
 		pln.sectorSize = 4096
 	}
+
+	// The most sectors, header included, that fit in maxFileSize.
+	maxSectors := maxFileSize / pln.sectorSize
 
 	root := make([]*entry, 0, len(sources)+len(storages))
 
@@ -500,6 +570,11 @@ func newPlan(sources []Source, storages []Storage, opts Options) (*plan, error) 
 			}
 		default:
 			pln.largeSectors += int((ent.size + int64(pln.sectorSize) - 1) / int64(pln.sectorSize))
+
+			// Counted in sectors, not bytes, so that no sum can overflow.
+			if pln.largeSectors > maxSectors {
+				return nil, errFileTooLarge
+			}
 		}
 	}
 
@@ -525,8 +600,8 @@ func newPlan(sources []Source, storages []Storage, opts Options) (*plan, error) 
 	}
 
 	pln.total = pln.fatSectors + pln.difatSectors + pln.dirSectors + pln.miniFATSectors + pln.miniStreamSectors + pln.largeSectors
-	if int64(pln.total+1)*int64(pln.sectorSize) > maxFileSize {
-		return nil, errors.New("cfb: file would exceed 2 GB")
+	if pln.total+1 > maxSectors {
+		return nil, errFileTooLarge
 	}
 
 	pln.fatStart = 0

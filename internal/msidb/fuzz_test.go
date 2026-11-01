@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jkroepke/msi-builder/internal/cfb"
 	"github.com/jkroepke/msi-builder/internal/msidb"
 	"github.com/jkroepke/msi-builder/internal/summary"
 )
@@ -40,6 +41,25 @@ func seedDatabase(f *testing.F) {
 
 		f.Add(raw)
 	}
+
+	// A package with an embedded transform storage, so that the fuzzer
+	// reaches the storage decoder.
+	base := &msidb.Database{Codepage: 1252, Tables: []*msidb.Table{tbl}}
+	variant := &msidb.Database{Codepage: 1252, Tables: []*msidb.Table{{Name: tbl.Name, Columns: tbl.Columns, Rows: [][]any{{"ProductName", "Hallo"}}}}}
+
+	storage, err := msidb.TransformStorage("1031", base, variant, msidb.TransformOptions{})
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	base.Storages = []cfb.Storage{storage}
+
+	raw, err := base.Marshal(msidb.Options{CFBVersion: 3})
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	f.Add(raw)
 }
 
 // FuzzUnmarshal feeds corrupted packages to the database reader. It must

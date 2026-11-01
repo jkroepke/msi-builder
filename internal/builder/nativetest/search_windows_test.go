@@ -34,7 +34,7 @@ properties:
   P_BRACKETS: { search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Brackets } } }
   P_32: { search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Str32, bitness: 32 } } }
   P_64MISS: { value: none, search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Str32 } } }
-  P_DEFAULT: { value: 'fallback [x] {y} {{z}}', search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Missing } } }
+  P_DEFAULT: { value: 'fallback [x] {y} {{ "{{" }}z}}', search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Missing } } }
   P_NODEFAULT: { search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Missing } } }
   P_CMD: { search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Str } } }
   P_CMDDEFAULT: { value: fallback, search: { registry: { root: HKLM, key: 'SOFTWARE\MsiBuilderTest\Search', name: Missing } } }

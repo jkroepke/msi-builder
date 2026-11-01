@@ -1157,16 +1157,13 @@ func decodeName(raw []byte, attr uint16) (string, error) {
 		codePage = codepage.UTF8
 	}
 
+	// codepage.Decode uses the Windows tables and refuses a byte they leave
+	// unmapped instead of turning it into U+FFFD, so distinct names cannot
+	// merge. In 1252, Windows maps 0x81, 0x8D, 0x8F, 0x90 and 0x9D to the
+	// C1 controls of the same value.
 	name, err := codepage.Decode(raw, codePage)
 	if err != nil {
 		return "", fmt.Errorf("cab: file name %q: %w", raw, err)
-	}
-
-	// No byte of a single-byte code page decodes to U+FFFD, so one in the
-	// name is a byte the code page leaves undefined (0x81, 0x8D, 0x8F, 0x90
-	// and 0x9D in 1252). Refuse it rather than merge distinct names.
-	if codePage != codepage.UTF8 && strings.ContainsRune(name, utf8.RuneError) {
-		return "", fmt.Errorf("cab: file name %q: a byte is undefined in code page %d", raw, codePage)
 	}
 
 	return name, nil

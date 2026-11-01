@@ -29,6 +29,16 @@ versioning after 1.0.
   passes. A folder source's `guids` pin the codes of single files.
   Replaced components stay in `Config.folders`, so the second pass still
   reports problems at their YAML path.
+  Every file is a Go `text/template` (`template.go`, `Render`, also behind
+  `msi-builder render`) with `{{ .NAME }}` as the only variable syntax;
+  `vars` live in a header document (`header.go`) read before rendering.
+  The functions (`funcs.go`) are sprig's hermetic set minus other
+  run-to-run functions, with msi-builder's `has`, `quote` and `split`, and
+  caps on `indent`, `nindent`, `repeat`, `until`, `untilStep` and `seq`;
+  a sprig upgrade must keep the build repeatable (`TestTemplateSprig`).
+  YAML errors name lines of the rendered text. Template examples in the
+  docs that hold a header or `{{-` are fenced as `text`, because the guide
+  tests parse every `yaml` block.
 - [`pkg/builder`](pkg/builder): the public `Build`, `Options`, `Result` and
   `File`. It converts to and from `internal/builder` and adds nothing else;
   `Options` and `File` mirror the internal structs field by field so that a
@@ -44,7 +54,13 @@ versioning after 1.0.
 - [`internal/msidb`](internal/msidb): the database: column types, typed rows,
   stream-name encoding, string pool and code pages, catalog, column-major table
   streams, binary streams; `MarshalTo` writes a package, `Unmarshal`/`Decode`
-  read one.
+  read one. What `Table.Validate` refuses in a decoded catalog is a
+  `Database.Problems` entry, not an error: msi.dll reads a duplicated column
+  name, no key and a key after a non-key column (MSIDB-21); the other cases
+  are untested natively. To test a catalog `Marshal` refuses, `patchedCatalog`
+  (`catalog_test.go`) edits the `_Columns` rows of a written package and
+  moves the string refcounts with them; `catalog_windows_test.go` compares
+  the result with msi.dll.
 - [`internal/cfb`](internal/cfb): Compound File Binary v3/v4 writer and lazy reader.
 - [`internal/cab`](internal/cab): cabinet writer and reader, one folder per cabinet
   unless identical files share bytes (`Entry.Copy`: the shared file and the
@@ -54,7 +70,15 @@ versioning after 1.0.
   [MS-CAB] only. To test the reader on layouts the writer never
   produces (other tools' cabinets, empty folders, corrupt blocks, legacy
   names), build them with `RawCabinet` (`export_test.go`), which the native
-  tests use too to compare with `cabinet.dll`.
+  tests use too to compare with `cabinet.dll`. LZX streams the encoder never
+  writes (blocks off frame boundaries, odd stored blocks mid-stream, chosen
+  repeated offsets, E8 sizes, bad trees) are crafted block by block in
+  `internal/lzx/decode_test.go`; `TestWindowsFixtures` keeps them in
+  `internal/lzx/testdata/windows` (regenerate with
+  `MSI_BUILDER_UPDATE_SNAPSHOTS=1`) and `TestNativeFDICraftedLZX` compares
+  cabinet.dll with the reader on them. Values the readers take from the data
+  are 32-bit unsigned: compare them in 64 bits, and CI runs internal/lzx and
+  internal/cab as `GOARCH=386`.
 - [`internal/summary`](internal/summary): the summary information stream.
 - [`pkg/sign`](pkg/sign): Authenticode signing and verification of packages
   and of cabinets written with a signature reserve (spec chapter 12), written
@@ -73,8 +97,11 @@ versioning after 1.0.
   [`internal/codepage`](internal/codepage), [`internal/artwork`](internal/artwork):
   standard table definitions, PE version resources, the condition grammar,
   checks of formatted strings,
-  sequence numbering, code pages and the wizard bitmaps.
-- [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `inspect`, `convert`,
+  sequence numbering, code pages and the wizard bitmaps. `internal/pe` must
+  report a version exactly when `MsiGetFileVersionW` does (FILE-15): add each
+  malformed image a parser change handles to `TestMsiGetFileVersionAgrees`,
+  which runs on the Windows unit runner.
+- [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `render`, `inspect`, `convert`,
   `sign`, `verify`, `completion` and `version`, built on `spf13/cobra`.
 - [`internal/wixconvert`](internal/wixconvert): the best-effort WiX `.wxs` to
   YAML converter behind `msi-builder convert`, on `encoding/xml` only. It
@@ -99,7 +126,7 @@ versioning after 1.0.
   the key file or registry value), for `--arch` (`Options.Arch`; neither the
   folders nor a WiX 3 Package Platform count) and `--bcgg`, and the `guids` of a `Files` glob
   from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
-  for this, since `name` holds `${VAR}` references. Anything it cannot repeat
+  for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
   keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
   from the observed behaviour only: never read WiX source for it. The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
@@ -297,9 +324,11 @@ go test ./... -shuffle=on -race
 - `HKCU\Software` is shared by the 32-bit and 64-bit registry views, so
   `reg query /reg:32` finds a per-user value the package wrote in the 64-bit
   view; only HKLM tells the views apart (SEARCH-06).
-- Quote `${VAR}` inside a YAML flow mapping (`{ version: "${VERSION}" }`):
-  `{` and `}` end a plain scalar there, so the document fails to parse
-  ("did not find expected ',' or '}'"). The windows-only tests only show
+- Quote `{{ .VAR }}` inside a YAML flow mapping
+  (`{ version: '{{ .VERSION }}' }`, or `{{ .VAR | quote }}` for any text):
+  never in double quotes, which read the backslashes of a path as escapes.
+  `{` and `}` end a plain scalar there,
+  so the document fails to parse ("did not find expected ',' or '}'"). The windows-only tests only show
   this in CI, so parse their configs with `config.Parse` on Linux first.
 - Uninstall test products with `defer`, not `t.Cleanup`: `msiexecQuiet` runs
   under `t.Context()`, which is cancelled before cleanups run, so a cleanup
@@ -368,8 +397,9 @@ go test ./... -shuffle=on -race
   variables, since a client only has its own context's folder properties.
 - `cmd/msi-builder` uses `spf13/cobra` (with `spf13/pflag`) and nothing else
   outside the standard library; never import `cobra/doc`, which pulls in a
-  man-page renderer. Add no new module dependencies elsewhere without
-  discussing them first.
+  man-page renderer. `pkg/config` uses `Masterminds/sprig/v3` for template
+  functions (Joe's choice, PR #197). Add no new module dependencies
+  elsewhere without discussing them first.
 
 ## Command line
 

@@ -718,3 +718,34 @@ func TestSignatureSIG06(t *testing.T) {
 		t.Errorf("SIG-06: timestamped: WinVerifyTrust = %#x, want %#x", got, rsaPKI.wantValid())
 	}
 }
+
+// TestSignatureNameTerminatorCFB11 overwrites only the NUL terminator of
+// the signature stream's name in a signed package. Windows then finds no
+// signature (TRUST_E_NOSIGNATURE), and sign.Verify must not report one
+// either: the reader rejects a name without its terminator (CFB-11).
+func TestSignatureNameTerminatorCFB11(t *testing.T) {
+	if testing.Short() {
+		t.Skip("native signature tests")
+	}
+
+	pki := newPKI(t, rsaLeafKey(t))
+	signed := mustSign(t, unsignedMinimal(t), pki.options(crypto.SHA256))
+
+	// The stored name, UTF-16LE, followed by its terminator.
+	name := []byte(strings.Join(strings.Split(sign.StreamSignature, ""), "\x00") + "\x00\x00\x00")
+	if bytes.Count(signed, name) != 1 {
+		t.Fatal("cannot find the signature stream's directory entry")
+	}
+
+	bad := bytes.Clone(signed)
+	at := bytes.Index(bad, name) + len(name) - 2
+	bad[at] = 'X'
+
+	if got := winVerifyTrust(t, writeTemp(t, "unterminated.msi", bad)); got != trustNoSignature {
+		t.Errorf("CFB-11: WinVerifyTrust = %#x, want TRUST_E_NOSIGNATURE", got)
+	}
+
+	if _, err := sign.Verify(bad); err == nil || !strings.Contains(err.Error(), "terminator") {
+		t.Errorf("CFB-11: sign.Verify = %v, want an error about the name terminator", err)
+	}
+}

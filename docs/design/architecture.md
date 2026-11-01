@@ -52,6 +52,7 @@ flowchart LR
     condition["condition<br/>grammar check"]
     sequence["sequence<br/>before/after numbering"]
     config["config<br/>YAML (PR #2)"] --> condition
+    config --> sequence
 ```
 
 | Package | Responsibility | Spec | Depends on |
@@ -65,13 +66,13 @@ flowchart LR
 | `internal/condition` | Parser for the condition grammar, used to reject conditions the engine would ignore | §8.8 | stdlib |
 | `internal/sequence` | Numbering of sequence tables: fixed standard actions plus before/after chains, overlap and window checks | §9.2, §11.7 | stdlib |
 | `internal/builder` | The config-to-tables layer: identities, directories and short names, components and GUIDs, files, media and cabinets, registry, services, environment, upgrades, custom actions, helpers, `_Validation`, summary; then the package bytes and a verification pass | §6–§11 | everything above, plus `config`, `internal/artwork`, `internal/cadll`, `internal/rtf` and `go.yaml.in/yaml/v3` |
-| `pkg/config` | YAML decoding, defaults and validation into a `*config.Config` | | `internal/condition`, `go.yaml.in/yaml/v3` |
+| `pkg/config` | Template rendering (`config.Render`: the vars header and Go `text/template` with sprig's functions), YAML decoding, defaults and validation into a `*config.Config` | | `internal/condition`, `internal/sequence`, `go.yaml.in/yaml/v3`, `github.com/Masterminds/sprig/v3` |
 | `internal/codepage` | ANSI code page encoders for the string pool and summary, from tables dumped from Windows | §3, §4 | none |
 | `internal/cadll` | The custom action DLL of `run` actions and permission grants: freestanding C (`src/builderrun.c`), cross-built by `build.sh` (`go generate`) with clang 18 and lld for x86, x64 and arm64, committed, pinned by `SHA256SUMS` and embedded with `go:embed`; the builder copies the platform's DLL into the `Binary` table | §9.4 | stdlib |
 | `internal/artwork` | Draws the wizard bitmaps (our own artwork, generated in code) and decodes a theme's BMP, PNG or JPEG pictures | | stdlib |
 | `internal/rtf` | Converts a plain-text license to RTF and checks an RTF license for the ScrollableText control | | stdlib |
 | `pkg/builder` | Public build API: `Build`, `Options`, `Result`, `File`, converted to and from `internal/builder` | | `internal/builder`, `config` |
-| `cmd/msi-builder` | CLI: `build`, `validate`, `inspect`, `sign`, `verify`, `completion`, `version` | | `builder`, `config`, `msidb`, `cfb`, `sign`, `spf13/cobra` |
+| `cmd/msi-builder` | CLI: `build`, `validate`, `render`, `inspect`, `convert`, `sign`, `verify`, `completion`, `version` | | `builder`, `config`, `msidb`, `cfb`, `sign`, `spf13/cobra` |
 
 `pkg/config` (PR #2) stays as it is: the builder consumes a validated `*config.Config`
 and never reads YAML.
@@ -238,13 +239,28 @@ reports syntax errors with positions. No evaluation.
 
 ```go
 type Action struct { Name string; Condition string; Sequence int; Before, After string }
+type Error struct { Action, Other, Reason string; Cycle []string }
 func Number(actions []Action) ([]Numbered, error)
+func LookupStandard(name string) (Standard, bool)
+func Always(table string) []string
 ```
 
-Standard actions are fixed nodes at the default sequence numbers of §9.2;
-custom actions chain before or after an anchor and are expanded next to it
-(§11.7). A chain that reaches another fixed number, a cycle, a missing anchor
-and a number outside 1…32767 are errors. The builder then checks ICE77
+Standard actions are fixed nodes at the default sequence numbers of §9.2
+(`standard.go` holds them and the actions every product gets, for the
+builder and for `config.Validate`); custom actions chain before or after an
+anchor and are expanded next to it (§11.7). A chain that reaches another
+fixed number, a cycle, a missing anchor and a number outside 1…32767 are
+errors. `Number` walks each fixed node's chain once into one result slice,
+so time and memory are linear in the number of actions; the nodes no fixed
+node reaches lead into a cycle, which is reported by an action on it with
+the cycle's path. Every error is an `*Error` naming the action whose
+placement fails (and the other one involved), so that `config.Validate`
+(`pkg/config/schedules.go`) and the builder report it as a diagnostic at
+that action's YAML placement. Validate numbers each sequence with the custom
+actions, the run actions' data actions, the always-present standard actions
+and the anchored ones; the builder's own actions only lengthen chains, so
+an error there is an error in the build too, and the build reports the
+collisions with actions only it adds. The builder then checks ICE77
 (deferred actions inside InstallInitialize…InstallFinalize), ICE63 as the
 engine applies it (RemoveExistingProducts anywhere from after
 FindRelatedProducts up to InstallInitialize, right after InstallExecute or
@@ -439,8 +455,9 @@ generated from the command tree.
 | 11 | `sign`: Authenticode signing, verification and RFC 3161 timestamps (MSISPEC §12) | done |
 | 12 | Uncompressed files beside the package | later |
 
-Out of scope for good: MSIX (nfpm), patches, transforms, merge modules,
-bundles, advertised installs and shortcuts, script custom actions.
+Out of scope for good: MSIX (nfpm), patches, standalone transforms (`.mst`),
+merge modules, bundles, advertised installs and shortcuts, script custom
+actions.
 
 ## 4. Decisions worth recording
 

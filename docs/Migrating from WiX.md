@@ -23,9 +23,10 @@ syntax; v3 names are mentioned where they differ.
    with `Package` (v3 `Product`); port fragments from other files by hand.
 2. Work through these comments with the table and the sections below,
    and check the result with `msi-builder validate`. WiX variables become
-   `${NAME}` references, which the comment at the top of the file lists;
-   pass each one, such as `msi-builder validate --var Version=1.4.0 msi.yaml`,
-   or give it a default under `vars:`.
+   `{{ .NAME }}` template variables, which the comment at the top of the
+   file lists; pass each one, such as
+   `msi-builder validate --var Version=1.4.0 msi.yaml`, or give it a default
+   in the vars header.
 3. Build it, and compare the tables of both packages with
    `msi-builder inspect`, which reads any `.msi`, also one built by WiX:
    `msi-builder inspect --table Registry old.msi`.
@@ -94,7 +95,7 @@ schema: msi-builder/v1
 product:
   name: Hello
   manufacturer: Example
-  version: ${VERSION}
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
 
 package:
@@ -196,15 +197,19 @@ msi-builder does the same by default:
 
 ## Variables and versions
 
-WiX preprocessor variables become `${NAME}` variables:
+msi-builder reads the file as a Go template, which takes the place of the
+WiX preprocessor:
 
 | WiX | msi-builder |
 |---|---|
-| `$(var.Version)` with `wix build -d Version=1.4.0` | `${VERSION}` with `msi-builder build --var VERSION=1.4.0` |
-| `$(env.VERSION)` | `${VERSION}` with `--env` |
-| `<?define Port = 8080 ?>` | `vars:` at the top of the file |
+| `$(var.Version)` with `wix build -d Version=1.4.0` | `{{ .VERSION }}` with `msi-builder build --var VERSION=1.4.0` |
+| `$(env.VERSION)` | `{{ .VERSION }}` with `--env` |
+| `<?define Port = 8080 ?>` | `vars:` in the header document (see [YAML Schema](YAML%20Schema.md#defaults-for-variables)) |
 | `!(bind.FileVersion.hello.exe)` | Pass the version as a variable |
-| `<?if?>`, `<?include?>` | Not available; use component `condition`s, or generate the YAML file in your build |
+| `<?if $(var.Arch) = arm64 ?>`, `<?foreach?>` | `{{ if eq .Arch "arm64" }}`, `{{ range split ";" .Langs }}` (see [YAML Schema](YAML%20Schema.md#parts-that-depend-on-the-build)) |
+| `<?ifdef Debug ?>` | `{{ if has "Debug" }}`; `{{ if .Debug }}` is an error when `Debug` is not set |
+| `<?ifndef Version?><?error?>` | Nothing: a variable that is not set is an error |
+| `<?include?>` | Not available; merge the file in, or generate the YAML file in your build |
 
 `[INSTALLFOLDER]`, `[#hello.exe]` and other names in brackets work as they
 do in WiX: Windows Installer fills them in at install time.
@@ -228,7 +233,7 @@ do in WiX: Windows Installer fills them in at install time.
 product:
   name: Hello
   manufacturer: Example
-  version: ${VERSION}
+  version: '{{ .VERSION }}'
   upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301
   arp:
     icon: hello.ico
@@ -244,7 +249,7 @@ upgrade:
   downgradeMessage: A newer version of [ProductName] is already installed.
   related:                          # Upgrade / UpgradeVersion
     - upgradeCode: 513044d7-fae5-4715-984a-14f911d06fcc
-      maxVersion: ${VERSION}
+      maxVersion: '{{ .VERSION }}'
       includeMax: false
       property: OLDX86FOUND
 ```

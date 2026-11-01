@@ -299,7 +299,7 @@ func (c *converter) platformFolder(dirID string) (string, error) {
 // in a folder below the glob's folder named as on disk.
 func (c *converter) computeHarvested(comp *comp) {
 	source := comp.folder.str("source")
-	if c.fsys == nil || unresolved(source) || strings.Contains(source, "${") || path.IsAbs(source) {
+	if c.fsys == nil || unresolved(source) || strings.Contains(source, "{{") || path.IsAbs(source) {
 		return
 	}
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -160,7 +159,7 @@ func checkStoredRunes(name string) error {
 		switch {
 		case strings.ContainsRune("\x00/\\:!", r):
 			return fmt.Errorf("msidb: stream name %q contains %q", name, r)
-		case r > 0x7F && r <= 0xFFFF && (unicode.ToUpper(r) != r || unicode.ToLower(r) != r):
+		case cfb.Cased(r):
 			return fmt.Errorf("msidb: stream name %q contains the cased character %q", name, r)
 		}
 	}
@@ -170,12 +169,17 @@ func checkStoredRunes(name string) error {
 
 // BinaryStreamName is the decoded name of the stream holding a binary cell:
 // the table name and the row's key values joined with ".", integer keys in
-// decimal.
+// decimal and a NULL key as an empty segment.
 func BinaryStreamName(table string, keys []any) string {
 	parts := []string{table}
 
 	for _, k := range keys {
 		switch key := k.(type) {
+		case nil:
+			// A NULL key is an empty segment: msi.dll reads the stream of
+			// a NULL string or integer key as "T." (reported by a
+			// review's native probes).
+			parts = append(parts, "")
 		case string:
 			parts = append(parts, key)
 		case int:

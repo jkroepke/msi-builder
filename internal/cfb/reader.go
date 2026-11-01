@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -46,7 +47,7 @@ type Entry struct {
 	Type      byte
 	Colour    byte
 	loaded    bool
-	named     bool // the name length is even and holds 1 to 31 units
+	named     bool // 1 to 31 units without NUL, then the NUL terminator
 }
 
 // Streams returns the root-level streams in SID order, loading any that are
@@ -94,6 +95,16 @@ func (f *File) Reader(name string) (*StreamReader, error) {
 	ent, ok := f.byName[name]
 	if !ok {
 		return nil, fmt.Errorf("cfb: no stream %q", name)
+	}
+
+	return f.readerFor(ent)
+}
+
+// EntryReader returns a reader over a stream entry of the file, root-level
+// or inside a storage, that reads from the underlying file on demand.
+func (f *File) EntryReader(ent *Entry) (*StreamReader, error) {
+	if ent == nil || ent.Type != 2 {
+		return nil, errors.New("cfb: entry is not a stream")
 	}
 
 	return f.readerFor(ent)
@@ -225,7 +236,7 @@ func (f *File) walkTree() error {
 		}
 
 		if !ent.named {
-			return fmt.Errorf("cfb: entry %d has an invalid name length", top.sid)
+			return fmt.Errorf("cfb: entry %d has an invalid name length or terminator", top.sid)
 		}
 
 		ent.Parent = top.parent
@@ -335,6 +346,12 @@ func (s *StreamReader) readChain(buf []byte, off int64) (int, error) {
 
 		want := min(len(buf)-total, s.unit-int(cur%int64(s.unit)))
 
+		// The backing reader may hold more than the size given to Open;
+		// bytes past that size are not part of the file.
+		if fileOff+int64(want) > s.file.rdr.size {
+			return total, fmt.Errorf("cfb: read: %w", io.ErrUnexpectedEOF)
+		}
+
 		read, err := s.file.rdr.r.ReadAt(buf[total:total+want], fileOff)
 		total += read
 
@@ -417,9 +434,10 @@ func (r *reader) sector(index uint32) ([]byte, error) {
 	// short read must not leave zeros in the FAT or directory.
 	read, err := r.r.ReadAt(buf, off)
 
+	// A full buffer with an error other than io.EOF is still a failed read.
 	switch {
-	case read == len(buf):
-	case err == nil || errors.Is(err, io.EOF):
+	case read == len(buf) && (err == nil || errors.Is(err, io.EOF)):
+	case read < len(buf) && (err == nil || errors.Is(err, io.EOF)):
 		return nil, fmt.Errorf("cfb: read sector %d: %w", index, io.ErrUnexpectedEOF)
 	default:
 		return nil, fmt.Errorf("cfb: read sector %d: %w", index, err)
@@ -451,6 +469,13 @@ func (r *reader) chain(start uint32, limit int) ([]uint32, error) {
 	for sector := start; sector != endOfChain; {
 		if sector >= 0xFFFFFFFA || int(sector) >= len(r.fat) || seen[sector] {
 			return nil, fmt.Errorf("cfb: bad FAT chain at %#x", sector)
+		}
+
+		// The FAT may describe far more sectors than the file holds; a
+		// chain through sectors past its end would cost time and memory
+		// for every one of them before the data is ever read.
+		if _, err := r.sectorOffset(sector); err != nil {
+			return nil, fmt.Errorf("cfb: FAT chain at %#x: %w", sector, err)
 		}
 
 		seen[sector] = true
@@ -499,32 +524,12 @@ func Open(src io.ReaderAt, size int64) (*File, error) { //nolint:cyclop,gocyclo,
 		return nil, fmt.Errorf("cfb: header: %w", err)
 	}
 
-	if !bytes.Equal(raw[:8], signature) {
-		return nil, errors.New("cfb: bad signature")
+	major, shift, err := checkHeader(raw)
+	if err != nil {
+		return nil, err
 	}
 
 	order := binary.LittleEndian
-
-	if order.Uint16(raw[0x1C:]) != 0xFFFE {
-		return nil, errors.New("cfb: bad byte order mark")
-	}
-
-	major := int(order.Uint16(raw[0x1A:]))
-	shift := order.Uint16(raw[0x1E:])
-
-	if (major != 3 || shift != 9) && (major != 4 || shift != 12) {
-		return nil, fmt.Errorf("cfb: unsupported version %d with sector shift %d", major, shift)
-	}
-
-	if order.Uint16(raw[0x20:]) != 6 {
-		return nil, errors.New("cfb: unsupported mini sector shift")
-	}
-
-	// Every stream below the cutoff lives in the mini stream. MS-CFB fixes
-	// it at 4096; reading another value as 4096 would serve the wrong bytes.
-	if cutoff := order.Uint32(raw[0x38:]); cutoff != miniCutoff {
-		return nil, fmt.Errorf("cfb: unsupported mini stream cutoff %d", cutoff)
-	}
 
 	rdr := &reader{r: src, size: size, ss: 1 << shift}
 	file := &File{Version: major, SectorSize: rdr.ss, byName: make(map[string]*Entry), rdr: rdr}
@@ -586,7 +591,7 @@ func Open(src io.ReaderAt, size int64) (*File, error) { //nolint:cyclop,gocyclo,
 
 			copy(ent.CLSID[:], rec[0x50:0x60])
 
-			ent.named = nameLen%2 == 0 && nameLen >= 4 && nameLen <= 64
+			ent.named = nameLen%2 == 0 && nameLen >= 4 && nameLen <= 64 && terminated(rec[:nameLen])
 
 			if nameLen >= 2 && nameLen <= 64 {
 				units := make([]uint16, 0, nameLen/2-1)
@@ -653,6 +658,59 @@ func Open(src io.ReaderAt, size int64) (*File, error) { //nolint:cyclop,gocyclo,
 	}
 
 	return file, nil
+}
+
+// checkHeader validates the fixed header fields and returns the major
+// version and the sector shift.
+func checkHeader(raw []byte) (int, uint16, error) {
+	if !bytes.Equal(raw[:8], signature) {
+		return 0, 0, errors.New("cfb: bad signature")
+	}
+
+	order := binary.LittleEndian
+
+	if order.Uint16(raw[0x1C:]) != 0xFFFE {
+		return 0, 0, errors.New("cfb: bad byte order mark")
+	}
+
+	major := int(order.Uint16(raw[0x1A:]))
+	shift := order.Uint16(raw[0x1E:])
+
+	if (major != 3 || shift != 9) && (major != 4 || shift != 12) {
+		return 0, 0, fmt.Errorf("cfb: unsupported version %d with sector shift %d", major, shift)
+	}
+
+	if order.Uint16(raw[0x20:]) != 6 {
+		return 0, 0, errors.New("cfb: unsupported mini sector shift")
+	}
+
+	// Every stream below the cutoff lives in the mini stream. MS-CFB fixes
+	// it at 4096; reading another value as 4096 would serve the wrong bytes.
+	if cutoff := order.Uint32(raw[0x38:]); cutoff != miniCutoff {
+		return 0, 0, fmt.Errorf("cfb: unsupported mini stream cutoff %d", cutoff)
+	}
+
+	return major, shift, checkCounts(raw, major)
+}
+
+// checkCounts rejects header sector counts that contradict the chains they
+// describe: a MiniFAT start without MiniFAT sectors or sectors without a
+// start, and a v4 header without directory sectors. Windows refuses such a
+// file (StgOpenStorage 0x80030109 for a count of 0, CFB-12), so following the chain anyway
+// would show content that Windows never reads.
+func checkCounts(raw []byte, major int) error {
+	order := binary.LittleEndian
+	first, count := order.Uint32(raw[0x3C:]), order.Uint32(raw[0x40:])
+
+	if present := first != endOfChain && first != freeSect; present != (count > 0) {
+		return fmt.Errorf("cfb: MiniFAT start %#x with %d MiniFAT sectors", first, count)
+	}
+
+	if major == 4 && order.Uint32(raw[0x28:]) == 0 {
+		return errors.New("cfb: v4 header with 0 directory sectors")
+	}
+
+	return nil
 }
 
 // fatList collects the FAT sector IDs that the header and the DIFAT list.
@@ -768,7 +826,7 @@ func (f *File) checkEntries(size int64, sectors owners) error {
 			continue
 		}
 
-		// Siblings are compared ignoring ASCII case, like Write does.
+		// Siblings are compared ignoring case, as Windows compares them.
 		// The decoded name is the key: Stream and Reader look names up
 		// decoded, so two siblings that differ only in a lone surrogate,
 		// which both decode to U+FFFD, could not be told apart.
@@ -842,13 +900,61 @@ func (o owners) claim(ids []uint32) error {
 	return nil
 }
 
-// foldName is name with ASCII letters in upper case, the key under which
-// Compare treats two names as equal.
+// terminated reports whether a stored name of the given length ends with
+// its NUL terminator and holds no NUL before it (MS-CFB 2.6.1). Windows
+// does not find an entry by a name without one (CFB-11).
+func terminated(name []byte) bool {
+	last := len(name)/2 - 1
+
+	for i := range last {
+		if binary.LittleEndian.Uint16(name[2*i:]) == 0 {
+			return false
+		}
+	}
+
+	return binary.LittleEndian.Uint16(name[2*last:]) == 0
+}
+
+// foldName is the key under which two sibling names are the same name to
+// Windows. Windows upper-cases every BMP unit but surrogates (MS-CFB
+// 2.6.4), with a table that is not documented in full, so each unit maps to
+// the lowest unit that Unicode simple case folding relates it to: names
+// that Windows resolves to one entry always share a key (CFB-10), and so
+// do a few that it may keep apart, which the reader then rejects too. For
+// ASCII letters the key is the upper-case letter, as in Compare.
 func foldName(name string) string {
 	units := utf16.Encode([]rune(name))
 	for i, unit := range units {
-		units[i] = upper(unit)
+		units[i] = foldUnit(unit)
 	}
 
 	return string(utf16.Decode(units))
+}
+
+// foldUnit returns the lowest BMP unit in the simple case folding orbits of
+// unit and of its upper case. The upper case joins U+0131 (dotless i),
+// whose orbit holds only itself, to I. Surrogates are never folded.
+func foldUnit(unit uint16) uint16 {
+	if unit >= 0xD800 && unit <= 0xDFFF {
+		return unit
+	}
+
+	lowest := lowestInOrbit(rune(unit))
+	if up := unicode.ToUpper(rune(unit)); up <= 0xFFFF {
+		lowest = min(lowest, lowestInOrbit(up))
+	}
+
+	return uint16(lowest) //nolint:gosec // a BMP rune
+}
+
+// lowestInOrbit returns the lowest rune in the simple case folding orbit of
+// start.
+func lowestInOrbit(start rune) rune {
+	lowest := start
+
+	for r := unicode.SimpleFold(start); r != start; r = unicode.SimpleFold(r) {
+		lowest = min(lowest, r)
+	}
+
+	return lowest
 }

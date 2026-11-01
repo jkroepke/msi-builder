@@ -544,3 +544,36 @@ func TestDefaultFileName(t *testing.T) {
 		}
 	}
 }
+
+// Two custom actions anchored to each other fail validate, not only build,
+// at the placement on the cycle.
+func TestValidateScheduleCycle(t *testing.T) {
+	t.Parallel()
+
+	src, err := os.ReadFile(filepath.Join("..", "..", "examples", "minimal", "msi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	src = append(src, []byte(`
+customActions:
+  - id: A
+    setProperty: {name: PA, value: x}
+    schedule: [{sequence: execute, before: B}]
+  - id: B
+    setProperty: {name: PB, value: x}
+    schedule: [{sequence: execute, before: A}]
+`)...)
+
+	yaml := filepath.Join(t.TempDir(), "msi.yaml")
+	if err := os.WriteFile(yaml, src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	if code := run([]string{"validate", yaml}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "customActions[0].schedule[0]") ||
+		!strings.Contains(stderr.String(), "A → B → A") {
+		t.Errorf("validate: exit %d: %s", code, stderr.String())
+	}
+}

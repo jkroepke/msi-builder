@@ -42,15 +42,15 @@ const (
 	installStateDefault = 5
 )
 
-const fullUIConfig = `schema: msi-builder/v1
-
-vars:
+const fullUIConfig = `vars:
   FILEVERSION: auto
+---
+schema: msi-builder/v1
 
 product:
   name: MsiBuilderFullUI
   manufacturer: msi-builder tests
-  version: ${VERSION}
+  version: {{ .VERSION | quote }}
   language: 1033
   upgradeCode: 8f3c2a61-4b7e-4d2a-9c15-6e0b7a9d3f21
 
@@ -83,9 +83,9 @@ components:
     directory: APPLICATIONFOLDER
     guid: 5B1E0C7A-3D2F-4A6E-9B8C-1D0E2F3A4B5C
     files:
-      - source: ${SOURCE}
+      - source: {{ .SOURCE | quote }}
         name: tool.exe
-        version: ${FILEVERSION}
+        version: {{ .FILEVERSION | quote }}
 
 customActions:
   - id: ForcedError

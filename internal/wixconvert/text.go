@@ -29,11 +29,12 @@ func (c *converter) value(e *elem, attr string) string {
 }
 
 // expand replaces WiX variables in text: preprocessor variables become
-// ${NAME} references, bind variables that the converter knows are filled
-// in and the others are noted. Directory references renamed by the
-// converter are updated.
+// {{ .NAME }} template actions, bind variables that the converter knows are
+// filled in and the others are noted. A "{{" in the source is written so
+// that the template keeps it. Directory references renamed by the converter
+// are updated.
 func (c *converter) expand(elm *elem, text string) string {
-	text = c.expandVars(elm, text)
+	text = c.expandVars(elm, escapeTemplate(text))
 
 	text = bindVar.ReplaceAllStringFunc(text, func(match string) string {
 		parts := bindVar.FindStringSubmatch(match)
@@ -59,7 +60,7 @@ func (c *converter) expand(elm *elem, text string) string {
 	return text
 }
 
-// expandVars turns preprocessor variables into ${NAME} references.
+// expandVars turns preprocessor variables into {{ .NAME }} actions.
 func (c *converter) expandVars(elm *elem, text string) string {
 	return preprocessorVar.ReplaceAllStringFunc(text, func(m string) string {
 		parts := preprocessorVar.FindStringSubmatch(m)
@@ -72,7 +73,7 @@ func (c *converter) expandVars(elm *elem, text string) string {
 		name := varName(parts[2])
 		c.usedVars[name] = true
 
-		return "${" + name + "}"
+		return varAction(name)
 	})
 }
 

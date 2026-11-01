@@ -40,24 +40,33 @@ func (w *bitWriter) align() {
 
 var errTruncated = errors.New("lzx: truncated frame")
 
-// bitReader reads one frame's bitstream. Reading past the end yields zero
-// bits; pos keeps counting so that a decoder can report truncation.
+// bitReader reads one frame's bitstream, 16-bit words from a start offset.
+// Reading past the last whole word yields zero bits; pos keeps counting so
+// that a decoder can report truncation. A lone byte after the last whole
+// word is not part of the bitstream: reading into it counts as truncation.
 type bitReader struct {
-	data []byte
-	pos  int
-	acc  uint64
-	n    uint
+	data  []byte
+	pos   int
+	limit int // end of the last whole word
+	acc   uint64
+	n     uint
 }
 
-func (r *bitReader) reset(data []byte) {
-	*r = bitReader{data: data}
+// reset starts reading data's bitstream at byte start.
+func (r *bitReader) reset(data []byte, start int) {
+	limit := len(data)
+	if start <= limit {
+		limit = start + (limit-start)&^1
+	}
+
+	*r = bitReader{data: data, pos: start, limit: limit}
 }
 
 func (r *bitReader) fill() {
 	for r.n <= 32 {
 		var word uint64
 
-		if r.pos+1 < len(r.data) {
+		if r.pos+1 < r.limit {
 			word = uint64(r.data[r.pos]) | uint64(r.data[r.pos+1])<<8
 		}
 
@@ -91,7 +100,7 @@ func (r *bitReader) read(bits uint) uint32 {
 
 // truncated reports whether the reader consumed bits past the frame's end.
 func (r *bitReader) truncated() bool {
-	return 8*r.pos-int(r.n) > 8*len(r.data)
+	return 8*r.pos-int(r.n) > 8*r.limit
 }
 
 // alignBytes drops the 1 to 16 padding bits of an uncompressed block header

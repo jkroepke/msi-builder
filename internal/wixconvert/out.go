@@ -266,8 +266,9 @@ func commentText(lines []string) string {
 			text.WriteByte('\n')
 		}
 
+		// msi-builder renders comments as a template too.
 		text.WriteString("# ")
-		text.WriteString(line)
+		text.WriteString(escapeTemplate(line))
 	}
 
 	return text.String()
