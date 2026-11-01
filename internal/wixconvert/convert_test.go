@@ -1189,6 +1189,57 @@ func TestConvertFoldedFolderNotes(t *testing.T) {
 	}
 }
 
+// TestConvertFolderAliasOrder checks that a nameless Directory in a
+// Fragment that comes before its nameless parent still sees that parent
+// become WindowsVolume, and that a nameless configurable install folder
+// stays a configurable alias of its parent.
+func TestConvertFolderAliasOrder(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <DirectoryRef Id="OPTROOT">
+      <Directory Id="APPROOT">
+        <Directory Id="APPDIR" Name="Hello">
+          <Component Id="Top"><File Id="t" Source="hello.exe" Name="top.exe" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Example" Name="Root" Value="[APPROOT]" /></Component>
+          <Directory Id="INSTALLFOLDER">
+            <Component Id="App"><File Source="hello.exe" /></Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </DirectoryRef>
+  </Fragment>
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <SetDirectory Id="OPTROOT" Value="[WindowsVolume]" />
+    <Directory Id="OPTROOT" />
+    <Feature Id="Main" ConfigurableDirectory="INSTALLFOLDER"><ComponentRef Id="Top" /><ComponentRef Id="App" /></Feature>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{"'[WindowsVolume]'", "- id: INSTALLFOLDER\n            name: .\n            configurable: true"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {

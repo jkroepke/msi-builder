@@ -221,7 +221,7 @@ func (c *converter) wixFolder(dirID string) (string, error) {
 	var names []string
 
 	for range len(c.dirs) + 1 {
-		folder := c.dirs[dirID]
+		folder := c.wixDir(dirID)
 
 		start, err := c.folderStart(folder, dirID)
 		if err != nil || start != "" {
@@ -248,6 +248,16 @@ func (c *converter) wixFolder(dirID string) (string, error) {
 	}
 
 	return "", errUnresolved
+}
+
+// wixDir returns a Directory as the source has it: a nameless one that
+// became a standard folder keeps its own record, as WiX computes its codes.
+func (c *converter) wixDir(dirID string) *dir {
+	if folder := c.wixDirs[dirID]; folder != nil {
+		return folder
+	}
+
+	return c.dirs[dirID]
 }
 
 // folderStart returns the start of a canonical folder path when the folder

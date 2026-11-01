@@ -159,10 +159,16 @@ type converter struct {
 	needDirs      map[string]bool
 	renames       map[string]string
 	// folded maps a nameless Directory that became a standard folder to it.
-	folded     map[string]string
-	installDir *dir
-	uiSet      string
-	platform   string
+	folded map[string]string
+	// wixDirs are the Directories as the source has them, before folding,
+	// for the component codes WiX computes.
+	wixDirs map[string]*dir
+	// configurableAliases are "." directories that the source makes the
+	// configurable install folder.
+	configurableAliases map[string]bool
+	installDir          *dir
+	uiSet               string
+	platform            string
 	// scope is the package's install scope, as package.scope names it.
 	scope        string
 	launchAction string
@@ -316,25 +322,27 @@ type featureGroup struct {
 
 func newConverter(doc *document) *converter {
 	return &converter{
-		doc:            doc,
-		dirs:           make(map[string]*dir),
-		compByID:       make(map[string]*comp),
-		groups:         make(map[string]*group),
-		featureByID:    make(map[string]*feature),
-		featureGrps:    make(map[string]*featureGroup),
-		actions:        make(map[string]*elem),
-		wixVars:        make(map[string]string),
-		firewallNames:  make(map[string]int),
-		renames:        make(map[string]string),
-		consumed:       make(map[*elem]bool),
-		folded:         make(map[string]string),
-		doActions:      make(map[string]*elem),
-		otherSequences: make(map[string]*elem),
-		needDirs:       make(map[string]bool),
-		usedVars:       make(map[string]bool),
-		usedErrors:     make(map[*elem]bool),
-		out:            newMap(),
-		structure:      structureHandlers(),
+		doc:                 doc,
+		dirs:                make(map[string]*dir),
+		compByID:            make(map[string]*comp),
+		groups:              make(map[string]*group),
+		featureByID:         make(map[string]*feature),
+		featureGrps:         make(map[string]*featureGroup),
+		actions:             make(map[string]*elem),
+		wixVars:             make(map[string]string),
+		firewallNames:       make(map[string]int),
+		renames:             make(map[string]string),
+		consumed:            make(map[*elem]bool),
+		folded:              make(map[string]string),
+		wixDirs:             make(map[string]*dir),
+		configurableAliases: make(map[string]bool),
+		doActions:           make(map[string]*elem),
+		otherSequences:      make(map[string]*elem),
+		needDirs:            make(map[string]bool),
+		usedVars:            make(map[string]bool),
+		usedErrors:          make(map[*elem]bool),
+		out:                 newMap(),
+		structure:           structureHandlers(),
 	}
 }
 

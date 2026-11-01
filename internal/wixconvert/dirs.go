@@ -32,8 +32,19 @@ func (c *converter) chooseInstallDir() { //nolint:cyclop // the fallbacks in the
 	candidates = append(candidates, installDirNames...)
 
 	for _, id := range candidates {
-		if d := c.dirs[id]; d != nil && !d.std && d.name != "" && c.top(d) != nil {
-			c.installDir = d
+		folder := c.dirs[id]
+
+		// A configurable alias keeps its own row, so that setting it
+		// moves only its own components, as in the source.
+		if folder != nil && folder.name == config.AliasName {
+			c.configurableAliases[folder.id] = true
+			c.needDirs[folder.id] = true
+
+			continue
+		}
+
+		if folder != nil && !folder.std && folder.name != "" && c.top(folder) != nil {
+			c.installDir = folder
 
 			break
 		}
@@ -354,7 +365,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 				"sets it; msi-builder has no such folder, give it a name or use a standard folder", folder.id)
 		}
 
-		if folder == c.installDir {
+		if folder == c.installDir || c.configurableAliases[folder.id] {
 			entry.set("configurable", true)
 		}
 
@@ -380,32 +391,74 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 // for a folder such as C:\opt; the SetDirectory is then left out. A
 // directory that another action sets keeps its own row.
 func (c *converter) foldAliasDirs() {
-	setters := c.dirSetters()
+	order := c.dirOrder
+	fold := &aliasFold{setters: c.dirSetters(), done: make(map[*dir]bool), added: make(map[string]*dir), limit: len(order)}
 
-	kept := c.dirOrder[:0]
+	for _, folder := range order {
+		c.wixDirs[folder.id] = folder
+	}
 
-	for _, folder := range c.dirOrder {
-		target := c.aliasTarget(folder, setters[folder.id])
+	for _, folder := range order {
+		c.settleAlias(fold, folder, 0)
+	}
+
+	kept := make([]*dir, 0, len(order))
+
+	for _, folder := range order {
+		target := c.folded[folder.id]
 		if target == "" {
-			c.keepMovedRoot(folder, setters[folder.id])
-
 			kept = append(kept, folder)
-
-			continue
 		}
 
-		std := c.dirs[target]
-		if std == nil {
-			std = &dir{id: target, std: true, line: folder.line}
+		if std := fold.added[target]; std != nil {
 			kept = append(kept, std)
-		}
 
-		c.dirs[folder.id] = std
-		c.renames[folder.id] = target
-		c.folded[folder.id] = target
+			delete(fold.added, target)
+		}
 	}
 
 	c.dirOrder = kept
+}
+
+// aliasFold is the state of foldAliasDirs.
+type aliasFold struct {
+	setters map[string][]*elem
+	done    map[*dir]bool
+	// added are the standard folders that folding introduced.
+	added map[string]*dir
+	limit int
+}
+
+// settleAlias settles a folder after its parent, whatever the order of the
+// source, so that a child sees whether its parent became a standard folder.
+func (c *converter) settleAlias(fold *aliasFold, folder *dir, depth int) {
+	if fold.done[folder] || depth > fold.limit {
+		return
+	}
+
+	fold.done[folder] = true
+
+	if parent := c.wixDirs[folder.parentID]; parent != nil {
+		c.settleAlias(fold, parent, depth+1)
+	}
+
+	target := c.aliasTarget(folder, fold.setters[folder.id])
+	if target == "" {
+		c.keepMovedRoot(folder, fold.setters[folder.id])
+
+		return
+	}
+
+	std := c.dirs[target]
+	if std == nil {
+		std = &dir{id: target, std: true, line: folder.line}
+		c.dirs[target] = std
+		fold.added[target] = std
+	}
+
+	c.dirs[folder.id] = std
+	c.renames[folder.id] = target
+	c.folded[folder.id] = target
 }
 
 // platformFolded maps the folders that nameless Directories became, such
