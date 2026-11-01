@@ -33,7 +33,7 @@ func (c *converter) shortcut(elm *elem, dirID string, tree map[*dir]bool) *omap 
 	link.set("directory", dirValue)
 	link.set("arguments", c.value(elm, "Arguments"))
 	link.set("description", c.value(elm, "Description"))
-	link.set("icon", c.value(elm, "Icon"))
+	link.set("icon", c.iconRef(elm, "Icon"))
 
 	if n, err := strconv.Atoi(elm.attr("IconIndex")); err == nil && n != 0 {
 		link.set("iconIndex", n)
@@ -65,7 +65,7 @@ func (c *converter) shortcut(elm *elem, dirID string, tree map[*dir]bool) *omap 
 			}
 		case "Icon":
 			c.icons = append(c.icons, kid)
-			link.set("icon", kid.attr("Id"))
+			link.set("icon", iconID(c.literalStatic(kid.attr("Id"))))
 		default:
 			c.todof(link, "", kid.line, "<%s> in a Shortcut has no counterpart", kid.qname())
 		}

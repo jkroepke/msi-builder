@@ -243,10 +243,56 @@ func (c *converter) emitARP(p *omap) {
 			if n, err := strconv.Atoi(val); err == nil {
 				arp.set(key, n)
 			}
+		case "icon":
+			arp.set(key, c.iconRef(elm, "Value"))
 		default:
 			arp.set(key, val)
 		}
 	}
+}
+
+// iconID returns the id the YAML gives a WiX icon id. WiX v3 takes an <Icon>
+// Id such as "app-name.ico", which is no MSI identifier (WiX 5 refuses it,
+// WIX0014), so every other character becomes "_", and an id that does not
+// start with a letter or "_" gets one in front. Ids with template actions or
+// properties, or WiX variables convert cannot fill in, stay as they are.
+func iconID(raw string) string {
+	if raw == "" || config.IsIdentifier(raw) || strings.Contains(raw, "{{") || strings.Contains(raw, "$(") ||
+		strings.ContainsAny(raw, "[]") {
+		return raw
+	}
+
+	out := strings.Map(iconIDRune, raw)
+
+	if first := rune(out[0]); first != '_' && !isASCIILetter(first) {
+		out = "_" + out
+	}
+
+	return out
+}
+
+// iconRef returns the icon id that attr of elm names, renamed as emitFiles
+// renames the <Icon>. A reference through a define whose value is renamed
+// becomes that literal id, since the icons key is one too.
+func (c *converter) iconRef(elm *elem, attr string) string {
+	if lit := c.literalStatic(elm.attr(attr)); iconID(lit) != lit {
+		return iconID(lit)
+	}
+
+	return c.value(elm, attr)
+}
+
+// iconIDRune keeps a character an MSI identifier may hold, else gives "_".
+func iconIDRune(r rune) rune {
+	if isASCIILetter(r) || r >= '0' && r <= '9' || r == '_' || r == '.' {
+		return r
+	}
+
+	return '_'
+}
+
+func isASCIILetter(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 }
 
 func (c *converter) emitPackage() { //nolint:cyclop // a flat list of independent WiX attributes
@@ -1239,8 +1285,29 @@ func (c *converter) foldMessage(upgrade *omap, cond string, elm *elem) {
 
 // emitFiles writes icons and binaries.
 func (c *converter) emitFiles() {
-	for _, e := range c.icons {
-		c.out.child("icons").set(e.attr("Id"), sourcePath(c.value(e, "SourceFile")))
+	taken := make(map[string]bool, len(c.icons))
+	for _, icon := range c.icons {
+		taken[c.literalStatic(icon.attr("Id"))] = true
+	}
+
+	for _, icon := range c.icons {
+		icons := c.out.child("icons")
+		raw := c.literalStatic(icon.attr("Id"))
+		name := iconID(raw)
+
+		if name != raw {
+			if taken[name] || icons.get(name) != nil {
+				c.todof(icons, name, icon.line, "<Icon> Id=%q is not an MSI identifier and becomes %q, the id of another icon; "+
+					"rename one of them", raw, name)
+
+				continue
+			}
+
+			c.todof(icons, name, icon.line, "<Icon> Id=%q is not an MSI identifier (WiX v3 accepts it, WiX 5 does not); "+
+				"convert renamed it %q here and where the package names it", raw, name)
+		}
+
+		icons.set(name, sourcePath(c.value(icon, "SourceFile")))
 	}
 
 	for _, elm := range c.binaries {

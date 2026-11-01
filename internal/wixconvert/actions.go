@@ -543,30 +543,58 @@ func (c *converter) noteLaunchBeforeFind(kept map[string][]*omap) {
 		return
 	}
 
-	bad := make(map[string]bool)
+	bad := make(map[string]*omap)
 
 	for _, seq := range []string{seqExecute, seqUI} {
 		bad[seq] = c.launchFirstIn(kept, seq)
 	}
 
-	// A WiX downgrade check still works in a sequence that keeps the
-	// order, so ignore stands in for it only when no sequence does.
-	switch checked := c.wixDowngradeCheck(); {
-	case !bad[seqExecute] && !bad[seqUI]:
-	case !checked:
-		c.ignoreDowngrades(kept, "the WiX package has no downgrade check")
-	case bad[seqExecute] && bad[seqUI]:
-		c.ignoreDowngrades(kept, "the WiX package never saw a newer version in a launch condition")
+	first := bad[seqExecute]
+	if first == nil {
+		first = bad[seqUI]
+	}
+
+	if first == nil {
+		return
+	}
+
+	// When ignore stands in for the WiX check, its note covers the moves.
+	if why := c.ignoreReason(bad); why != "" && c.ignoreDowngrades(kept, c.movedLines[first], why) {
+		return
+	}
+
+	for _, seq := range []string{seqExecute, seqUI} {
+		if placement := bad[seq]; placement != nil {
+			c.todof(placement, "", c.movedLines[placement], "LaunchConditions runs before FindRelatedProducts here, so a launch "+
+				"condition on an upgrade property, the downgrade check of upgrade.downgrade: error among them, sees it unset; "+
+				"the build refuses that order with downgrade: error")
+		}
 	}
 }
 
-// launchFirstIn notes kept moves that put LaunchConditions before
-// FindRelatedProducts in seq and reports whether they do; a move of
-// LaunchConditions that would only run the downgrade check is left out.
-func (c *converter) launchFirstIn(kept map[string][]*omap, seq string) bool {
+// ignoreReason says why downgrade: ignore stands in for the WiX downgrade
+// check when bad holds the moves that put LaunchConditions first, or "": a
+// WiX check still works in a sequence that keeps the order, so ignore only
+// stands in for it when no sequence does.
+func (c *converter) ignoreReason(bad map[string]*omap) string {
+	switch {
+	case !c.wixDowngradeCheck():
+		return "the WiX package has no downgrade check"
+	case bad[seqExecute] != nil && bad[seqUI] != nil:
+		return "the WiX package never saw a newer version in a launch condition"
+	default:
+		return ""
+	}
+}
+
+// launchFirstIn returns the first kept move of LaunchConditions,
+// FindRelatedProducts or AppSearch when the moves put LaunchConditions
+// before FindRelatedProducts in seq, else nil; a move of LaunchConditions
+// that would only run the downgrade check is left out.
+func (c *converter) launchFirstIn(kept map[string][]*omap, seq string) *omap {
 	ranks, before := launchBeforeFind(kept, seq)
 	if !before {
-		return false
+		return nil
 	}
 
 	// Without launch conditions of the file's own, a moved
@@ -580,21 +608,17 @@ func (c *converter) launchFirstIn(kept map[string][]*omap, seq string) bool {
 		})
 
 		if ranks, before = launchBeforeFind(kept, seq); !before {
-			return false
+			return nil
 		}
 	}
 
 	for _, name := range []string{actLaunchConditions, actFindRelatedProducts, actAppSearch} {
 		if placement := ranks.place(name); placement != nil {
-			c.todof(placement, "", c.movedLines[placement], "LaunchConditions runs before FindRelatedProducts here, so a launch "+
-				"condition on an upgrade property, the downgrade check of upgrade.downgrade: error among them, sees it unset; "+
-				"the build refuses that order with downgrade: error")
-
-			break
+			return placement
 		}
 	}
 
-	return true
+	return nil
 }
 
 // wixDowngradeCheck reports whether the WiX package refuses downgrades
@@ -690,17 +714,21 @@ func (c *converter) dropSequence(schedule []any, seq string) []any {
 // package did not refuse a downgrade either: it had no check, or no
 // sequence ran its check after FindRelatedProducts (why says which). A package without launch
 // conditions of its own then runs no LaunchConditions, so a kept move of it
-// would fail the build; that one keeps the todo only.
-func (c *converter) ignoreDowngrades(kept map[string][]*omap, why string) {
+// would fail the build; that one keeps the todo only. It reports whether it
+// set ignore; its todo names line, the first move that put LaunchConditions
+// first.
+func (c *converter) ignoreDowngrades(kept map[string][]*omap, line int, why string) bool {
 	if !c.downgradeChecked() || c.out.get("launchConditions") == nil && len(kept[actLaunchConditions]) > 0 {
-		return
+		return false
 	}
 
 	upgrade := c.out.mapAt("upgrade")
 	upgrade.set("downgrade", "ignore")
-	c.todof(upgrade, "downgrade", 0, "LaunchConditions runs before FindRelatedProducts, where the build refuses the downgrade "+
+	c.todof(upgrade, "downgrade", line, "LaunchConditions runs before FindRelatedProducts, where the build refuses the downgrade "+
 		"check of downgrade: error; %s, so it installed next to a newer version, as downgrade: ignore does. To refuse "+
 		"downgrades, let LaunchConditions run after FindRelatedProducts and remove this line", why)
+
+	return true
 }
 
 // movedRanks estimates where the moves of one sequence put the three
@@ -1892,13 +1920,23 @@ func (c *converter) asyncExec(action *omap, custom *elem) {
 	}
 }
 
+// setValue returns the value a setter gives the property name; an icon id
+// for ARPPRODUCTICON is renamed as its <Icon> is.
+func (c *converter) setValue(setter *elem, name string) string {
+	if name == "ARPPRODUCTICON" {
+		return c.iconRef(setter, "Value")
+	}
+
+	return c.value(setter, "Value")
+}
+
 // setterKind converts the actions that set a value or show an error.
 func (c *converter) setterKind(action *omap, custom *elem) bool {
 	switch {
 	case custom.has("Error"):
 		action.set("error", c.errorText(custom))
 	case custom.has(attrProperty) && custom.has("Value"):
-		action.set("setProperty", flowMap().set("name", custom.attr(attrProperty)).set("value", c.value(custom, "Value")))
+		action.set("setProperty", flowMap().set("name", custom.attr(attrProperty)).set("value", c.setValue(custom, custom.attr(attrProperty))))
 	case custom.has(attrDirectory) && custom.has("Value"):
 		action.set("setDirectory", flowMap().set("directory", c.dirRef(custom.attr(attrDirectory))).set("value", c.value(custom, "Value")))
 	default:
@@ -2063,7 +2101,7 @@ func (c *converter) setter(setter *elem) (*omap, []any) {
 			after = actCostFinalize
 		}
 	} else {
-		action.set("setProperty", flowMap().set("name", setterID).set("value", c.value(setter, "Value")))
+		action.set("setProperty", flowMap().set("name", setterID).set("value", c.setValue(setter, setterID)))
 	}
 
 	sequences := c.setterSequences(action, setter)
