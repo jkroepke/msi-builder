@@ -1037,8 +1037,18 @@ key path value this is inferred), and leaves a `# TODO` on any
 component it cannot find there. Such a kept shortcut component gets
 msi-builder's own HKCU key path, so the HKCU value WiX wrote for it
 stays behind after a late removal and the uninstall; convert names it in a
-`# TODO`, and a `removeRegistry` entry in another component removes it. Without `--msi`, convert leaves one `# TODO` at
-`upgrade.removeOld` that names the components without a WiX `Guid`.
+`# TODO`, and a `removeRegistry` entry in another component removes it.
+Without `--msi`, convert computes the GUID WiX generates for a component
+from its key file or key registry value, as WiX does (section 8.10 of the
+spec; UPG-14 upgraded a WiX package this way), for the platform `--arch`
+names (`package.platform` follows it); pass the `-arch` WiX built with,
+and `--bcgg` when WiX 6 or later built with `-bcgg`. Without `--arch`,
+codes that depend on the platform (below a 6432 folder, or a registry
+value of default bitness) stay open. It leaves one
+`# TODO` at `upgrade.removeOld` that names the components whose GUID it
+cannot compute, such as ones whose folder or filename comes from an
+undefined variable, or ones that depend on the platform without
+`--arch`.
 Advertised WiX shortcuts are lost in that upgrade even with every GUID
 kept: msi-builder installs plain shortcuts at the same paths, and the late
 removal of the WiX package then deletes them (seen in a real-world port).
@@ -1050,7 +1060,9 @@ package, also the ones WiX generated. WiX gives each file of a `Files`
 glob a component and GUID of its own; the folder source the glob becomes
 keeps them in `guids`, by the path of each file below the folder, and
 convert with `--msi` fills it in from the WiX package (UPG-12 upgraded a
-WiX `Files` package this way and kept every file). A Heat harvest is a
+WiX `Files` package this way and kept every file); without `--msi` it
+computes them from the files in the glob's folder next to the `.wxs`
+file. A Heat harvest is a
 list of `Component` elements, which convert keeps as components with
 their `guid` pinned; to replace them with a folder source by hand, move
 each GUID into `guids`:

@@ -121,10 +121,18 @@ versioning after 1.0.
   the same include/exclude matcher as the build; among the globs whose source
   folder holds a file on disk (`Options.Exists`), when any does, it goes to
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
-  WiX 5 package on CI). A package that chooses its install context with
-  context conditions or `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a
-  dual scope (`context.go`), because execute-sequence setters leave the
-  install inconsistent (INST-07). The fixtures are our own sample app: never copy
+  WiX 5 package on CI). Without `--msi`, `wixcodes.go` computes the codes WiX
+  generates from the key path (MSISPEC 8.10: UUIDv5 over the UTF-16LE path of
+  the key file or registry value), for `--arch` (`Options.Arch`; neither the
+  folders nor a WiX 3 Package Platform count) and `--bcgg`, and the `guids` of a `Files` glob
+  from the files in `Options.FS`; a dir keeps its raw `wixName` and `seed`
+  for this, since `name` holds `{{ .VAR }}` actions. Anything it cannot repeat
+  keeps the todo (UPG-14 compares computed and `--msi` codes on CI). It works
+  from the observed behaviour only: never read WiX source for it. A package
+  that chooses its install context with context conditions or
+  `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a dual scope (`context.go`),
+  because execute-sequence setters leave the install inconsistent (INST-07).
+  The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
@@ -264,6 +272,9 @@ go test ./... -shuffle=on -race
   run in the native step: the step before it creates the standard user
   `msitest` and exports `MSI_BUILDER_NONADMIN_USER` and
   `MSI_BUILDER_NONADMIN_PASSWORD`.
+- Linux runs `-race` and coverage as two runs (`-covermode=set` without
+  `-race`): `-race` forces atomic coverage counters, which the parallel
+  tests contend on, and the combined run was more than six times as slow.
 - To learn what Windows does before writing a test, a temporary nativetest
   that collects its observations and reports them with one `t.Errorf` runs
   on the `windows-latest` runner: push the branch and start CI with
