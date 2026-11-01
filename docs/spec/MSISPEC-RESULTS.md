@@ -258,7 +258,7 @@ Silent-failure cases a producer has to guard against itself:
 | ENVVAR-01 | Contradicted | [log](msitest/results/ENVVAR-01/environment/log.md); finding 4; segment removal on uninstall confirmed |
 | ENVVAR-02 | Confirmed | [ci](msitest/results/ENVVAR-02/ci/log.md); GitHub `windows-latest` runner, 2026-10-30, CI runs 41049121338 and 41052974347 (PR #142): one `WM_SETTINGCHANGE` with `"Environment"` after each install, repair and uninstall of the machine, user (per-machine package) and user (per-user package) variants, none without `Environment` rows; Explorer's environment block gained and lost each variable and picked up a value written by `reg add` without a broadcast before each step |
 | ENVVAR-03 | Confirmed | [ci](msitest/results/ENVVAR-03/ci/log.md); GitHub `windows-latest` runner, 2026-10-30, CI runs 41054581404, 41055965846 and 41058183558 (PR #149): in `ALLUSERS=2` packages a variable split into components conditioned `ALLUSERS=1` (`*` name) and `NOT ALLUSERS`, and HKLM/HKCU values in such components, install only in their context, silently and through the scope page; a standard user's per-user install writes neither the machine variable nor the HKLM value; a repair of transitive components keeps them (server `ALLUSERS` `1` or empty); ICE105 warns about the conditioned HKLM `Registry` and `RemoveRegistry` rows in `perUserOrMachine` only and never about the `*` row |
-| ENVVAR-04 | Confirmed | [ci](msitest/results/ENVVAR-04/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41298756247 (PR #207): two appends and two prepends of `PATH` in one component each add their part per machine and per user and the uninstall removes all four; a trailing empty entry of the user `PATH` is dropped; CI run 41322373604 (PR #220): the rows apply one after the other in key order (table order), also across components, so keys numbered in YAML order give `prepend2;prepend1;…;append1;append2;append3` |
+| ENVVAR-04 | Confirmed | [ci](msitest/results/ENVVAR-04/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41298756247 (PR #207): two appends and two prepends of `PATH` in one component each add their part per machine and per user and the uninstall removes all four; a trailing empty entry of the user `PATH` is dropped; CI runs 41322373604 and 41323573618 (PR #220): the rows apply one after the other in key order (table order), not grouped by component, so keys numbered in YAML order over three components give `prepend2;prepend1;…;append1;append2;append3;append4` |
 | PROP-01 | Confirmed | [ci](msitest/results/PROP-01/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40945525570: a standard user's install elevated by `AlwaysInstallElevated` passes a command-line value to a deferred action only for the property listed in `SecureCustomProperties` (`SECURE=cmd PLAIN=default`); an administrator's install passes both |
 | PROP-02 | Contradicted | [ci](msitest/results/PROP-02/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40944028040: on build 26100 `VersionNT` is 603 (confirmed) and `WindowsBuild` 9600 (contradicts section 19.2); a registry search of `CurrentBuildNumber` gives 26100 and `OS_BUILD >= 22000` is true; Windows 11 not run |
 | PROP-03 | Confirmed | [ci](msitest/results/PROP-03/ci/log.md); GitHub `windows-latest` and `windows-11-arm` runners, 2026-10-30, CI run 41142970055 (PR #168, `TestMsiexecNativeArch`): the registry search of `PROCESSOR_ARCHITECTURE` gives `AMD64` and `ARM64`, `[%PROCESSOR_ARCHITECTURE]` the same; `Msix64`/`Intel` are 6/6 on x64 and 3401/15 for the x64 package on Arm64, `VersionNT64` 603 on both; the launch condition refuses Arm64 with 1603 and its message in the `/qn` log and lets x64 install |
@@ -1206,11 +1206,12 @@ dump. ENVVAR-04: the four parts came out as
 restored the machine `PATH` exactly and the user `PATH` without its
 trailing `;`. That is the order of the rows' hash keys (`prepend1`,
 `prepend2`, `append2`, `append1`) applied one after the other. With the
-keys numbered in YAML order and a fifth part (`append3`) in a second
-component whose carriers sort before the first one's, CI run 41322373604
-(PR #220) gave `prepend2;prepend1;…;append1;append2;append3` in both
-contexts: the engine applies the rows in key order, not grouped by
-component. INST-08: see the case table above.
+keys numbered in YAML order, a fifth part (`append3`) in a second
+component and a sixth (`append4`) in a third, whose carriers sort second,
+third, first in both contexts, CI run 41323573618 (PR #220) gave
+`prepend2;prepend1;…;append1;append2;append3;append4` in both contexts.
+Grouped by component in either key order, `append3` and `append4` would
+have come out elsewhere: the engine applies the rows in key order. INST-08: see the case table above.
 
 - Not covered: the wizard's scope page with a setter, Server 2016. An
   `ALLUSERS=1` setter in the UI sequence as well (`/qr`) gave the same
