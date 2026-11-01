@@ -103,13 +103,26 @@ func TestScopePage(t *testing.T) {
 		`[ALLUSERS] {} [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] 1 [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] {} [BuilderInstallScope="perMachine"]`,
-		`[INSTALLDIR] [InstallScopeUser_INSTALLDIR] [NOT BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
-		`[INSTALLDIR] [InstallScopeMachine_INSTALLDIR] [BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
+		`[InstallScopeDir_INSTALLDIR] [InstallScopeUser_INSTALLDIR] [NOT BuilderInstallScope="perMachine"]`,
+		`[InstallScopeDir_INSTALLDIR] [InstallScopeMachine_INSTALLDIR] [BuilderInstallScope="perMachine"]`,
 		"EndDialog Return [1]",
 	}
 
 	if got := eventsOf(t, res, "InstallScopeDlg", "Next"); !slices.Equal(got, want) {
 		t.Errorf("Next events\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// Next leaves INSTALLDIR alone: the folder is set right before
+	// CostFinalize, so that an action after the page that restores a
+	// folder into an empty INSTALLDIR still runs.
+	last := map[string][2]any{}
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		last[fmt.Sprint(row[0])] = [2]any{row[1], row[2]}
+	}
+
+	setter, cost := last["SetInstallScopeDir_INSTALLDIR"], last["CostFinalize"]
+	if setter[1] != cost[1].(int)-1 || setter[0] != "InstallScopeDir_INSTALLDIR AND "+unchanged {
+		t.Errorf("SetInstallScopeDir_INSTALLDIR is %v, CostFinalize %v; want it right before CostFinalize under the chosen folder", setter, cost)
 	}
 
 	// The x86 package's folder under ProgramFilesFolder: per user below
@@ -283,7 +296,7 @@ ui: { enabled: true }
 `)
 
 	events := strings.Join(eventsOf(t, res, "InstallScopeDlg", "Next"), "\n")
-	for _, want := range []string{"[COMPANYDIR] [InstallScopeUser_COMPANYDIR]", "[INSTALLDIR] [InstallScopeMachine_INSTALLDIR]"} {
+	for _, want := range []string{"[InstallScopeDir_COMPANYDIR] [InstallScopeUser_COMPANYDIR]", "[InstallScopeDir_INSTALLDIR] [InstallScopeMachine_INSTALLDIR]"} {
 		if !strings.Contains(events, want) {
 			t.Errorf("Next events lack %s:\n%s", want, events)
 		}

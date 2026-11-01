@@ -935,6 +935,20 @@ type UI struct {
 	// ChooseDirectory adds a page after the welcome and license pages that
 	// shows the install folder and lets the user change it.
 	ChooseDirectory bool `yaml:"chooseDirectory,omitempty"`
+	// ScopePage chooses which option the scope page of a dual package
+	// preselects.
+	ScopePage *ScopePage `yaml:"scopePage"`
+}
+
+// ScopePage holds conditions under which the scope page of a dual package
+// preselects a context instead of the one the package opened in. They are
+// evaluated in the UI sequence before the page, perUser first, so that
+// perMachine wins when both are true.
+type ScopePage struct {
+	// PerMachine preselects "all users" when it is true.
+	PerMachine string `yaml:"perMachine"`
+	// PerUser preselects "just you" when it is true.
+	PerUser string `yaml:"perUser"`
 }
 
 // Launch is the finish page's check box that starts an installed program.

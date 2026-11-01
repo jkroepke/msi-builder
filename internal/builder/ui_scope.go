@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jkroepke/msi-builder/internal/sequence"
 	"github.com/jkroepke/msi-builder/pkg/config"
 )
 
@@ -61,6 +62,18 @@ func (b *build) installScope(wiz *wizard) {
 			b.uiAction("SetInstallScopePrevious", propScope, scopeMachine, "NOT ALLUSERS AND "+machine+" AND NOT "+user)
 		} else {
 			b.uiAction("SetInstallScopePrevious", propScope, scopeUser, "ALLUSERS=1 AND "+user+" AND NOT "+machine)
+		}
+	}
+
+	// The package's own preference comes last, perMachine after perUser,
+	// so that it wins over the context and a remembered folder.
+	if prefer := b.cfg.UI.ScopePage; prefer != nil {
+		if prefer.PerUser != "" {
+			b.uiAction("SetInstallScopePreferUser", propScope, scopeUser, prefer.PerUser)
+		}
+
+		if prefer.PerMachine != "" {
+			b.uiAction("SetInstallScopePreferMachine", propScope, scopeMachine, prefer.PerMachine)
 		}
 	}
 
@@ -204,10 +217,30 @@ func (b *build) scopeFolders(next *uiControl) {
 			b.uiAction("Set"+machine+"_Remembered", machine, "["+rememberedMachine(dir.id)+"]", rememberedMachine(dir.id))
 		}
 
+		// Next only records the chosen context's folder. The folder itself
+		// is set right before CostFinalize, so that actions between the
+		// page and costing that restore a folder into an empty property
+		// (NOT INSTALLDIR) still see it empty.
+		chosen := scopeProperty("InstallScopeDir_", dir.id)
+		next.on("["+chosen+"]", "["+user+"]", "NOT "+condMachine)
+		next.on("["+chosen+"]", "["+machine+"]", condMachine)
+
 		unchanged := "(NOT " + dir.id + " OR " + dir.id + " ~= " + user + " OR " + dir.id + " ~= " + machine + ")"
-		next.on("["+dir.id+"]", "["+user+"]", "NOT "+condMachine+" AND "+unchanged)
-		next.on("["+dir.id+"]", "["+machine+"]", condMachine+" AND "+unchanged)
+		b.costAction("Set"+chosen, dir.id, "["+chosen+"]", chosen+" AND "+unchanged)
 	}
+}
+
+// costAction sets property to value in the UI sequence right before
+// CostFinalize, after every other action placed before it; sequences
+// schedules it last. A name too long for the CustomAction table gets a
+// generated one.
+func (b *build) costAction(name, property, value, cond string) {
+	if len(name) > config.MaxIdentifierLength {
+		name = generatedID("SetScope", name)
+	}
+
+	b.addAction(&actionInfo{name: name, typ: caSetProperty, source: property, target: value})
+	b.beforeCosting = append(b.beforeCosting, sequence.Action{Name: name, Condition: cond, Before: actCostFinalize})
 }
 
 // scopeProperty names a private property that holds a folder of dir; an id
