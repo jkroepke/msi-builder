@@ -125,15 +125,16 @@ func (c *converter) choosesContext(machineOK bool) int {
 // contextScope makes a per-user package that chooses its context itself
 // the dual scope perUserOrMachine, which still installs per user by
 // default and per machine with a bootstrapper's ALLUSERS=1 (INST-07). A
-// WiX v3 package without a scope and without ALLUSERS is per user too;
-// Convert keeps it perMachine when the dual package does not validate. A
+// WiX v3 package without a scope and without ALLUSERS is per user too, but
+// only one that reads MSIINSTALLPERUSER becomes dual, and Convert keeps it
+// perMachine when the dual package does not validate. A
 // per-machine package stays: there a condition on ALLUSERS=1 always holds.
 func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) string {
-	// A WiX v3 package that always sets ALLUSERS=1 states per machine,
-	// unless it also reads MSIINSTALLPERUSER.
-	statesMachine := c.setsMachine() && !c.readsInstallPerUser()
-
-	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !statesMachine && !c.noDual
+	// A WiX v3 package without a scope converts to perMachine, as a
+	// bootstrapper installs it, whatever it does with ALLUSERS; only
+	// MSIINSTALLPERUSER, which nothing but an ALLUSERS=2 package reads,
+	// shows that it chooses its context itself.
+	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && c.readsInstallPerUser() && !c.noDual
 	if !perUser {
 		return scope
 	}
@@ -300,8 +301,7 @@ func (c *converter) setsMachine() bool {
 }
 
 // readsInstallPerUser reports whether the file sets MSIINSTALLPERUSER or
-// conditions a component on it. Only an ALLUSERS=2 package reads it, so
-// such a file chooses its context even when it also sets ALLUSERS=1.
+// conditions a component or an action on it.
 func (c *converter) readsInstallPerUser() bool {
 	found := false
 
@@ -310,7 +310,8 @@ func (c *converter) readsInstallPerUser() bool {
 	walk = func(elm *elem) {
 		switch {
 		case contextSetter(elm) == propInstallPerUser,
-			elm.is("Component") && strings.Contains(c.componentConditionText(elm), propInstallPerUser):
+			elm.is("Component") && strings.Contains(c.componentConditionText(elm), propInstallPerUser),
+			(elm.is("SetProperty") || elm.is("Custom")) && strings.Contains(c.condition(elm), propInstallPerUser):
 			found = true
 		}
 

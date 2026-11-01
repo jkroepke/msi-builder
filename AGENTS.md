@@ -132,6 +132,9 @@ versioning after 1.0.
   that chooses its install context with context conditions or
   `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a dual scope (`context.go`),
   because execute-sequence setters leave the install inconsistent (INST-07).
+  A WiX v3 package without a scope only does when it reads
+  `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
+  per-machine packages per-user in review, so they stay perMachine.
   The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),

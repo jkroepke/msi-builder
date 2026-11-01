@@ -229,8 +229,10 @@ func TestConvertMachineSetter(t *testing.T) {
 }
 
 // TestConvertChosenMachineSetter checks ALLUSERS=1 setters that do not run
-// in every install, or that a per-user package has: the install chooses
-// its context, so the package becomes perUserOrMachine and drops them.
+// in every install. A WiX v3 package without a scope that only sets
+// ALLUSERS stays perMachine, as before, with its setter and its conditions;
+// one that reads MSIINSTALLPERUSER, or a per-user package, chooses its
+// context, so it becomes perUserOrMachine and drops the setter.
 func TestConvertChosenMachineSetter(t *testing.T) {
 	t.Parallel()
 
@@ -260,9 +262,20 @@ func TestConvertChosenMachineSetter(t *testing.T) {
     <UI><Dialog Id="ScopeDlg" Width="370" Height="270" Title="Scope">
       <Control Id="All" Type="PushButton" X="10" Y="10" Width="56" Height="17" Text="All users"><Publish Event="DoAction" Value="SetAU">1</Publish></Control>
     </Dialog></UI>`),
-		"context condition": src("", `<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" Sequence="execute">NOT MSIINSTALLPERUSER</SetProperty>`),
 		"ui only custom": src("", `<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />
     <InstallUISequence><Custom Action="SetAU" Before="FindRelatedProducts" /></InstallUISequence>`),
+		"unless set": src("", `<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />
+    <InstallExecuteSequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT ALLUSERS</Custom></InstallExecuteSequence>`),
+	} {
+		yaml := convertValid(t, doc)
+
+		if strings.Contains(yaml, "\n  scope:") || strings.Contains(yaml, "\n    scope:") || !strings.Contains(yaml, "condition: NOT ALLUSERS") {
+			t.Errorf("%s: want a perMachine package with its condition:\n%s", name, yaml)
+		}
+	}
+
+	for name, doc := range map[string]string{
+		"context condition": src("", `<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" Sequence="execute">NOT MSIINSTALLPERUSER</SetProperty>`),
 		// Without a context condition, the setter alone chooses the context.
 		"per-user package": strings.Replace(src(`InstallScope="perUser"`,
 			`<SetProperty Id="ALLUSERS" Value="1" Before="CostInitialize" Sequence="execute" />`), "<Condition>NOT ALLUSERS</Condition>", "", 1),

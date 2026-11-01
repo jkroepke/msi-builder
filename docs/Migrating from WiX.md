@@ -289,28 +289,22 @@ upgrade:
   per-user package that a bootstrapper installs per machine with
   `ALLUSERS=1`, or one that sets `ALLUSERS` or `MSIINSTALLPERUSER` with
   its own actions, becomes a dual scope. `convert` makes a per-user
-  package (also a WiX v3 one without `InstallScope` and `ALLUSERS`, unless
-  the dual package would not validate, for example because of services,
-  HKLM data or a folder such as `CommonAppDataFolder` that only a
-  per-machine install may use; then it stays perMachine with its
-  conditions, as long as that validates no worse) `perUserOrMachine` when a component's condition names the context or an
-  action sets one of the two properties; choose `perMachineOrUser` if the
-  install should default to all users. It turns the conditions into
-  `components[].scope` and drops the setters with a note, also in a
-  package that already has `ALLUSERS=2`, and moves actions placed after a
-  dropped setter to its place. A per-machine package keeps its scope and
-  its conditions, since `ALLUSERS=1` always holds there. So does a WiX v3
-  package without `InstallScope` whose action always sets `ALLUSERS=1`
-  (a `SetProperty` outside the UI sequence, or an action
-  `InstallExecuteSequence` schedules, whose condition, such as
-  `NOT Installed`, does not read `ALLUSERS` or `MSIINSTALLPERUSER`) and
-  that neither sets `MSIINSTALLPERUSER` nor conditions a component on it, even
-  when its
-  components test the context; `convert` drops that setter with a note.
-  A setter that only a dialog button or the UI sequence runs, or whose
-  condition reads the context, lets the install choose the context, as does any setter in a per-user
-  package. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line
-  still pick the context (INST-07).
+  package `perUserOrMachine` when a component's condition names the
+  context or an action sets one of the two properties; choose
+  `perMachineOrUser` if the install should default to all users. It turns
+  the conditions into `components[].scope` and drops the setters with a
+  note, also in a package that already has `ALLUSERS=2`, and moves actions
+  placed after a dropped setter to its place. A per-machine package keeps
+  its scope and its conditions, since `ALLUSERS=1` always holds there; a
+  setter that always sets `ALLUSERS=1` there is dropped with a note. A WiX
+  v3 package without `InstallScope` and `ALLUSERS` converts to perMachine,
+  as before, whatever it does with `ALLUSERS`; only one that sets
+  `MSIINSTALLPERUSER` or tests it in a condition becomes
+  `perUserOrMachine`, and it stays perMachine when that dual package would
+  not validate (for example because of services, HKLM data or a folder
+  such as `CommonAppDataFolder`) and perMachine validates no worse.
+  `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line still pick the
+  context (INST-07).
 - WiX sets `WIX_UPGRADE_DETECTED` during an upgrade, msi-builder sets
   `OLDERVERSIONBEINGUPGRADED`. If your conditions use the WiX name, keep it
   with `upgrade.property: WIX_UPGRADE_DETECTED`, and
