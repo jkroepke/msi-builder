@@ -231,15 +231,15 @@ func TestScheduleBuilderChains(t *testing.T) {
 			"comes from firewall[0].remoteAddresses: the build chains it after SetFwRemoteIPDefault",
 		},
 		"scope page presets": {
-			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 1001"),
-			"SetInstallScopeMachine comes from the scope page of package.scope perUserOrMachine: the build chains it after CostFinalize",
+			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 51"),
+			"SetInstallScopeMachine comes from the scope page of package.scope perUserOrMachine: the build chains it after AppSearch",
 		},
 		"scope page": {
-			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 1003"),
-			"action InstallScopeDlg would get number 1003",
+			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 53"),
+			"action InstallScopeDlg would get number 53",
 		},
 		"FindRelatedProducts after the scope page": {
-			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 1004"),
+			dual(base) + appComponent + "ui: {enabled: true}\n" + uiSetProps("at: 54"),
 			"FindRelatedProducts comes from the scope page",
 		},
 	} {

@@ -27,7 +27,7 @@ const actCostFinalize = "CostFinalize"
 //   - after CostFinalize, in both install sequences: SetARPINSTALLLOCATION;
 //   - after CostFinalize, in the execute sequence: the two actions of each
 //     firewall rule whose remoteAddresses name a property;
-//   - after CostFinalize, in the UI sequence of a dual-scope wizard: the
+//   - after AppSearch, in the UI sequence of a dual-scope wizard: the
 //     actions that preset the scope page, then the page,
 //     FindRelatedProducts and LaunchConditions.
 //
@@ -116,8 +116,8 @@ func (c *chains) firewall(cfg *Config) {
 
 // scopePage adds the actions that preset the scope page, the page and,
 // when the package runs them or a placement is anchored to them,
-// FindRelatedProducts and LaunchConditions after CostFinalize. The
-// actions that keep each folder in the chosen context are left out.
+// FindRelatedProducts and LaunchConditions after AppSearch. The actions
+// that keep each folder in the chosen context are left out.
 func (c *chains) scopePage(cfg *Config) {
 	page := []string{"SetInstallScopeMachine", "SetInstallScopeUser"}
 	if cfg.InstallDir.Remember {
@@ -134,7 +134,7 @@ func (c *chains) scopePage(cfg *Config) {
 		page = append(page, actLaunchConditions)
 	}
 
-	c.add(actCostFinalize, "the scope page of package.scope "+string(cfg.Package.Scope), page...)
+	c.add(actAppSearch, "the scope page of package.scope "+string(cfg.Package.Scope), page...)
 }
 
 // searchActions returns the actions that apply the searches of a searched
