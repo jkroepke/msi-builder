@@ -1031,7 +1031,7 @@
           "$ref": "#/$defs/property"
         },
         "MsiLogging": {
-          "description": "Logs every install of the product, as with msiexec /l: the letters iwearucmopvx and !. MsiLogFileLocation names the log file. Windows Installer 4.0.",
+          "description": "Logs every install of the product, as with msiexec /l: the letters iwearucmopvx and !. The engine writes MSI*.LOG and sets MsiLogFileLocation to its path. Windows Installer 4.0.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -4109,6 +4109,7 @@
               "type": [
                 "string",
                 "number",
+                "boolean",
                 "null"
               ]
             },

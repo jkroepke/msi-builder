@@ -98,7 +98,7 @@ func restartManagerRun(t *testing.T, value, target string) []string {
 	// A second process holds the file open for reading, so the repair
 	// finds it in use. It prints a line once the file is open.
 	holder := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-Command", //nolint:gosec // a test path
-		"$f = [IO.File]::Open('"+target+"', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('open'); [Console]::Out.Flush(); Start-Sleep -Seconds 300")
+		"$ErrorActionPreference = 'Stop'; $f = [IO.File]::Open('"+target+"', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('open'); [Console]::Out.Flush(); Start-Sleep -Seconds 300")
 
 	out, err := holder.StdoutPipe()
 	if err != nil {
