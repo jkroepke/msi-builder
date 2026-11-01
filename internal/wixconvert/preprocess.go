@@ -988,6 +988,17 @@ type defineEval struct {
 	frames   []*defineFrame
 }
 
+// openDefaults returns the defaults that the block ending now may record:
+// none inside another kept block, whose template the reference would
+// leave out.
+func (e *defineEval) openDefaults() map[string]string {
+	if len(e.frames) > 0 {
+		return nil
+	}
+
+	return e.defaults
+}
+
 // defaultRef is the value a later define reads from a default.
 func defaultRef(name string) string { return "{{ ." + name + " }}" }
 
@@ -1044,7 +1055,7 @@ func (e *defineEval) step(proc procInst) {
 			top := e.frames[len(e.frames)-1]
 			e.frames = e.frames[:len(e.frames)-1]
 			top.branches = append(top.branches, e.env)
-			e.env = e.conv.mergeBranches(top, e.defaults)
+			e.env = e.conv.mergeBranches(top, e.openDefaults())
 		}
 	}
 }
@@ -1105,14 +1116,17 @@ func (c *converter) mergeBranches(frame *defineFrame, defaults map[string]string
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(changed)) {
-		_, hadPrior := frame.before[name]
-
 		// <?ifndef X?><?define X = ...?> is a default, which a header
 		// var is: --var replaces it.
-		if len(frame.branches) == 1 && blk.branches[0].target == piIfndef && !hadPrior &&
-			varName(ppDefName(blk.branches[0].inst)) == name {
-			defaults[name] = frame.branches[0][name]
-			env[name] = defaultRef(name)
+		if isDefault(frame, name) {
+			env[name] = frame.branches[0][name]
+
+			if defaults != nil && c.lastDefinedIn(name, blk) {
+				// Later defines read the variable, so that --var
+				// reaches them.
+				defaults[name] = env[name]
+				env[name] = defaultRef(name)
+			}
 
 			continue
 		}
@@ -1121,6 +1135,24 @@ func (c *converter) mergeBranches(frame *defineFrame, defaults map[string]string
 	}
 
 	return env
+}
+
+// isDefault reports whether frame is <?ifndef X?> that defines X, which
+// had no value before.
+func isDefault(frame *defineFrame, name string) bool {
+	_, hadPrior := frame.before[name]
+	blk := frame.block
+
+	return len(frame.branches) == 1 && blk.branches[0].target == piIfndef && !hadPrior &&
+		varName(ppDefName(blk.branches[0].inst)) == name
+}
+
+// lastDefinedIn reports whether the last define of a variable sits in
+// blk: a reference to the variable then reads the value blk gives it.
+func (c *converter) lastDefinedIn(name string, blk *ppBlock) bool {
+	last := c.lastDefine(name, len(c.doc.procs))
+
+	return last >= 0 && slices.ContainsFunc(c.doc.procs[last].pos, func(p ppPos) bool { return p.block == blk })
 }
 
 // branchValue returns the template that gives a variable the value of

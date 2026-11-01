@@ -367,6 +367,21 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
 			want: `Out: '{{ if has "D" }}{{ .Ver }}-d{{ else }}{{ .Ver }}{{ end }}'`,
 			vars: []string{"D", "Ver"},
 		},
+		"default given twice": {
+			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?ifndef X ?><?define X = "9" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.X)" />`,
+			want: `{{ else }}1{{ end }}`,
+			vars: []string{"X"},
+		},
+		"define from a default defined again": {
+			body: `<?ifndef X ?><?define X = "1" ?><?endif ?><?define Y = "$(var.X)" ?><?define X = "2" ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.Y)" />`,
+			want: `Y: "1"`,
+		},
 		"property in both branches on one line": {
 			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>
     <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
