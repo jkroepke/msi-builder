@@ -2126,7 +2126,7 @@ Service configuration detail, from the [MsiServiceConfig](https://learn.microsof
 |---|---|---|---|
 | 3 | `SERVICE_CONFIG_DELAYED_AUTO_START` | `1` on, `0` off | Only for services with StartType 2 (auto); observed working, SVC-01 |
 | 4 | `SERVICE_CONFIG_FAILURE_ACTIONS_FLAG` | `0` run actions only on crash, `1` also on `SERVICE_STOPPED` with a non-zero exit code | Observed working, SVC-01 |
-| 5 | `SERVICE_CONFIG_SERVICE_SID_INFO` | `0` none, `1` unrestricted, `3` restricted | Observed at install and restored by repair, also `0` over a service that was unrestricted (SVC-10). [SERVICE_SID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info): in a shared process, if one service is restricted, all must be (documented, unverified) |
+| 5 | `SERVICE_CONFIG_SERVICE_SID_INFO` | `0` none, `1` unrestricted, `3` restricted | Observed at install and restored by repair, also `0` over a service that was unrestricted, though no run without the row tells it from InstallServices' reconfiguration (SVC-10). [SERVICE_SID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info): in a shared process, if one service is restricted, all must be (documented, unverified) |
 | 6 | `SERVICE_CONFIG_REQUIRED_PRIVILEGES_INFO` | privilege constants separated by `[~]` | Untested |
 | 7 | `SERVICE_CONFIG_PRESHUTDOWN_INFO` | milliseconds, or empty for 180000 | Observed at install and restored by repair; without a row the service's own value stays (SVC-10). The empty argument is not tested |
 

@@ -2515,6 +2515,7 @@ func TestConvertServiceConfig(t *testing.T) {
 		{`RequiredPrivilege="SeBackupPrivilege" OnInstall="yes" OnReinstall="yes"`, "RequiredPrivilege has no counterpart"},
 		{`ServiceSid="restricted" OnInstall="yes" OnReinstall="yes" OnUninstall="yes"`, "OnUninstall have no counterpart"},
 		{`ServiceSid="restricted" OnInstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "sidType: restricted\n"},
 		{`PreShutdownDelay="060000" OnInstall="yes" OnReinstall="yes"`, "preshutdownTimeout: 60000ms\n"},
 	} {
 		res, err := wixconvert.Convert(strings.NewReader(fmt.Sprintf(src, tc.attrs)), wixconvert.Options{})
