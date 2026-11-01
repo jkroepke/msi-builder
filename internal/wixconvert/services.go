@@ -760,13 +760,14 @@ func (cc *compConv) remembers(prop string) bool {
 	return false
 }
 
-// searchElems are the elements of a Property that search for its value.
+// searchElems are the elements of a Property that convert turns into a
+// properties search; the others stay todos and find nothing.
 var searchElems = map[string]bool{ //nolint:gochecknoglobals // lookup table
-	"RegistrySearch": true, "RegistrySearchRef": true, "ComponentSearch": true, "DirectorySearch": true,
-	"DirectorySearchRef": true, "FileSearch": true, "FileSearchRef": true, "IniFileSearch": true, "ProductSearch": true,
+	"RegistrySearch": true, "ComponentSearch": true, "DirectorySearch": true, "FileSearch": true,
 }
 
-// searchedProperty reports whether a Property element searches for prop.
+// searchedProperty reports whether a Property element searches for prop
+// in a way convert keeps.
 func (c *converter) searchedProperty(prop string) bool {
 	for _, p := range c.properties {
 		if p.attr("Id") != prop && c.dirRef(p.attr("Id")) != c.dirRef(prop) {

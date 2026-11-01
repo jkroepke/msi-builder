@@ -861,7 +861,8 @@ func (c *converter) emitActions() {
 // convertActions converts the custom actions convert keeps, before any is
 // written, and hands the scheduled ones it leaves out to drop: a script, an
 // extension's call or another action without a counterpart, and an action
-// the sequences schedule that the file does not define. Placements anchored
+// the sequences schedule that the file does not define and that is not a
+// WiX extension's (extensionAnchors places those). Placements anchored
 // on one of them then move to its anchor, so the output still builds.
 func (c *converter) convertActions(byAction map[string][]any, drop func(string, *elem, []any)) map[*elem]*omap {
 	kept := make(map[*elem]*omap)
@@ -884,7 +885,10 @@ func (c *converter) convertActions(byAction map[string][]any, drop func(string, 
 	}
 
 	for _, id := range slices.Sorted(maps.Keys(byAction)) {
-		if c.actions[id] == nil && id != c.launchAction && !setters[id] {
+		// extensionAnchors places actions next to an extension's action,
+		// keeping the order of those on both sides of it.
+		if c.actions[id] == nil && id != c.launchAction && !setters[id] &&
+			!extensionAction.MatchString(strings.TrimPrefix(id, "override ")) {
 			drop(id, nil, byAction[id])
 		}
 	}

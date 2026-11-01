@@ -388,3 +388,68 @@ func TestConvertLaunchFileElsewhere(t *testing.T) {
 	wantAll(t, string(res.YAML), "file: MainExecutable\n",
 		"the finish page launches the file MainExecutable, which this file does not define")
 }
+
+// TestConvertExtensionActionSidesKept leaves actions next to a WiX
+// extension's action to extensionAnchors, which keeps the order of actions
+// on both sides of it, rather than moving them all to its place.
+func TestConvertExtensionActionSidesKept(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <CustomAction Id="SetFirst" Property="FIRST" Value="1" />
+    <CustomAction Id="SetSecond" Property="SECOND" Value="2" />
+    <InstallExecuteSequence>
+      <Custom Action="Wix4CloseApplications_X64" Before="InstallValidate" />
+      <Custom Action="SetSecond" After="Wix4CloseApplications_X64" />
+      <Custom Action="SetFirst" Before="Wix4CloseApplications_X64" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>`
+
+	yaml := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, yaml, "{sequence: execute, before: CostFinalize}", "{sequence: execute, after: CostFinalize}")
+	wantNone(t, yaml, "which convert left out")
+}
+
+// TestConvertRememberWithUnconvertedSearch keeps installDir.remember for
+// util:RemoveFolderEx when the file's own search of the install dir is one
+// convert cannot write, which would leave the folder unfound.
+func TestConvertRememberWithUnconvertedSearch(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Property Id="APPLICATIONFOLDER">
+      <IniFileSearch Id="AppFolder" Name="hello.ini" Section="main" Key="dir" Type="raw" />
+    </Property>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="APPLICATIONFOLDER" Name="Hello">
+          <Component Id="App" Guid="*" Win64="yes"><File Source="hello.exe" KeyPath="yes" /></Component>
+          <Component Id="Cleanup" Guid="*" Win64="yes">
+            <RegistryValue Root="HKLM" Key="SOFTWARE\Example\Hello" Name="Path" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
+            <util:RemoveFolderEx On="uninstall" Property="APPLICATIONFOLDER" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main" ConfigurableDirectory="APPLICATIONFOLDER"><ComponentRef Id="App" /><ComponentRef Id="Cleanup" /></Feature>
+  </Product>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantAll(t, string(res.YAML), "  remember: true\n")
+}
