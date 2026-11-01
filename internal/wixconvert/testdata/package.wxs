@@ -96,6 +96,10 @@
                               ThirdFailureActionType="reboot" />
           <util:PermissionEx User="Users" ServiceStart="yes" ServiceStop="yes" />
         </ServiceInstall>
+        <!-- Programs that keep the shared state file open. -->
+        <util:RestartResource Path="[CommonAppDataFolder]Example\Hello\state.db" />
+        <util:RestartResource ServiceName="HelloHelper" />
+        <util:RestartResource ProcessName="hello-tray.exe" />
         <ProgId Id="Example.HelloDoc" Description="Hello document" Icon="hello.exe" IconIndex="1">
           <Extension Id="hello" ContentType="application/x-hello">
             <Verb Id="open" Command="Open with Hello" Argument="&quot;%1&quot;" />
@@ -162,6 +166,7 @@
     <SetDirectory Id="LogsDir" Value="[%SYSTEMROOT]\Temp\Hello" Sequence="execute" />
     <!-- Closes the running program before it is replaced. -->
     <util:CloseApplication Id="CloseHello" Target="hello.exe" CloseMessage="yes" RebootPrompt="no" />
+    <util:RestartResource ServiceName="HelloIndexer" />
     <!-- Only detects the running program. -->
     <util:CloseApplication Id="FindHello" Target="hello.exe" PromptToContinue="yes" Property="HELLORUNNING" />
     <CustomAction Id="StopClients" FileRef="hello.exe" ExeCommand="detach --all" Execute="deferred" Impersonate="no" Return="ignore" />

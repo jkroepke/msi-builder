@@ -18,8 +18,8 @@ import (
 
 // closeConfig installs the close helper three times: gui.exe and cli.exe
 // are closed with the defaults (WM_CLOSE, 5 s, then terminate), keep.exe
-// only gets WM_CLOSE. Restart Manager is off, as the design doc recommends
-// with close: it would shut the programs down itself in a silent install.
+// only gets WM_CLOSE. Restart Manager is off, so that CLOSE-01 tests close
+// alone; CLOSE-03 (closeRMConfig) is the variant with it on.
 // The packages are stored uncompressed, like the service tests, to keep
 // -race builds fast.
 const closeConfig = `schema: msi-builder/v1
@@ -33,11 +33,17 @@ components:
   - files: [{ source: keep.exe, close: { timeout: 2s, terminate: false } }]
 `
 
-// closeHelperSource is a program with three modes: "window <marker>" opens
+// closeHelperSource is a program with four modes: "window <marker>" opens
 // a hidden top-level window, writes <marker>.ready, and on WM_CLOSE writes
 // <marker> and exits with 0; "visible <marker>" does the same with a
 // visible window and also opens a hidden one, which writes <marker>.hidden
-// when it gets WM_CLOSE; "console" sleeps without a window.
+// when it gets WM_CLOSE; "hold <marker> <file>" is "window <marker>" with
+// <file> held open; "restartable <marker>" is "window <marker>" registered
+// with RegisterApplicationRestart to be started again as "restarted
+// <marker>", which writes "<pid> <UTC time>" to <marker>.restarted and
+// opens the window of <marker>.again; "console" sleeps without a window. The window modes
+// write <marker>.endsession and exit on WM_ENDSESSION, as Restart Manager
+// sends it to a program it shuts down.
 const closeHelperSource = `//go:build windows
 
 package main
@@ -45,6 +51,7 @@ package main
 import (
 	"os"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
@@ -81,9 +88,36 @@ var (
 	destroyWindow    = user32.NewProc("DestroyWindow")
 	postQuitMessage  = user32.NewProc("PostQuitMessage")
 	getModuleHandle  = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
+	registerRestart  = syscall.NewLazyDLL("kernel32.dll").NewProc("RegisterApplicationRestart")
 )
 
+// held keeps the file of "hold" open while the window runs.
+var held *os.File
+
 func main() {
+	if len(os.Args) > 3 && os.Args[1] == "hold" {
+		f, err := os.Open(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+		held = f
+		window(os.Args[2], false)
+		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == "restartable" {
+		line, _ := syscall.UTF16PtrFromString("restarted " + os.Args[2])
+		if r, _, err := registerRestart.Call(uintptr(unsafe.Pointer(line)), 0); r != 0 {
+			panic(err)
+		}
+		window(os.Args[2], false)
+		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == "restarted" {
+		stamp := strconv.Itoa(os.Getpid()) + " " + time.Now().UTC().Format(time.RFC3339Nano)
+		_ = os.WriteFile(os.Args[2]+".restarted", []byte(stamp), 0o644)
+		window(os.Args[2]+".again", false)
+		return
+	}
 	if len(os.Args) > 2 && (os.Args[1] == "window" || os.Args[1] == "visible") {
 		window(os.Args[2], os.Args[1] == "visible")
 		return
@@ -105,6 +139,9 @@ func window(marker string, visible bool) {
 			_ = os.WriteFile(marker, []byte("WM_CLOSE"), 0o644)
 			destroyWindow.Call(hwnd)
 			return 0
+		case m == 0x16 && wp != 0 && hwnd == mainWindow: // WM_ENDSESSION, the session ends
+			_ = os.WriteFile(marker+".endsession", []byte("WM_ENDSESSION"), 0o644)
+			os.Exit(0)
 		case m == 0x2 && hwnd == mainWindow: // WM_DESTROY
 			postQuitMessage.Call(0)
 			return 0
