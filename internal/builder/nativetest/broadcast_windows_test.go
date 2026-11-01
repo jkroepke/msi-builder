@@ -405,7 +405,7 @@ func TestMsiexecEnvironmentBroadcast(t *testing.T) { //nolint:paralleltest // ms
 					unannounced(t, verb+tc.name)
 				}
 
-				if code := msiexec(t, append(args, "/qn")...); code != 0 {
+				if code := msiexec(t, append(repairArgs(args), "/qn", "/norestart", "REBOOT=ReallySuppress")...); code != 0 {
 					t.Fatalf("msiexec %s: exit %d", verb, code)
 				}
 

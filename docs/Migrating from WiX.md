@@ -926,8 +926,8 @@ the context it runs in (section 8.10 of the specification). In a
 itself, with a note, and keeps the move, now behind AppSearch: setting
 `ALLUSERS` after the package opened registers it per machine but keeps the
 per-user folders (UPG-15, INST-07), so the scope page or `ALLUSERS=1` on
-the command line choose the context instead. A package that keeps the setter also needs one for
-INSTALLDIR (`docs/design/yaml-schema.md`, "Moving standard actions"):
+the command line choose the context instead. A package that keeps the setter
+also needs one for INSTALLDIR (`docs/design/yaml-schema.md`, "Moving standard actions"):
 
 ```xml
 <SetProperty Id="ALLUSERS" Action="SetAllUsersFromPrevious" Value="1" After="AppSearch" Sequence="both" Condition="PREVMACHINE" />

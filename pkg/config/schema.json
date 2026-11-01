@@ -1082,7 +1082,7 @@
           ]
         },
         "MSIRESTARTMANAGERCONTROL": {
-          "description": "Whether Restart Manager handles files in use. 0 (default) uses Restart Manager; Disable turns it off and uses the FilesInUse dialog; DisableShutdown uses the FilesInUse dialog and Restart Manager only to detect files in use, never to shut programs down. Ignored when Restart Manager is unavailable or disabled; a custom action changing it has no effect.",
+          "description": "Whether Restart Manager handles files in use. 0 (default) uses Restart Manager; Disable turns it off and uses the FilesInUse dialog; DisableShutdown uses the FilesInUse dialog and Restart Manager only to detect files in use, never to shut programs down. The value is case-sensitive: disable acts as 0. Ignored when Restart Manager is unavailable or disabled; a custom action changing it has no effect.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
