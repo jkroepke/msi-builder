@@ -176,6 +176,7 @@ BOOL WINAPI LookupAccountNameW(const WCHAR *, const WCHAR *, void *, DWORD *, WC
 DWORD WINAPI GetNamedSecurityInfoW(const WCHAR *, int, DWORD, void **, void **, ACL **, ACL **, void **);
 DWORD WINAPI GetSecurityInfo(HANDLE, int, DWORD, void **, void **, ACL **, ACL **, void **);
 DWORD WINAPI SetNamedSecurityInfoW(WCHAR *, int, DWORD, void *, void *, ACL *, ACL *);
+DWORD WINAPI SetSecurityInfo(HANDLE, int, DWORD, void *, void *, ACL *, ACL *);
 BOOL WINAPI GetSecurityDescriptorControl(void *, unsigned short *, DWORD *);
 BOOL WINAPI InitializeAcl(ACL *, DWORD, DWORD);
 BOOL WINAPI GetAce(ACL *, DWORD, void **);
@@ -190,6 +191,7 @@ long WINAPI RegQueryValueExW(HANDLE, const WCHAR *, DWORD *, DWORD *, BYTE *, DW
 long WINAPI RegDeleteTreeW(HANDLE, const WCHAR *);
 long WINAPI RegCloseKey(HANDLE);
 long WINAPI RegEnumKeyExW(HANDLE, DWORD, WCHAR *, DWORD *, DWORD *, WCHAR *, DWORD *, void *);
+long WINAPI RegEnumValueW(HANDLE, DWORD, WCHAR *, DWORD *, DWORD *, DWORD *, BYTE *, DWORD *);
 
 // msi.dll
 UINT WINAPI MsiGetPropertyW(MSIHANDLE, const WCHAR *, WCHAR *, DWORD *);
@@ -304,6 +306,7 @@ enum {
     SE_DACL_PROTECTED = 0x1000,
     OWNER_SECURITY_INFORMATION = 1,
     READ_CONTROL_ = 0x20000,
+    WRITE_DAC_ = 0x40000,
     FileStandardInfo_ = 1,
     ACL_REVISION = 2,
     ACCESS_ALLOWED_ACE_TYPE = 0,
@@ -344,6 +347,7 @@ enum {
     FileDispositionInfo_ = 4,
     FileDispositionInfoEx_ = 21,
     FileAttributeTagInfo_ = 9,
+    FileIdInfo_ = 18,
     FileFullDirectoryInfo_ = 14,
     FileFullDirectoryRestartInfo_ = 15,
     // Authz.
@@ -374,6 +378,10 @@ enum {
     // child is interrupted to ask the installer about a cancel.
     LINE_BUFFER = 65536,
     EXIT_GRACE_MS = 5000,
+    // How much output is still read after the grace period: more than the
+    // pipe's buffer (LINE_BUFFER) can hold, so that only a process that
+    // keeps writing reaches it.
+    LATE_OUTPUT = 4 * LINE_BUFFER,
     CANCEL_POLL_MS = 1000,
 };
 
@@ -620,6 +628,26 @@ static void stop(output *o)
     }
 }
 
+// pieceEnd returns where a piece of a line too long for the buffer ends:
+// before a UTF-8 sequence that the last bytes of buf begin but do not
+// complete, so that each half is not decoded on its own, which fails UTF-8
+// and logs both in the OEM code page. The bytes after it stay for the next
+// piece. Text that is no UTF-8 loses nothing by it: at most three bytes
+// move to the next piece.
+static SIZE_T pieceEnd(const char *buf, SIZE_T len)
+{
+    SIZE_T lead = len;
+    while (lead > 0 && len - lead < 3 && ((unsigned char)buf[lead - 1] & 0xC0) == 0x80) {
+        lead--;
+    }
+    if (lead == 0) {
+        return len;
+    }
+    unsigned char c = (unsigned char)buf[lead - 1];
+    SIZE_T need = c >= 0xF0 && c <= 0xF4 ? 4 : c >= 0xE0 && c < 0xF0 ? 3 : c >= 0xC2 && c < 0xE0 ? 2 : 0;
+    return need && len - (lead - 1) < need ? lead - 1 : len;
+}
+
 // emitLines logs the complete lines in the buffer, which the first n bytes
 // of the last read extended, and keeps the rest. A line ends at \n, \r or
 // \r\n, so progress written with \r alone is logged line by line; a line
@@ -650,11 +678,13 @@ static void emitLines(MSIHANDLE install, output *o, SIZE_T scanFrom)
         o->len -= start;
     }
     if (o->len == LINE_BUFFER) {
-        if (emitLine(install, o->buf, LINE_BUFFER) == IDCANCEL && !o->cancelled) {
+        SIZE_T cut = pieceEnd(o->buf, LINE_BUFFER);
+        if (emitLine(install, o->buf, (int)cut) == IDCANCEL && !o->cancelled) {
             o->cancelled = 1;
             stop(o);
         }
-        o->len = 0;
+        moveDown(o->buf, o->buf + cut, LINE_BUFFER - cut);
+        o->len = LINE_BUFFER - cut;
     }
 }
 
@@ -674,18 +704,26 @@ static void abandon(output *o)
 // while the child is silent, the installer is asked every CANCEL_POLL_MS
 // whether the user cancelled. A cancel, also one returned for a logged
 // line, ends the job; the pipe then closes by itself.
+//
+// The grace period limits the wait for more output, not the reading of
+// output that is already in the pipe: logging a long backlog can take
+// longer than the grace period after the writers have closed the pipe, and
+// that output is still read to its end. A writer that keeps the pipe filled
+// is caught by the amount: once the grace period is over, the pipe holds
+// at most its buffer when nobody writes any more, so more than
+// LATE_OUTPUT bytes read after it means a process still writes.
 static void pump(MSIHANDLE install, output *o)
 {
     int exited = 0;
     unsigned long long deadline = 0, lastPoll = GetTickCount64();
+    SIZE_T late = 0;
     for (;;) {
-        // The grace period is also checked here, so that a leftover process
-        // that keeps writing does not keep the action alive.
         if (!exited && WaitForSingleObject(o->process, 0) == WAIT_OBJECT_0) {
             exited = 1;
             deadline = GetTickCount64() + EXIT_GRACE_MS;
         }
-        if (exited && GetTickCount64() >= deadline) {
+        int over = exited && GetTickCount64() >= deadline;
+        if (over && late > LATE_OUTPUT) {
             logf(install, msgAbandon, 0, 0);
             stop(o);
             abandon(o);
@@ -710,7 +748,14 @@ static void pump(MSIHANDLE install, output *o)
             int done = 0;
             while (!done) {
                 HANDLE handles[2] = {o->event, o->process};
-                DWORD r = WaitForMultipleObjects(exited ? 1 : 2, handles, 0, CANCEL_POLL_MS);
+                // After the child exited, the wait for more output ends
+                // with the grace period.
+                DWORD slice = CANCEL_POLL_MS;
+                if (exited) {
+                    unsigned long long now = GetTickCount64();
+                    slice = now >= deadline ? 0 : deadline - now < CANCEL_POLL_MS ? (DWORD)(deadline - now) : CANCEL_POLL_MS;
+                }
+                DWORD r = WaitForMultipleObjects(exited ? 1 : 2, handles, 0, slice);
                 if (r == WAIT_OBJECT_0) {
                     if (!GetOverlappedResult(o->pipe, &ov, &got, 0)) {
                         err = GetLastError();
@@ -735,7 +780,7 @@ static void pump(MSIHANDLE install, output *o)
                     GetOverlappedResult(o->pipe, &ov, &got, 1);
                     eof = 1;
                     done = 1;
-                } else if (!exited && !o->cancelled) {
+                } else if (!o->cancelled) {
                     lastPoll = GetTickCount64();
                     if (cancelled(install)) {
                         o->cancelled = 1;
@@ -750,10 +795,17 @@ static void pump(MSIHANDLE install, output *o)
         // A zero-length write by the child reads as zero bytes; only a broken
         // pipe is the end.
         o->len += got;
+        // Every read counts at least one byte: a writer that keeps
+        // writing zero bytes never fills the pipe and would never end the
+        // loop otherwise.
+        if (exited && GetTickCount64() >= deadline) {
+            late += got + 1;
+        }
         emitLines(install, o, scanFrom);
         // A child that writes without line ends completes no line and times
-        // out no wait, so the poll runs on the clock here as well.
-        if (!exited && !o->cancelled && GetTickCount64() - lastPoll >= CANCEL_POLL_MS) {
+        // out no wait, so the poll runs on the clock here as well, also
+        // while a backlog is read after the child exited.
+        if (!o->cancelled && GetTickCount64() - lastPoll >= CANCEL_POLL_MS) {
             lastPoll = GetTickCount64();
             if (cancelled(install)) {
                 o->cancelled = 1;
@@ -1128,6 +1180,7 @@ static const WCHAR msgSid[] = u"cannot resolve the account";
 static const WCHAR msgGetSec[] = u"cannot read the permissions of";
 static const WCHAR msgSetSec[] = u"cannot write the permissions of";
 static const WCHAR msgNoDacl[] = u"has no DACL, so everyone has full access; left as it is";
+static const WCHAR msgRedirected[] = u"refused, reached through a junction, a symbolic link or a substituted drive, which leads to";
 static const WCHAR msgAlready[] = u"already granted, left as it is";
 static const WCHAR msgGranted[] = u"granted";
 static const WCHAR msgRevoked[] = u"revoked";
@@ -1618,6 +1671,49 @@ static int rebuild(ACL *dacl, void *sid, DWORD mask, DWORD flags, int grant, ACL
     return 1;
 }
 
+static WCHAR *longPath(const WCHAR *path);
+static WCHAR *finalPathOf(HANDLE file);
+static int samePath(const WCHAR *a, const WCHAR *b);
+
+// openGrantObject opens the file or folder of a grant for reading and
+// writing its DACL and checks that the handle reached it at that very path:
+// its final path, after every junction, symbolic link and substituted drive
+// is resolved, must be the long form of the path. Otherwise a link in place
+// of the object or of a folder above it would lead the grant elsewhere. A
+// volume mounted in a folder is refused the same way when the final path
+// names it by another drive letter. It returns 0 with *file set, a Windows
+// error, or MAXDWORD_ after it logged the refusal.
+static DWORD openGrantObject(MSIHANDLE install, const WCHAR *object, HANDLE *file)
+{
+    // Share access for everyone, so that the system can propagate inheritable
+    // ACEs to the children (SetSecurityInfo), and explicit rights: a
+    // MAXIMUM_ALLOWED handle does not propagate.
+    HANDLE h = CreateFileW(object, READ_CONTROL_ | WRITE_DAC_, FILE_SHARE_ALL, 0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
+    if (h == INVALID_HANDLE_VALUE) {
+        return GetLastError();
+    }
+    WCHAR *expected = longPath(object), *final = finalPathOf(h);
+    if (expected && final && samePath(expected, final)) {
+        HeapFree(GetProcessHeap(), 0, expected);
+        HeapFree(GetProcessHeap(), 0, final);
+        *file = h;
+        return 0;
+    }
+    static const WCHAR unknown[] = u"a path that is not on a local drive", space[] = u" ";
+    const WCHAR *to = final ? final : unknown;
+    wbuf text = {0, 0, 0};
+    if (wbufAdd(&text, msgRedirected, wlen(msgRedirected)) && wbufAdd(&text, space, 1) && wbufAdd(&text, to, wlen(to))) {
+        logft(install, tmplGrant, object, text.s, 0);
+    } else {
+        logft(install, tmplGrant, object, msgRedirected, 0);
+    }
+    HeapFree(GetProcessHeap(), 0, text.s);
+    HeapFree(GetProcessHeap(), 0, expected);
+    HeapFree(GetProcessHeap(), 0, final);
+    CloseHandle(h);
+    return MAXDWORD_;
+}
+
 // applyEntry grants (or, on rollback, revokes) the rights of one entry to
 // account. On a grant, the rights it is about to add are recorded under
 // valueName in key (keyErr is why key is 0) before the object changes. It
@@ -1667,10 +1763,25 @@ static int applyEntry(MSIHANDLE install, grantEntry *e, const WCHAR *account, in
     }
     void *sd = 0;
     ACL *dacl = 0, *acl = 0;
+    HANDLE file = 0;
     if (!sid) {
         goto done;
     }
-    DWORD err = GetNamedSecurityInfoW(object, type, DACL_SECURITY_INFORMATION, 0, 0, &dacl, 0, &sd);
+    DWORD err;
+    if (type == SE_FILE_OBJECT) {
+        // A file or folder is read and written by a handle whose path is
+        // checked, never by name: a junction in place of a folder above it
+        // would send LocalSystem's write to another tree.
+        if ((err = openGrantObject(install, object, &file)) != 0) {
+            if (err != MAXDWORD_) {
+                logft(install, tmplGrant, msgGetSec, object, err);
+            }
+            goto done;
+        }
+        err = GetSecurityInfo(file, type, DACL_SECURITY_INFORMATION, 0, 0, &dacl, 0, &sd);
+    } else {
+        err = GetNamedSecurityInfoW(object, type, DACL_SECURITY_INFORMATION, 0, 0, &dacl, 0, &sd);
+    }
     if (err) {
         logft(install, tmplGrant, msgGetSec, object, err);
         goto done;
@@ -1714,7 +1825,7 @@ static int applyEntry(MSIHANDLE install, grantEntry *e, const WCHAR *account, in
         }
         info |= control & SE_DACL_PROTECTED ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION;
     }
-    err = SetNamedSecurityInfoW(object, type, info, 0, 0, acl, 0);
+    err = file ? SetSecurityInfo(file, type, info, 0, 0, acl, 0) : SetNamedSecurityInfoW(object, type, info, 0, 0, acl, 0);
     if (err) {
         logft(install, tmplGrant, msgSetSec, object, err);
         goto done;
@@ -1731,6 +1842,9 @@ static int applyEntry(MSIHANDLE install, grantEntry *e, const WCHAR *account, in
 done:
     if (sd) {
         LocalFree(sd);
+    }
+    if (file) {
+        CloseHandle(file);
     }
     HeapFree(heap, 0, acl);
     HeapFree(heap, 0, sid);
@@ -1982,6 +2096,8 @@ static const WCHAR msgRemoveLines[] = u"the folder removal data has more lines t
 static const WCHAR msgRemoveRecord[] = u"cannot record the folders for the rollback; nothing removed";
 static const WCHAR removeRecordKey[] = u"Software\\msi-builder\\RemoveFolders\\";
 static const WCHAR removeRecordToken[] = u"Token";
+static const WCHAR removeLeftKey[] = u"Software\\msi-builder\\RemoveFoldersLeft\\";
+static const WCHAR removeLeftProduct[] = u"ProductCode";
 static const WCHAR windowsFolder[] = u"WindowsFolder";
 static const WCHAR msgRemoveNotAdminExec[] =
     u"nothing removed: the account that started the session is no administrator, or its groups cannot be read";
@@ -2008,9 +2124,12 @@ static const WCHAR msgRemoveBusy[] = u"left in place, it cannot be moved (a file
 static const WCHAR msgRemoveBackup[] = u"left in place, the backup folder at the root of its volume cannot be created or has no access list of its own (a FAT volume)";
 static const WCHAR msgRemoveVolume[] = u"left in place, it is on a volume mounted in a folder";
 static const WCHAR msgRemoveRestored[] = u"restored";
-static const WCHAR msgRemoveRestore[] = u"cannot be restored, it stays in the backup folder at the root of its volume";
+static const WCHAR msgRemoveRestore[] = u"cannot be restored, it stays in";
+static const WCHAR msgRemoveStale[] = u"was moved aside by a removal that reached neither its rollback nor its commit, it stays in";
+static const WCHAR msgRemoveKept[] = u"its original path is kept in HKEY_CURRENT_USER (HKEY_USERS\\S-1-5-18 for LocalSystem) under";
+static const WCHAR msgRemoveNotKept[] = u"its original path cannot be kept in the registry";
 static const WCHAR msgRemoveDeleted[] = u"deleted";
-static const WCHAR msgRemoveLeft[] = u"not everything could be deleted, the rest stays in the backup folder at the root of its volume";
+static const WCHAR msgRemoveLeft[] = u"not everything could be deleted, the rest stays in";
 static const WCHAR backupSddl[] = u"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)";
 
 // removeData is the parsed CustomActionData: the s, p and f lines, cut at
@@ -2979,6 +3098,121 @@ static int newToken(WCHAR token[33])
     return 1;
 }
 
+// keepLeft is called when backup folder <index> of token cannot be put
+// back or deleted: it logs where the folder stays and keeps the original
+// path, which only the record ties to the backup folder's random name,
+// under HKCU\Software\msi-builder\RemoveFoldersLeft\<token> as value
+// <index>, with the product code. Nothing deletes that key; it is there
+// for whoever cleans up by hand.
+static void keepLeft(MSIHANDLE install, const WCHAR *product, const WCHAR *token, DWORD index, const WCHAR *folder, const WCHAR *why, DWORD code)
+{
+    static const WCHAR space[] = u" ", value[] = u", value ";
+    WCHAR *backup = backupPath(folder, token, index);
+    wbuf text = {0, 0, 0}, keyPath = {0, 0, 0};
+    if (!backup || !wbufAdd(&text, why, wlen(why)) || !wbufAdd(&text, space, 1) || !wbufAdd(&text, backup, wlen(backup))) {
+        logft(install, tmplRemove, folder, why, code);
+    } else {
+        logft(install, tmplRemove, folder, text.s, code);
+    }
+    WCHAR name[12];
+    SIZE_T pos = 0;
+    wappendnum(name, &pos, index);
+    HANDLE key = 0;
+    int kept = wbufAdd(&keyPath, removeLeftKey, wlen(removeLeftKey)) && wbufAdd(&keyPath, token, wlen(token)) &&
+               !RegCreateKeyExW(HKCU_, keyPath.s, 0, 0, 0, KEY_SET_VALUE, 0, &key, 0) && regSetText(key, name, folder) &&
+               (!product || regSetText(key, removeLeftProduct, product));
+    if (key) {
+        RegCloseKey(key);
+    }
+    text.len = 0;
+    if (kept && backup && wbufAdd(&text, msgRemoveKept, wlen(msgRemoveKept)) && wbufAdd(&text, space, 1) &&
+        wbufAdd(&text, keyPath.s, keyPath.len) && wbufAdd(&text, value, wlen(value)) && wbufAdd(&text, name, pos)) {
+        logft(install, tmplRemove, backup, text.s, 0);
+    } else if (!kept) {
+        logft(install, tmplRemove, backup ? backup : folder, msgRemoveNotKept, 0);
+    }
+    HeapFree(GetProcessHeap(), 0, text.s);
+    HeapFree(GetProcessHeap(), 0, keyPath.s);
+    HeapFree(GetProcessHeap(), 0, backup);
+}
+
+// recordToken reads the token of a record into token; 0 when it has none
+// that is 32 lowercase hexadecimal digits.
+static int recordToken(HANDLE key, WCHAR token[33])
+{
+    WCHAR *recorded = regText(key, removeRecordToken);
+    int ok = recorded && wlen(recorded) == 32;
+    for (int i = 0; ok && i < 32; i++) {
+        WCHAR c = recorded[i];
+        ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    }
+    if (ok) {
+        memcpy(token, recorded, 33 * sizeof(WCHAR));
+    }
+    HeapFree(GetProcessHeap(), 0, recorded);
+    return ok;
+}
+
+// recordedFolder reads value name of a record: a folder path with its
+// trailing backslash, or 0.
+static WCHAR *recordedFolder(HANDLE key, const WCHAR *name)
+{
+    WCHAR *folder = regText(key, name);
+    SIZE_T n = folder ? wlen(folder) : 0;
+    if (!n || folder[n - 1] != '\\' || !plainPath(folder)) {
+        HeapFree(GetProcessHeap(), 0, folder);
+        return 0;
+    }
+    return folder;
+}
+
+// keepStale is called before a new removal replaces a record that reached
+// neither its rollback nor its commit (the installer process ended in
+// between): every recorded folder whose backup folder is still there is
+// kept with keepLeft, so its original path is not lost with the record.
+static void keepStale(MSIHANDLE install, const WCHAR *product, const WCHAR *recordPath)
+{
+    HANDLE key = 0;
+    WCHAR token[33];
+    if (RegOpenKeyExW(HKCU_, recordPath, 0, KEY_QUERY_VALUE, &key)) {
+        return;
+    }
+    if (!recordToken(key, token)) {
+        RegCloseKey(key);
+        return;
+    }
+    for (DWORD i = 0;; i++) {
+        WCHAR name[16];
+        DWORD n = 16, index = 0;
+        long err = RegEnumValueW(key, i, name, &n, 0, 0, 0, 0);
+        if (err == ERROR_MORE_DATA) {
+            continue; // a longer name is no folder number
+        }
+        if (err) {
+            break;
+        }
+        int number = n > 0 && n < 10;
+        for (DWORD j = 0; number && j < n; j++) {
+            number = name[j] >= '0' && name[j] <= '9';
+            index = index * 10 + (DWORD)(name[j] - '0');
+        }
+        WCHAR *folder = number && index ? recordedFolder(key, name) : 0;
+        WCHAR *rootPath = folder ? backupPath(folder, token, 0) : 0;
+        HANDLE root = rootPath ? openBackup(rootPath, FILE_LIST_DIRECTORY) : 0;
+        HANDLE moved = root ? openMoved(root, index, FILE_LIST_DIRECTORY) : 0;
+        if (moved) {
+            keepLeft(install, product, token, index, folder, msgRemoveStale, 0);
+            CloseHandle(moved);
+        }
+        if (root) {
+            CloseHandle(root);
+        }
+        HeapFree(GetProcessHeap(), 0, rootPath);
+        HeapFree(GetProcessHeap(), 0, folder);
+    }
+    RegCloseKey(key);
+}
+
 // moveFolders is the deferred side: it checks each f line's folder and
 // moves the accepted ones aside as <n>, n the number of the line, then with
 // op d deletes them at once. With op m it first records the token and,
@@ -2989,9 +3223,12 @@ static DWORD moveFolders(MSIHANDLE install, const removeData *rd, WCHAR op, cons
 {
     HANDLE key = 0;
     DWORD created = 0, volumes = 0;
+    const WCHAR *product = recordPath + wlen(removeRecordKey);
     if (op == 'm') {
         // A record left by a removal that reached neither its rollback nor
-        // its commit is stale; its backup folder stays where it is.
+        // its commit is stale; its backup folders stay where they are, and
+        // what they hold is kept apart before the record goes.
+        keepStale(install, product, recordPath);
         RegDeleteTreeW(HKCU_, recordPath);
         if (RegCreateKeyExW(HKCU_, recordPath, 0, 0, 0, KEY_SET_VALUE, 0, &key, 0)) {
             key = 0;
@@ -3022,7 +3259,7 @@ static DWORD moveFolders(MSIHANDLE install, const removeData *rd, WCHAR op, cons
             if (moved && deleteFolder(moved)) {
                 logft(install, tmplRemove, msgRemoveDeleted, folder, 0);
             } else {
-                logft(install, tmplRemove, folder, msgRemoveLeft, 0);
+                keepLeft(install, product, token, i + 1, folder, msgRemoveLeft, 0);
             }
             if (moved) {
                 CloseHandle(moved);
@@ -3049,28 +3286,18 @@ static DWORD finishFolders(MSIHANDLE install, const removeData *rd, WCHAR op, co
 {
     HANDLE key = 0;
     DWORD volumes = 0;
+    const WCHAR *product = recordPath + wlen(removeRecordKey);
     if (RegOpenKeyExW(HKCU_, recordPath, 0, KEY_QUERY_VALUE, &key)) {
         return 0; // nothing was moved
     }
-    WCHAR *recorded = regText(key, removeRecordToken);
-    int ok = recorded && wlen(recorded) == 32;
-    for (int i = 0; ok && i < 32; i++) {
-        WCHAR c = recorded[i];
-        ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-    }
-    if (ok) {
-        memcpy(token, recorded, 33 * sizeof(WCHAR));
-    }
-    HeapFree(GetProcessHeap(), 0, recorded);
+    int ok = recordToken(key, token);
     for (DWORD i = 0; ok && i < rd->count; i++) {
         DWORD index = op == 'u' ? rd->count - i : i + 1;
         WCHAR name[12];
         SIZE_T pos = 0;
         wappendnum(name, &pos, index);
-        WCHAR *folder = regText(key, name);
-        SIZE_T n = folder ? wlen(folder) : 0;
-        if (!n || folder[n - 1] != '\\' || !plainPath(folder)) {
-            HeapFree(GetProcessHeap(), 0, folder);
+        WCHAR *folder = recordedFolder(key, name);
+        if (!folder) {
             continue;
         }
         volumes |= 1u << (wlower(folder[0]) - 'a');
@@ -3081,11 +3308,13 @@ static DWORD finishFolders(MSIHANDLE install, const removeData *rd, WCHAR op, co
         if (restored > 0) {
             logft(install, tmplRemove, folder, msgRemoveRestored, 0);
         } else if (restored < 0) {
-            logft(install, tmplRemove, folder, msgRemoveRestore, GetLastError());
+            // The record goes below; what ties the backup folder to the
+            // folder is kept apart.
+            keepLeft(install, product, token, index, folder, msgRemoveRestore, GetLastError());
         } else if (moved && deleteFolder(moved)) {
             logft(install, tmplRemove, msgRemoveDeleted, folder, 0);
         } else if (moved) {
-            logft(install, tmplRemove, folder, msgRemoveLeft, 0);
+            keepLeft(install, product, token, index, folder, msgRemoveLeft, 0);
         }
         if (moved) {
             CloseHandle(moved);
@@ -3170,8 +3399,10 @@ __declspec(dllexport) UINT WINAPI BuilderRemoveFoldersExec(MSIHANDLE install)
 // type-51 actions of the engine, a reset to `|` and then one per file that
 // terminates, not by the schedule action: the impersonated custom action server runs with the
 // user's token, so what it hands to LocalSystem must not decide which
-// processes are ended. A process matches by its full image path, compared
-// without regard to case, so a copy of the program in another folder is
+// processes are ended. A process matches when its image is the file: by
+// the full image path, compared without regard to case, or else by the
+// file's volume and file ID, since a process keeps the 8.3 path it was
+// started by. A copy of the program in another folder is
 // left alone. Neither action fails the install: a file that is still in use
 // goes through the engine's files-in-use handling as before. Log lines read
 // `BuilderClose: ...`.
@@ -3218,6 +3449,15 @@ BOOL WINAPI Process32FirstW(HANDLE, PROCESSENTRY32W *);
 BOOL WINAPI Process32NextW(HANDLE, PROCESSENTRY32W *);
 HANDLE WINAPI OpenProcess(DWORD, BOOL, DWORD);
 BOOL WINAPI QueryFullProcessImageNameW(HANDLE, DWORD, WCHAR *, DWORD *);
+DWORD WINAPI GetCurrentProcessId(void);
+
+// FILE_ID_INFO: the volume serial number and the 128-bit file ID.
+typedef struct {
+    unsigned long long volume;
+    BYTE id[16];
+} FILE_ID_INFO_;
+
+_Static_assert(sizeof(FILE_ID_INFO_) == 24, "FILE_ID_INFO layout");
 
 // user32.dll
 BOOL WINAPI EnumWindows(WNDENUMPROC, INTPTR);
@@ -3270,9 +3510,56 @@ static const WCHAR *baseName(const WCHAR *path)
     return name;
 }
 
-// findRunning opens every process whose image is path with the given access
-// and returns how many it put into targets. image is a scratch buffer of
-// IMAGE_PATH characters.
+// fileId reads the volume serial number and the file ID of an existing
+// file, which name it whatever path reaches it: a short name, a junction or
+// a symbolic link on the way, another hard link. It returns 0 when the file
+// cannot be opened.
+static int fileId(const WCHAR *path, FILE_ID_INFO_ *id)
+{
+    HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_ALL, 0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
+    if (h == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+    int ok = GetFileInformationByHandleEx(h, FileIdInfo_, id, sizeof *id);
+    CloseHandle(h);
+    return ok;
+}
+
+// sameFile reports whether image, the image path of a process, is the file
+// path names: by the text first, then by the file's identity, because a
+// process started by the short form keeps it (CLOSE-02; one started
+// through a junction reported the resolved path there), and another link
+// to the file may name it otherwise (have is 0 when the file has no
+// identity to compare).
+static int sameFile(const WCHAR *image, const WCHAR *path, const FILE_ID_INFO_ *want, int have)
+{
+    if (wieqi(image, path)) {
+        return 1;
+    }
+    // A program on a network share is not opened for a local file: an
+    // unreachable share would stall the action. A junction cannot lead to
+    // one.
+    if (image[0] == '\\' && image[1] == '\\' && image[2] != '?' && image[2] != '.' && !(path[0] == '\\' && path[1] == '\\')) {
+        return 0;
+    }
+    FILE_ID_INFO_ got;
+    if (!have || !fileId(image, &got) || got.volume != want->volume) {
+        return 0;
+    }
+    for (int i = 0; i < 16; i++) {
+        if (got.id[i] != want->id[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// findRunning opens every process whose image is the file at path with the
+// given access and returns how many it put into targets. image is a
+// scratch buffer of IMAGE_PATH characters. Every process is looked at, not
+// only those with the file's name, since a process started by the short
+// name carries that one; each is opened for its image path alone first, so
+// that only a match is opened with access.
 static DWORD findRunning(MSIHANDLE install, const WCHAR *path, DWORD access, closeTarget *targets, WCHAR *image)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -3281,32 +3568,45 @@ static DWORD findRunning(MSIHANDLE install, const WCHAR *path, DWORD access, clo
         return 0;
     }
     const WCHAR *name = baseName(path);
-    DWORD n = 0;
+    FILE_ID_INFO_ want;
+    int have = fileId(path, &want);
+    DWORD n = 0, self = GetCurrentProcessId();
     PROCESSENTRY32W entry;
     memset(&entry, 0, sizeof entry);
     entry.dwSize = sizeof entry;
     for (BOOL more = Process32FirstW(snap, &entry); more && n < CLOSE_MAX; more = Process32NextW(snap, &entry)) {
         entry.szExeFile[259] = 0;
-        if (!wieqi(entry.szExeFile, name)) {
+        if (entry.th32ProcessID == 0 || entry.th32ProcessID == self) {
             continue;
         }
-        HANDLE process = OpenProcess(access | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, entry.th32ProcessID);
-        if (!process) {
+        HANDLE query = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
+        if (!query) {
             // Another user's program, from the immediate action, or one
             // that exited in between: the deferred action ends the first.
-            logft(install, tmplClose, msgCannotOpen, entry.szExeFile, GetLastError());
+            // Only a process with the file's name is worth a line.
+            if (wieqi(entry.szExeFile, name)) {
+                logft(install, tmplClose, msgCannotOpen, entry.szExeFile, GetLastError());
+            }
             continue;
         }
         DWORD size = IMAGE_PATH;
-        if (QueryFullProcessImageNameW(process, 0, image, &size) && wieqi(image, path)) {
-            targets[n].process = process;
-            targets[n].pid = entry.th32ProcessID;
-            targets[n].windows = 0;
-            targets[n].visible = 0;
-            n++;
-        } else {
-            CloseHandle(process);
+        if (!QueryFullProcessImageNameW(query, 0, image, &size) || !sameFile(image, path, &want, have)) {
+            CloseHandle(query);
+            continue;
         }
+        // The open handle keeps the process ID from being reused.
+        HANDLE process = OpenProcess(access | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, entry.th32ProcessID);
+        DWORD err = GetLastError();
+        CloseHandle(query);
+        if (!process) {
+            logft(install, tmplClose, msgCannotOpen, image, err);
+            continue;
+        }
+        targets[n].process = process;
+        targets[n].pid = entry.th32ProcessID;
+        targets[n].windows = 0;
+        targets[n].visible = 0;
+        n++;
     }
     CloseHandle(snap);
     return n;
