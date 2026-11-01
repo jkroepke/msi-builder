@@ -760,7 +760,8 @@ func (b *build) sequenceFiles() error { //nolint:cyclop // one pass over the for
 }
 
 // resolveKeyPath picks the component's key path: the explicit one, else the
-// first file, else the first registry value, else the directory.
+// first file, else the first registry value, else the first value of its
+// own file types, else the directory.
 func (b *build) resolveKeyPath(path string, info *componentInfo) error { //nolint:cyclop // one pass over the format; splitting would scatter it
 	comp := info.cfg
 
@@ -792,6 +793,9 @@ func (b *build) resolveKeyPath(path string, info *componentInfo) error { //nolin
 			info.keyFile = files[max(0, slices.IndexFunc(files, func(f *fileInfo) bool { return f.cfg == comp.Files[0] }))]
 		} else if len(comp.Registry) > 0 {
 			info.keyPath = b.registryID(info, comp.Registry[0])
+			info.attributes |= compRegistryKeyPath
+		} else if id, _ := b.fileTypeKeyPath(comp); id != "" {
+			info.keyPath = id
 			info.attributes |= compRegistryKeyPath
 		}
 	case byRef(keyPath) != nil:
@@ -869,6 +873,10 @@ func (b *build) componentGUID(path string, info *componentInfo) error { //nolint
 			if b.registryID(info, r) == info.keyPath {
 				location = "registry|" + strings.ToLower(r.Root+"\\"+r.Key+"\\"+r.Name)
 			}
+		}
+
+		if id, key := b.fileTypeKeyPath(comp); location == "" && id == info.keyPath {
+			location = "filetype|" + key
 		}
 	default:
 		location = "directory|" + info.dir.canonical

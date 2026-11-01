@@ -83,7 +83,7 @@ func Validate(cfg *Config) Diagnostics {
 	checker.components(cfg, known)
 	checker.folderComponents(cfg, known)
 	checker.shortcuts(cfg, known)
-	checker.fileTypes(cfg)
+	checker.fileTypes(cfg, known)
 	checker.properties(cfg)
 	checker.launchConditions(cfg)
 	checker.customActions(cfg, known)
@@ -1128,7 +1128,7 @@ func (v *validator) componentPermissions(compPath string, comp *Component) {
 		v.permissions(fmt.Sprintf("%s.registry[%d].permissions", compPath, j), value.Permissions, permRegistry)
 	}
 
-	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0
+	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0 && !fileTypesOnly(comp)
 	if v.permissions(compPath+".folderPermissions", comp.FolderPermissions, permFolder) && !comp.CreateFolder && !directoryKey {
 		v.errorf(compPath+".folderPermissions", "the component creates no folder row; set createFolder: true")
 	}
@@ -1202,8 +1202,14 @@ func (v *validator) permissions(field string, perm *Permissions, kind string) bo
 // userRegistryKeyPath reports whether the component's key path, resolved as
 // the builder does, is a registry value under HKCU (HKMU is HKCU in a
 // per-user package).
-func userRegistryKeyPath(c *Component, perUser bool) bool {
-	key := registryKeyPath(c)
+func userRegistryKeyPath(comp *Component, perUser bool) bool {
+	// A per-user package writes file types to HKCU\Software\Classes, so a
+	// component keyed on one of their values has an HKCU key path.
+	if perUser && fileTypesOnly(comp) {
+		return true
+	}
+
+	key := registryKeyPath(comp)
 
 	return key != nil && (key.Root == "HKCU" || perUser && key.Root == "HKMU")
 }
@@ -3008,6 +3014,10 @@ func componentRoots(comp *Component) []string {
 		if len(file.FileTypes) > 0 {
 			roots = append(roots, "HKCR")
 		}
+	}
+
+	if len(comp.FileTypes) > 0 {
+		roots = append(roots, "HKCR")
 	}
 
 	for _, env := range comp.Environment {

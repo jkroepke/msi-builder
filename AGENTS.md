@@ -51,6 +51,11 @@ versioning after 1.0.
   `_Validation`, summary information, then the streaming write and a
   verification pass (`finish.go`). `internal/builder/nativetest` holds the Windows
   msi.dll and msiexec tests.
+  A component's own `fileTypes` (and `shortcuts`) name a file of any
+  component through `fileTarget`, which falls back to `[DIR]name` across
+  features (ICE69). A component with nothing but file types is keyed on
+  the first value with data that `fileTypeRows` returns; the validator's
+  `writesValue` must accept exactly the file types that have one.
 - [`internal/msidb`](internal/msidb): the database: column types, typed rows,
   stream-name encoding, string pool and code pages, catalog, column-major table
   streams, binary streams; `MarshalTo` writes a package, `Unmarshal`/`Decode`

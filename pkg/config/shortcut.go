@@ -89,7 +89,7 @@ func shortcutsOnly(comp *Component) bool {
 	}
 
 	return len(comp.Files)+len(comp.Registry)+len(comp.RemoveRegistry)+len(comp.RemoveFiles)+len(comp.RemoveFolders)+
-		len(comp.Services)+len(comp.ServiceControl)+len(comp.EventLog)+len(comp.Environment) == 0
+		len(comp.Services)+len(comp.ServiceControl)+len(comp.EventLog)+len(comp.Environment)+len(comp.FileTypes) == 0
 }
 
 // shortcutCreated reports two shortcuts that create one file: the engine

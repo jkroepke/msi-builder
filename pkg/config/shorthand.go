@@ -396,7 +396,7 @@ func componentIDs(cfg *Config) {
 
 // componentBase is the name a component without an id is named after.
 // product is the product name, which a shortcut without a name defaults to.
-func componentBase(comp *Component, product string) string {
+func componentBase(comp *Component, product string) string { //nolint:cyclop // a flat list of naming rules
 	base := "Component"
 
 	switch {
@@ -413,6 +413,8 @@ func componentBase(comp *Component, product string) string {
 		// ComponentId of its shortcuts, do not move with the order. The
 		// shortcut's name is not defaulted yet.
 		base = cmp.Or(comp.Shortcuts[0].Name, product) + " Shortcuts"
+	case len(comp.FileTypes) > 0 && comp.FileTypes[0] != nil && comp.FileTypes[0].ProgID != "":
+		base = comp.FileTypes[0].ProgID
 	case comp.Directory != "":
 		base = comp.Directory
 	}
