@@ -289,6 +289,13 @@ go test ./... -shuffle=on -race
   run in the native step: the step before it creates the standard user
   `msitest` and exports `MSI_BUILDER_NONADMIN_USER` and
   `MSI_BUILDER_NONADMIN_PASSWORD`.
+- A `shell: bash` step on Windows runs Git Bash, which rewrites an
+  environment value that starts with `/` into a Windows path
+  (`/x` becomes `C:/Program Files/Git/x`) for the native programs it
+  starts, such as `go test`. Values that pass through `GITHUB_ENV` into
+  such a step must not start with `/`; the test user's password is hex for
+  that reason (a base64 one failed one run in 64 and locked the user out
+  after ten tries).
 - Linux runs `-race` and coverage as two runs (`-covermode=set` without
   `-race`): `-race` forces atomic coverage counters, which the parallel
   tests contend on, and the combined run was more than six times as slow.
