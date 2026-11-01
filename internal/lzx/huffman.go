@@ -156,8 +156,9 @@ type decoder struct {
 const maxSymbols = numChars + 8*50
 
 // init builds the decoder; an all-zero tree is accepted but cannot decode.
-// Any other tree needs at least two codes ([MS-PATCH] 2.4), as buildLengths
-// writes them.
+// Any other tree must be complete, which also means at least two codes
+// ([MS-PATCH] 2.4), as buildLengths writes them: cabinet.dll rejects an
+// incomplete tree (Windows CI).
 func (d *decoder) init(lengths []uint8) error { //nolint:cyclop // validation and table filling in one pass
 	if len(lengths) > maxSymbols {
 		return errBadTree
@@ -192,7 +193,7 @@ func (d *decoder) init(lengths []uint8) error { //nolint:cyclop // validation an
 		return nil
 	}
 
-	if sorted == 1 {
+	if left != 0 {
 		return errBadTree
 	}
 

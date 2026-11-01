@@ -150,11 +150,15 @@ func printTable(out io.Writer, tbl *msidb.Table) {
 	cols := make([]string, len(tbl.Columns))
 	types := make([]string, len(tbl.Columns))
 
+	// Only the leading key columns are keys, as msidb.Table.Keys and msi.dll
+	// count them (MSIDB-21).
+	keys := tbl.Keys()
+
 	for i, c := range tbl.Columns {
 		cols[i] = c.Name
 		types[i] = c.Type.String()
 
-		if c.Type.Key {
+		if i < keys {
 			types[i] += "!"
 		}
 	}

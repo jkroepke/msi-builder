@@ -54,7 +54,13 @@ versioning after 1.0.
 - [`internal/msidb`](internal/msidb): the database: column types, typed rows,
   stream-name encoding, string pool and code pages, catalog, column-major table
   streams, binary streams; `MarshalTo` writes a package, `Unmarshal`/`Decode`
-  read one.
+  read one. What `Table.Validate` refuses in a decoded catalog is a
+  `Database.Problems` entry, not an error: msi.dll reads a duplicated column
+  name, no key and a key after a non-key column (MSIDB-21); the other cases
+  are untested natively. To test a catalog `Marshal` refuses, `patchedCatalog`
+  (`catalog_test.go`) edits the `_Columns` rows of a written package and
+  moves the string refcounts with them; `catalog_windows_test.go` compares
+  the result with msi.dll.
 - [`internal/cfb`](internal/cfb): Compound File Binary v3/v4 writer and lazy reader.
 - [`internal/cab`](internal/cab): cabinet writer and reader, one folder per cabinet
   unless identical files share bytes (`Entry.Copy`: the shared file and the
@@ -64,7 +70,15 @@ versioning after 1.0.
   [MS-CAB] only. To test the reader on layouts the writer never
   produces (other tools' cabinets, empty folders, corrupt blocks, legacy
   names), build them with `RawCabinet` (`export_test.go`), which the native
-  tests use too to compare with `cabinet.dll`.
+  tests use too to compare with `cabinet.dll`. LZX streams the encoder never
+  writes (blocks off frame boundaries, odd stored blocks mid-stream, chosen
+  repeated offsets, E8 sizes, bad trees) are crafted block by block in
+  `internal/lzx/decode_test.go`; `TestWindowsFixtures` keeps them in
+  `internal/lzx/testdata/windows` (regenerate with
+  `MSI_BUILDER_UPDATE_SNAPSHOTS=1`) and `TestNativeFDICraftedLZX` compares
+  cabinet.dll with the reader on them. Values the readers take from the data
+  are 32-bit unsigned: compare them in 64 bits, and CI runs internal/lzx and
+  internal/cab as `GOARCH=386`.
 - [`internal/summary`](internal/summary): the summary information stream.
 - [`pkg/sign`](pkg/sign): Authenticode signing and verification of packages
   and of cabinets written with a signature reserve (spec chapter 12), written
@@ -83,7 +97,10 @@ versioning after 1.0.
   [`internal/codepage`](internal/codepage), [`internal/artwork`](internal/artwork):
   standard table definitions, PE version resources, the condition grammar,
   checks of formatted strings,
-  sequence numbering, code pages and the wizard bitmaps.
+  sequence numbering, code pages and the wizard bitmaps. `internal/pe` must
+  report a version exactly when `MsiGetFileVersionW` does (FILE-15): add each
+  malformed image a parser change handles to `TestMsiGetFileVersionAgrees`,
+  which runs on the Windows unit runner.
 - [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `render`, `inspect`, `convert`,
   `sign`, `verify`, `completion` and `version`, built on `spf13/cobra`.
 - [`internal/wixconvert`](internal/wixconvert): the best-effort WiX `.wxs` to

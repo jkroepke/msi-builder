@@ -500,6 +500,14 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 			return nil, fmt.Errorf("msidb: table %s has no columns", name)
 		}
 
+		// What Validate refuses in a table's name and columns, such as a
+		// column name twice or no primary key, is a problem: Marshal could
+		// not write the table back, and msi.dll still reads some of these
+		// catalogs (MSIDB-21).
+		if err := tbl.checkSchema(); err != nil {
+			addProblem(database, strings.TrimPrefix(err.Error(), "msidb: "))
+		}
+
 		if err := decodeRows(tbl, tableStreams[name], longRefs, readRef, str, refs, binaryStream, database); err != nil {
 			return nil, err
 		}
@@ -619,8 +627,52 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 	}
 
 	// Binary cells and the stored-key order.
+	readBinaryCells(tbl, rows, stored, keys, binaryStream, database)
+
+	// A table without a key has no key order; checkSchema reported it.
+	for rowIdx := 1; keys > 0 && rowIdx < count; rowIdx++ {
+		cmp := 0
+
+		for k := 0; k < keys && cmp == 0; k++ {
+			switch {
+			case stored[rowIdx-1][k] < stored[rowIdx][k]:
+				cmp = -1
+			case stored[rowIdx-1][k] > stored[rowIdx][k]:
+				cmp = 1
+			}
+		}
+
+		if cmp > 0 {
+			addProblem(database, fmt.Sprintf("table %s: rows %d and %d are not in key order", tbl.Name, rowIdx-1, rowIdx))
+		} else if cmp == 0 {
+			addProblem(database, fmt.Sprintf("table %s: rows %d and %d share a primary key", tbl.Name, rowIdx-1, rowIdx))
+		}
+	}
+
+	tbl.Rows = rows
+
+	return nil
+}
+
+// readBinaryCells loads the stream of every non-NULL binary cell, which is
+// named by the row's key.
+func readBinaryCells(tbl *Table, rows [][]any, stored [][]uint32, keys int, binaryStream func(string) ([]byte, error), database *Database) {
+	// A binary stream is named by the key, so a table without one, or with
+	// a binary column among its leading keys, whose cells are not read
+	// yet, cannot name its rows' streams; checkSchema reported the table.
+	// A key flag after a non-key column is not a key (Table.Keys).
+	named := keys > 0 && !slices.ContainsFunc(tbl.Columns[:keys], func(c Column) bool { return c.Type.Kind == KindBinary })
+
 	for colIdx, col := range tbl.Columns {
 		if col.Type.Kind != KindBinary {
+			continue
+		}
+
+		if !named {
+			if slices.ContainsFunc(stored, func(cells []uint32) bool { return cells[colIdx] != 0 }) {
+				addProblem(database, fmt.Sprintf("table %s: the binary cells of column %s are not read, the key cannot name their streams", tbl.Name, col.Name))
+			}
+
 			continue
 		}
 
@@ -649,27 +701,4 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 			rows[rowIdx][colIdx] = append([]byte(nil), data...)
 		}
 	}
-
-	for rowIdx := 1; rowIdx < count; rowIdx++ {
-		cmp := 0
-
-		for k := 0; k < keys && cmp == 0; k++ {
-			switch {
-			case stored[rowIdx-1][k] < stored[rowIdx][k]:
-				cmp = -1
-			case stored[rowIdx-1][k] > stored[rowIdx][k]:
-				cmp = 1
-			}
-		}
-
-		if cmp > 0 {
-			addProblem(database, fmt.Sprintf("table %s: rows %d and %d are not in key order", tbl.Name, rowIdx-1, rowIdx))
-		} else if cmp == 0 {
-			addProblem(database, fmt.Sprintf("table %s: rows %d and %d share a primary key", tbl.Name, rowIdx-1, rowIdx))
-		}
-	}
-
-	tbl.Rows = rows
-
-	return nil
 }
