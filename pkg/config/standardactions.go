@@ -133,16 +133,17 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 
 // launchNumber returns the number of LaunchConditions, or its default when
 // validate leaves it to the build; done reports that nothing is left to
-// check: the build runs it after a FindRelatedProducts in the chain after
-// AppSearch, or FindRelatedProducts takes its default number.
+// check: FindRelatedProducts is chained after AppSearch, or it takes the
+// default number of LaunchConditions.
 func (v *validator) launchNumber(cfg *Config, table string, numbered []sequence.Numbered, find int) (int, bool) {
 	if launch := sequence.Find(numbered, actLaunchConditions); launch != 0 {
 		return launch, false
 	}
 
-	// The builder runs LaunchConditions at 100 or, when the actions after
-	// AppSearch reach it, after them: after FindRelatedProducts either way.
-	if inSearchBlock(numbered, find) {
+	// A FindRelatedProducts chained after AppSearch runs before an
+	// unmoved LaunchConditions: the builder runs it at 100 or, when the
+	// actions after AppSearch reach 100, after them.
+	if afterSearch(cfg, table) && inSearchBlock(numbered, find) {
 		return 0, true
 	}
 
@@ -156,6 +157,51 @@ func (v *validator) launchNumber(cfg *Config, table string, numbered []sequence.
 	}
 
 	return launch, false
+}
+
+// afterSearch reports whether a moved FindRelatedProducts is chained after
+// AppSearch, through custom actions, moved standard actions or the actions
+// the builder chains there.
+func afterSearch(cfg *Config, table string) bool {
+	anchors := afterAnchors(cfg, table)
+	seen := make(map[string]bool)
+
+	for name := anchors[actFindRelatedProducts]; name != "" && !seen[name]; name = anchors[name] {
+		if name == actAppSearch {
+			return true
+		}
+
+		seen[name] = true
+	}
+
+	return false
+}
+
+// afterAnchors maps each action placed after another in a table to that
+// anchor: the builder's chains, custom actions and moved standard actions.
+func afterAnchors(cfg *Config, table string) map[string]string {
+	anchors := make(map[string]string)
+
+	chained, _ := builderChains(cfg, table)
+	for _, action := range chained {
+		anchors[action.Name] = action.After
+	}
+
+	for _, action := range cfg.CustomActions {
+		for _, place := range action.Schedule {
+			if place.Sequence == scheduleName(table) && place.Before == "" {
+				anchors[action.ID] = place.After
+			}
+		}
+	}
+
+	for _, name := range movableActions {
+		if place, _, ok := cfg.StandardPlacement(table, name); ok && place.Before == "" {
+			anchors[name] = place.After
+		}
+	}
+
+	return anchors
 }
 
 // inSearchBlock reports whether number belongs to the unbroken run of

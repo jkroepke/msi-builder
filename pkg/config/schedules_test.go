@@ -280,6 +280,18 @@ func TestScheduleFindInLongSearchChain(t *testing.T) {
 		t.Errorf("long chain: %v", ds)
 	}
 
+	// At a fixed number behind the chain it still takes the number the
+	// builder gives LaunchConditions.
+	fixed := strings.Replace(doc, "after: SearchApply_Q}", "at: 101}", 1)
+
+	for i := range placements {
+		placements[i] = "after: AppSearch"
+	}
+
+	if ds := validate(t, fixed+setProps(placements...)); !find(ds, config.SeverityError, "standardActions[0].schedule[0]", "LaunchConditions runs before FindRelatedProducts") {
+		t.Errorf("fixed number: %v", ds)
+	}
+
 	dual := strings.Replace(base, "  platform: x64\n", "  platform: x64\n  scope: perUserOrMachine\n", 1) + appComponent + "ui: {enabled: true}\n"
 	for _, id := range []string{"SetInstallScopeUser", "FindRelatedProducts"} {
 		ds := validate(t, dual+"customActions:\n  - id: "+id+"\n    setProperty: {name: P, value: x}\n    schedule: [{sequence: execute, at: 6700}]\n")
