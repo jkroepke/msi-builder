@@ -262,7 +262,7 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 		},
 		"variable read back through another define": {
 			body: `<?ifdef B ?><?define Y = "$(var.X)-y" ?><?else ?><?define Y = "y" ?><?endif ?><?ifndef X ?><?define X = "$(var.Y)" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
-			note: "the variable X reads itself through the defines before it; pass it with --var or write its value",
+			note: "the variable X reads itself, where WiX reads the value it has at each define; pass it with --var or write its value",
 		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,

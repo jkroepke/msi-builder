@@ -94,7 +94,7 @@ func (c *converter) checkSelfRead(name, value string) {
 		line = c.doc.procs[last].line
 	}
 
-	c.todof(nil, "", line, "the variable %s reads itself through the defines before it; pass it with --var or write its value", name)
+	c.todof(nil, "", line, "the variable %s reads itself, where WiX reads the value it has at each define; pass it with --var or write its value", name)
 }
 
 // resolveDefines fills the values of earlier defines into each define.
