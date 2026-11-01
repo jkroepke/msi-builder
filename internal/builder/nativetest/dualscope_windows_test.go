@@ -58,7 +58,7 @@ func TestMsiexecEnvironmentParts(t *testing.T) { //nolint:paralleltest // msiexe
 
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
 
-	for _, tc := range []struct {
+	for _, tc := range []struct { //nolint:paralleltest // msiexec runs one installation at a time
 		context, key string
 		args         []string
 	}{
@@ -144,7 +144,7 @@ func TestMsiexecContextConditions(t *testing.T) { //nolint:paralleltest // msiex
 
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
 
-	for _, tc := range []struct {
+	for _, tc := range []struct { //nolint:paralleltest // msiexec runs one installation at a time
 		name, scope string
 		args        []string
 	}{
@@ -229,7 +229,7 @@ func TestMsiexecDualScopeFirewall(t *testing.T) { //nolint:paralleltest // msiex
 
 	app := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
 
-	for _, tc := range []struct {
+	for _, tc := range []struct { //nolint:paralleltest // msiexec runs one installation at a time
 		name, scope string
 		machine     bool
 		args        []string

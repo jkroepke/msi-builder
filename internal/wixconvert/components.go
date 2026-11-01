@@ -273,17 +273,6 @@ var actionState = regexp.MustCompile(`[&$][A-Za-z_][A-Za-z0-9_.]*`)
 // quotedText matches a string literal in a condition.
 var quotedText = regexp.MustCompile(`"[^"]*"`)
 
-// scopeConditions are the conditions that install a component of a dual
-// package in one scope only: ALLUSERS is 1 per machine and unset per user.
-var scopeConditions = map[string]string{ //nolint:gochecknoglobals // lookup table
-	propAllUsers:     scopeMachine,
-	"ALLUSERS=1":     scopeMachine,
-	`ALLUSERS="1"`:   scopeMachine,
-	"NOT ALLUSERS":   scopeUser,
-	"NOT ALLUSERS=1": scopeUser,
-	`ALLUSERS=""`:    scopeUser,
-}
-
 // dualScope reports whether the package lets the user pick the scope.
 func (c *converter) dualScope() bool {
 	return c.scope == scopeUserOrMachine || c.scope == scopeMachineOrUser
@@ -296,10 +285,7 @@ func (c *converter) scopeCondition(cond string) string {
 		return ""
 	}
 
-	normalized := strings.Join(strings.Fields(strings.ReplaceAll(cond, "=", " = ")), " ")
-	normalized = strings.ReplaceAll(normalized, " = ", "=")
-
-	return scopeConditions[normalized]
+	return contextCondition(cond)
 }
 
 // componentCondition sets a component's condition. The installer evaluates
