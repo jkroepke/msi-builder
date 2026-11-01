@@ -19,7 +19,9 @@ asking the maintainer, since every exported name is bound by semantic
 versioning after 1.0.
 
 - [`pkg/config`](pkg/config): the YAML schema (`docs/design/yaml-schema.md`,
-  `pkg/config/schema.json`), parsing and validation. The builder consumes a
+  `pkg/config/schema.json`), parsing and validation. The schema's
+  `properties` lists Windows Installer properties with their values and
+  refuses exactly `builderProperties` (`TestJSONSchemaBuilderProperties`). The builder consumes a
   validated `*config.Config` and never reads YAML. Folder sources (a file
   `source` ending in `/`) are the one part that lists folders:
   `Config.ExpandFolders` (`folder.go`) replaces their component with one per
