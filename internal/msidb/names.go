@@ -178,8 +178,8 @@ func BinaryStreamName(table string, keys []any) string {
 		switch key := k.(type) {
 		case nil:
 			// A NULL key is an empty segment: msi.dll reads the stream of
-			// a NULL string key as "T." (reported by a review's native
-			// probe; a NULL integer key was not tested).
+			// a NULL string or integer key as "T." (reported by a
+			// review's native probes).
 			parts = append(parts, "")
 		case string:
 			parts = append(parts, key)
