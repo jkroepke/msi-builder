@@ -493,10 +493,32 @@ func (v *validator) directories(cfg *Config, known *refs) { //nolint:cyclop // a
 	}
 }
 
+// propInstallPerUser picks the context of an ALLUSERS=2 package.
+const propInstallPerUser = "MSIINSTALLPERUSER"
+
 // builderProperty reports a property the builder or the installer sets: a
 // dual package also writes MSIINSTALLPERUSER and its scope page's property.
 func (v *validator) builderProperty(name string) bool {
-	return builderProperties[name] || v.scope.Dual() && (name == "MSIINSTALLPERUSER" || name == "BuilderInstallScope")
+	return builderProperties[name] || v.scope.Dual() && (name == propInstallPerUser || name == "BuilderInstallScope")
+}
+
+// contextSetter warns about an action that sets ALLUSERS or
+// MSIINSTALLPERUSER. In the execute sequence of a silent install, setting
+// ALLUSERS=1 registered the product per machine with the per-user folders
+// and MSIINSTALLPERUSER already resolved, and setting MSIINSTALLPERUSER=1
+// changed no context but made conditions on it hold per machine (INST-07).
+// A setter in the UI sequence was not tested. Other scopes were not
+// tested with such setters, so they get no warning.
+func (v *validator) contextSetter(actionPath, name string) {
+	if !v.scope.Dual() || name != "ALLUSERS" && name != propInstallPerUser {
+		return
+	}
+
+	v.warnf(actionPath+".setProperty.name", "an action that sets %s leaves the install inconsistent: in a dual "+
+		"package, ALLUSERS=1 set in the execute sequence registered the product per machine but kept the per-user "+
+		"folders and MSIINSTALLPERUSER, and MSIINSTALLPERUSER=1 kept the context but made conditions on it hold "+
+		"(INST-07); use scope perUserOrMachine or perMachineOrUser, whose scope page and command line pick the "+
+		"context, and components[].scope", name)
 }
 
 // installPerUser warns about MSIINSTALLPERUSER outside a dual package: it
@@ -504,7 +526,7 @@ func (v *validator) builderProperty(name string) bool {
 // install was seen deleting it, which skips a component conditioned on it
 // (reported).
 func (v *validator) installPerUser(propPath, name string) {
-	if name == "MSIINSTALLPERUSER" && !v.scope.Dual() {
+	if name == propInstallPerUser && !v.scope.Dual() {
 		v.warnf(propPath, "MSIINSTALLPERUSER has no effect unless ALLUSERS is 2, and a condition on it may not hold; "+
 			"use scope perUserOrMachine for a package that installs per user or per machine")
 	}
@@ -1193,11 +1215,14 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 		}
 	}
 
-	// The builder keys an Environment row by name, action and scope, so a
-	// second entry with all three equal would be a duplicate key. Names are
-	// compared without case to be safe; how the engine treats FOO and foo
-	// in two Environment rows is not tested.
+	// Two entries with the same name, action and scope set the variable
+	// twice, which only append and prepend can do with different values:
+	// each adds its own part (ENVVAR-04). The builder then keys the second
+	// row by its value too. Names are compared without case to be safe;
+	// how the engine treats FOO and foo in two Environment rows is not
+	// tested.
 	seen := make(map[[3]string]bool)
+	values := make(map[[4]string]bool)
 
 	if slices.ContainsFunc(comp.Environment, func(env *Environment) bool { return env.Scope == envAuto }) {
 		v.contextConditionLength(compPath+".condition", comp.Condition)
@@ -1208,11 +1233,19 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 		v.environment(envPath, env, perUser)
 
 		key := [3]string{strings.ToUpper(env.Name), env.Action, env.Scope}
-		if env.Name != "" && seen[key] {
-			v.errorf(envPath, "%s with action %s and scope %s is set twice in this component", env.Name, env.Action, env.Scope)
+		part := [4]string{key[0], key[1], key[2], env.Value}
+
+		switch {
+		case env.Name == "":
+		case values[part]:
+			v.errorf(envPath, "%s with action %s, scope %s and this value is set twice in this component", env.Name, env.Action, env.Scope)
+		case seen[key] && env.Action != envAppend && env.Action != envPrepend:
+			v.errorf(envPath, "%s with action %s and scope %s is set twice in this component; "+
+				"only append and prepend may add several parts", env.Name, env.Action, env.Scope)
 		}
 
 		seen[key] = true
+		values[part] = true
 	}
 }
 
@@ -2360,6 +2393,8 @@ func (v *validator) actionKind(cfg *Config, actionPath string, action *CustomAct
 		if inScript {
 			v.errorf(actionPath+".execute", "setProperty cannot be deferred; deferred actions read CustomActionData")
 		}
+
+		v.contextSetter(actionPath, action.SetProperty.Name)
 	case action.SetDirectory != nil:
 		if known.dirs[action.SetDirectory.Directory] == nil {
 			v.errorf(actionPath+".setDirectory.directory", "directory %q is not defined", action.SetDirectory.Directory)
@@ -2707,9 +2742,28 @@ func (v *validator) firewall(cfg *Config, known *refs) { //nolint:cyclop // a fl
 			v.oneOf(fmt.Sprintf("%s.profiles[%d]", p, j), prof, "all", "domain", "private", "public")
 		}
 
-		if cfg.Package.Scope.MayBePerUser() {
-			v.errorf(p, "firewall rules need a perMachine package")
-		}
+		v.firewallScope(p, known.components[rule.Component])
+	}
+}
+
+// firewallScope checks the context a firewall rule's component installs
+// in: netsh runs without impersonation, so the rule needs a perMachine
+// package or, in a dual package, a component with scope perMachine
+// (INST-08).
+func (v *validator) firewallScope(rulePath string, comp *Component) {
+	switch {
+	case !v.scope.MayBePerUser():
+	case !v.scope.Dual():
+		v.errorf(rulePath, "firewall rules need a perMachine package, or a component with scope perMachine in a "+
+			"perUserOrMachine or perMachineOrUser package")
+	case comp == nil:
+	case comp.Scope != ScopePerMachine:
+		v.errorf(rulePath+".component", "a firewall rule in a %s package needs a component with scope perMachine, "+
+			"since netsh needs an elevated per-machine install", v.scope)
+	case v.scope == ScopePerUserOrMachine:
+		// ICE105 reads only the CustomAction type (CA-09).
+		v.warnf(rulePath, "ICE105 warns about the netsh actions without impersonation and their System64Folder or "+
+			"SystemFolder working directory, although they run only per machine")
 	}
 }
 
@@ -3085,6 +3139,9 @@ const (
 	envMachine = "machine"
 	envUser    = "user"
 	envAuto    = "auto"
+	// envAppend and envPrepend add a part to a variable.
+	envAppend  = "append"
+	envPrepend = "prepend"
 )
 
 // componentRoots lists the registry roots a component writes to or

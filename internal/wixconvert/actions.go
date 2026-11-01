@@ -611,12 +611,13 @@ func (c *converter) scheduledBinaries(byAction map[string][]any) map[string]bool
 // customActions: taken in by another action or key, or not needed.
 func (c *converter) skipAction(custom *elem, byAction map[string][]any) bool {
 	return c.consumed[custom] || c.onlyLaunch(custom.attr("Id"), byAction) ||
-		c.perMachineFolder(custom, custom.attr(attrProperty), byAction)
+		c.perMachineFolder(custom, custom.attr(attrProperty), byAction) || c.skipContextSetter(custom, byAction)
 }
 
 // skipSetter reports whether a SetProperty or SetDirectory is left out.
 func (c *converter) skipSetter(setter *elem, byAction map[string][]any) bool {
-	return c.consumed[setter] || setter.is("SetProperty") && c.perMachineFolder(setter, setter.attr("Id"), byAction)
+	return c.consumed[setter] || setter.is("SetProperty") && c.perMachineFolder(setter, setter.attr("Id"), byAction) ||
+		c.skipContextSetter(setter, byAction)
 }
 
 // perMachineFolder reports whether an action sets WixPerMachineFolder, the
@@ -735,7 +736,7 @@ func (c *converter) sourceAnchors(byAction map[string][]any) (map[anchorKey]*oma
 	anchors := make(map[anchorKey]*omap)
 	sources := make(map[string]*elem)
 
-	for _, src := range append(c.consumedSources(), c.perMachineSources()...) {
+	for _, src := range slices.Concat(c.consumedSources(), c.perMachineSources(), c.contextSources()) {
 		sources[src.id] = src.e
 
 		schedule := byAction[src.id]
