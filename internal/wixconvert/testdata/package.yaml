@@ -161,6 +161,8 @@ components:
         account: NT AUTHORITY\NetworkService
         arguments: --port [PORT]
         dependencies: [Tcpip]
+        sidType: unrestricted
+        preshutdownTimeout: 60000ms
         control:
           wait: false
         # TODO(line 94): the recovery action "reboot" has no counterpart; restart and none are supported
