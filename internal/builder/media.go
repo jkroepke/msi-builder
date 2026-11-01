@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -35,6 +36,9 @@ type cabinetInfo struct {
 	target spool.Target
 	name   string
 	files  []*fileInfo
+	// copies holds, for each file, 1 + the index of the earlier file of the
+	// cabinet with the same bytes, whose data it shares, or 0 (cab.Entry.Copy).
+	copies []int
 	// signature is the signer's signature value, MsiDigitalSignature.Hash,
 	// once the cabinet is signed.
 	signature []byte
@@ -67,7 +71,8 @@ func (b *build) signsCabinets() bool {
 // badly as it can, over Options.CabinetSize or 2 GiB. Files are never split
 // across cabinets (section 16, "Decisions not adopted"). A file that alone
 // is above the size limit gets a cabinet of its own and fails to write only
-// when its data really does not fit.
+// when its data really does not fit. A file with the same bytes as an
+// earlier file of its cabinet shares that file's data (section 5).
 func (b *build) splitCabinets() {
 	limit := int64(cab.MaxSize)
 	if b.opts.CabinetSize > 0 {
@@ -75,26 +80,29 @@ func (b *build) splitCabinets() {
 	}
 
 	comp := b.cabOptions().Compression
+	shared := sharedContents(b.files)
 
 	var (
-		current                *cabinetInfo
-		nameBytes, folderBytes int64
+		current *cabinetInfo
+		load    cabinetLoad
 	)
 
 	for _, file := range b.files {
-		if current != nil && !fits(len(current.files)+1, nameBytes+int64(len(file.Key)), folderBytes+file.Size, comp, limit) {
+		next, copyOf := load.with(file, shared)
+		if current != nil && !next.fits(comp, limit) {
 			current = nil
 		}
 
 		if current == nil {
 			current = &cabinetInfo{name: cabinetName(b.cfg.Package.Cabinet, len(b.cabinets)+1)}
 			b.cabinets = append(b.cabinets, current)
-			nameBytes, folderBytes = 0, 0
+			load = cabinetLoad{}
+			next, copyOf = load.with(file, shared)
 		}
 
+		load = next.commit(file, copyOf, shared)
 		current.files = append(current.files, file)
-		nameBytes += int64(len(file.Key))
-		folderBytes += file.Size
+		current.copies = append(current.copies, copyOf)
 	}
 
 	if len(b.cabinets) > maxDiskID {
@@ -113,13 +121,102 @@ func (b *build) splitCabinets() {
 	}
 }
 
-// fits reports whether files entries with nameBytes of names and folderBytes
-// of data fit one cabinet of at most limit bytes, counting the signature
-// reserve whether or not the cabinet is signed. A signature follows
-// cbCabinet and is not counted.
-func fits(files int, nameBytes, folderBytes int64, comp cab.Compression, limit int64) bool {
-	return files <= cab.MaxFiles && folderBytes <= cab.MaxFolder &&
-		cab.Bound(files, nameBytes, folderBytes, comp)+cab.SignatureReserve <= limit
+// contentKey identifies a file's bytes: its size and SHA-256.
+type contentKey struct {
+	digest [sha256.Size]byte
+	size   int64
+}
+
+// minShared is the smallest file whose copies share its bytes: one CFDATA
+// block. A smaller copy stored again costs at most one block, about what
+// the folder of its own that sharing needs costs in records and lost
+// compression history (section 5).
+const minShared = 32768
+
+// sharedContents returns the contents that more than one payload file of at
+// least minShared bytes has.
+func sharedContents(files []*fileInfo) map[contentKey]bool {
+	seen := make(map[contentKey]bool)
+	shared := make(map[contentKey]bool)
+
+	for _, file := range files {
+		if file.Size < minShared {
+			continue
+		}
+
+		key := contentKey{file.digest, file.Size}
+		if seen[key] {
+			shared[key] = true
+		}
+
+		seen[key] = true
+	}
+
+	return shared
+}
+
+// cabinetLoad is what the files of one cabinet take so far.
+type cabinetLoad struct {
+	// stored maps a shared content to 1 + the index of the file of the
+	// cabinet that stores it.
+	stored                 map[contentKey]int
+	files, folders         int
+	nameBytes, folderBytes int64
+	// open tells whether the last folder takes the next stored file.
+	open bool
+}
+
+// with returns the load with file added and, when an earlier file of the
+// cabinet stores the same bytes, 1 + its index. It counts folders as
+// cab.Folders does, except that every file whose content is shared gets a
+// folder of its own even when no later file of the cabinet copies it, which
+// can only overestimate.
+func (l cabinetLoad) with(file *fileInfo, shared map[contentKey]bool) (cabinetLoad, int) {
+	l.files++
+	l.nameBytes += int64(len(file.Key))
+
+	key := contentKey{file.digest, file.Size}
+
+	if shared[key] {
+		if index, ok := l.stored[key]; ok {
+			l.open = false
+
+			return l, index
+		}
+
+		l.folders++
+		l.open = false
+	} else if !l.open {
+		l.folders++
+		l.open = true
+	}
+
+	l.folderBytes += file.Size
+
+	return l, 0
+}
+
+// commit records that file, the last one with added, is in the cabinet.
+func (l cabinetLoad) commit(file *fileInfo, copyOf int, shared map[contentKey]bool) cabinetLoad {
+	key := contentKey{file.digest, file.Size}
+
+	if copyOf == 0 && shared[key] {
+		if l.stored == nil {
+			l.stored = make(map[contentKey]int)
+		}
+
+		l.stored[key] = l.files
+	}
+
+	return l
+}
+
+// fits reports whether the load fits one cabinet of at most limit bytes,
+// counting the signature reserve whether or not the cabinet is signed. A
+// signature follows cbCabinet and is not counted.
+func (l cabinetLoad) fits(comp cab.Compression, limit int64) bool {
+	return l.files <= cab.MaxFiles && l.folderBytes <= cab.MaxFolder &&
+		cab.Bound(l.files, l.folders, l.nameBytes, l.folderBytes, comp)+cab.SignatureReserve <= limit
 }
 
 // cabinetName is the name of the number-th cabinet: package.cabinet for the
@@ -199,13 +296,14 @@ func (b *build) signCabinet(cabinet *cabinetInfo, index int) error {
 func (b *build) writeCabinet(target spool.Target, cabinet *cabinetInfo) error {
 	entries := make([]cab.Entry, 0, len(cabinet.files))
 
-	for _, entry := range cabinet.files {
+	for i, entry := range cabinet.files {
 		entries = append(entries, cab.Entry{
 			Name:       entry.Key,
 			Size:       entry.Size,
 			Time:       b.opts.BuildTime,
 			Attributes: cab.AttrArchive,
 			Open:       entry.open,
+			Copy:       cabinet.copies[i],
 		})
 	}
 

@@ -2,8 +2,10 @@ package cab_test
 
 import (
 	"bytes"
+	"io"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,12 +33,16 @@ func seedCabinets(f *testing.F) {
 	}
 }
 
-// FuzzRead feeds corrupted cabinets to Open. It must not panic, and every
-// file the fs.FS view lists must read back with the bytes Read returns.
+// FuzzRead feeds corrupted cabinets to Read, Walk and Open. They must not
+// panic, Walk must fail whenever Read fails and otherwise serve the same
+// files, and every file the fs.FS view lists must read back with the bytes
+// Read returns.
 func FuzzRead(f *testing.F) {
 	seedCabinets(f)
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
+		compareWalk(t, raw)
+
 		fsys, err := cab.Open(raw)
 		if err != nil {
 			return
@@ -64,12 +70,49 @@ func FuzzRead(f *testing.F) {
 	})
 }
 
+// compareWalk checks that Walk fails when Read fails, and that it serves the
+// files Read returns when both succeed.
+func compareWalk(t *testing.T, raw []byte) {
+	t.Helper()
+
+	files, readErr := cab.Read(raw)
+
+	var walked []string
+
+	walkErr := cab.Walk(bytes.NewReader(raw), int64(len(raw)), func(file cab.File, data io.Reader) error {
+		body, err := io.ReadAll(data)
+		walked = append(walked, file.Name+"\x00"+string(body))
+
+		return err
+	})
+
+	switch {
+	case readErr != nil && walkErr == nil:
+		t.Fatalf("Read fails (%v), but Walk succeeds", readErr)
+	case readErr != nil || walkErr != nil:
+		return
+	}
+
+	read := make([]string, 0, len(files))
+	for _, file := range files {
+		read = append(read, file.Name+"\x00"+string(file.Data))
+	}
+
+	slices.Sort(read)
+	slices.Sort(walked)
+
+	if !slices.Equal(read, walked) {
+		t.Fatalf("Walk serves %d files that differ from Read's %d", len(walked), len(read))
+	}
+}
+
 // FuzzRoundTrip writes fuzzed files and reads them back unchanged.
 func FuzzRoundTrip(f *testing.F) {
 	f.Add("a.txt", []byte("hello"), "b", make([]byte, 0), true, uint16(0x20))
 	f.Add("x", bytes.Repeat([]byte{0}, 40000), "y", []byte("zz"), false, uint16(1))
 	f.Add("ü", []byte("a"), "z", []byte("b"), true, uint16(0))
 	f.Add("a", []byte("a"), "b", []byte("b"), false, uint16(0xFFFF))
+	f.Add("\x8c", []byte("a"), "b", []byte("b"), true, uint16(0x20))
 
 	when := time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)
 

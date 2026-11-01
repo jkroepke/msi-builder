@@ -35,7 +35,7 @@ func (c *converter) addFeature(elm *elem, within scope) {
 		c.features = append(c.features, feat)
 	}
 
-	c.walk(elm, scope{dir: within.dir, feature: feat})
+	c.walk(elm, scope{dir: within.dir, files: within.files, feature: feat})
 }
 
 // featureFor returns the feature with an ID, which a FeatureRef may name

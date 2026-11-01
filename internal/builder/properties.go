@@ -369,7 +369,12 @@ func (b *build) searchProperty(name string, prop *config.Property) {
 			b.hidden[found] = true
 		}
 
-		b.locate(signature, search, false)
+		itemPath := "properties." + name + ".search"
+		if len(prop.Search) > 1 {
+			itemPath += "[" + strconv.Itoa(i) + "]"
+		}
+
+		b.locate(itemPath, signature, search, false)
 		b.table("AppSearch").Add(found, signature)
 
 		apply := searchName("SearchApply"+suffix+"_", name)
@@ -400,13 +405,14 @@ func (b *build) searchProperty(name string, prop *config.Property) {
 
 // Locator types (RegLocator.Type, CompLocator.Type).
 const (
-	locatorFile = 1
+	locatorDirectory = 0
+	locatorFile      = 1
 )
 
-// locate writes the locator rows of one search under signature. A folder
-// search (under another search) never has a Signature row, so the engine
-// returns the folder.
-func (b *build) locate(signature string, search *config.Search, folder bool) {
+// locate writes the locator rows of one search under signature; path is
+// the search's YAML path. A folder search (under another search) never has
+// a Signature row, so the engine returns the folder.
+func (b *build) locate(path, signature string, search *config.Search, folder bool) {
 	switch {
 	case search.Registry != nil:
 		reg := search.Registry
@@ -423,25 +429,78 @@ func (b *build) locate(signature string, search *config.Search, folder bool) {
 		b.table("RegLocator").Add(signature, registryRoots[reg.Root], reg.Key, nullable(reg.Name), typ)
 	case search.Directory != nil:
 		dir := search.Directory
-		b.table("DrLocator").Add(signature, b.locateParent(signature, dir.Under), nullable(dir.Path), optionalDepth(dir.Depth))
+		b.table("DrLocator").Add(signature, b.locateParent(path+".directory", signature, dir.Under), nullable(dir.Path), optionalDepth(dir.Depth))
 	case search.File != nil:
-		b.fileSignature(signature, search.File)
-		b.table("DrLocator").Add(signature, b.locateParent(signature, search.File.Under), nullable(search.File.Path), optionalDepth(search.File.Depth))
+		file := search.File
+		b.fileSignature(signature, file)
+		b.table("DrLocator").Add(signature, b.locateParent(path+".file", signature, file.Under), nullable(file.Path), optionalDepth(file.Depth))
 	case search.Component != nil:
 		guid, _ := config.NormalizeGUID(search.Component.GUID)
-		b.table("CompLocator").Add(signature, guid, locatorFile)
+		b.table("CompLocator").Add(signature, guid, b.componentLocatorType(path+".component", guid, search.Component.KeyPath))
 	}
 }
 
+// componentLocatorType returns the CompLocator type for a component search.
+// The type must match the component's key path: type 1 on a folder key path
+// returns the folder's parent, and type 0 on a file key path returns
+// nothing (SEARCH-05, SEARCH-08). A component of this package decides it;
+// keyPath does for another product's, file by default.
+func (b *build) componentLocatorType(path, guid, keyPath string) int {
+	kind := keyPath
+	if compID, own := b.guids[guid]; own {
+		kind = b.ownKeyPathKind(path, compID, keyPath)
+	}
+
+	if kind == config.SearchDirectory {
+		return locatorDirectory
+	}
+
+	return locatorFile
+}
+
+// ownKeyPathKind returns what the key path of a component of this package
+// is, file or directory, and reports a keyPath that contradicts it. A
+// registry key path searches as a file, with a warning.
+func (b *build) ownKeyPathKind(path, compID, keyPath string) string {
+	info := b.components[compID]
+
+	// A shortcuts-only component is keyed on its HKCU value (shortcuts.go),
+	// which info does not record.
+	if info.attributes&compRegistryKeyPath != 0 || shortcutsOnly(info.cfg) {
+		if keyPath != "" {
+			b.errorf(path+".keyPath", "component %s of this package has a registry key path, not %s", compID, keyPath)
+
+			return config.SearchFile
+		}
+
+		b.warnf(path+".guid", "component %s of this package has a registry key path, which is no folder (an HKLM one found nothing, SEARCH-08); "+
+			"search a component keyed on a file or on its folder", compID)
+
+		return config.SearchFile
+	}
+
+	kind := config.SearchFile
+	if info.keyPath == nil {
+		kind = config.SearchDirectory
+	}
+
+	if keyPath != "" && keyPath != kind {
+		b.errorf(path+".keyPath", "component %s of this package has a %s key path, not %s", compID, kind, keyPath)
+	}
+
+	return kind
+}
+
 // locateParent writes the folder search a DrLocator row is relative to and
-// returns its signature, or nil.
-func (b *build) locateParent(signature string, under *config.Search) any {
+// returns its signature, or nil; path is the YAML path of the search that
+// has under.
+func (b *build) locateParent(path, signature string, under *config.Search) any {
 	if under == nil {
 		return nil
 	}
 
 	parent := searchName("In_", signature)
-	b.locate(parent, under, true)
+	b.locate(path+".under", parent, under, true)
 
 	return parent
 }

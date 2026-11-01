@@ -149,7 +149,7 @@ func (c *converter) choosePlatform() { //nolint:cyclop // the fallbacks in their
 		switch {
 		case strings.Contains(d.id, "64Folder"):
 			has64 = true
-		case d.id == "ProgramFilesFolder", d.id == "CommonFilesFolder":
+		case d.id == folderProgramFiles, d.id == "CommonFilesFolder":
 			has32 = true
 		}
 	}
@@ -374,13 +374,16 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 
 // defaultInstallParent reports whether msi-builder picks the folder as the
 // install dir's parent by itself.
+// folderProgramFiles is the 32-bit Program Files folder.
+const folderProgramFiles = "ProgramFilesFolder"
+
 func (c *converter) defaultInstallParent(id string) bool {
 	switch id {
 	case "ProgramFiles6432Folder":
 		return true
 	case "ProgramFiles64Folder":
 		return c.platform != platformX86
-	case "ProgramFilesFolder":
+	case folderProgramFiles:
 		return c.platform == platformX86
 	}
 

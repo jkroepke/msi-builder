@@ -3,6 +3,7 @@ package wixconvert
 import (
 	"cmp"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -785,11 +786,11 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 
 	fileType := newMap()
 	fileType.order("progId", "description", "iconIndex", "extensions", "verbs")
-	fileType.set("progId", conv.value(elm, "Id"))
-	fileType.set("description", conv.value(elm, "Description"))
+	fileType.set("progId", conv.typeText(fileType, elm, "Id"))
+	fileType.set("description", conv.typeText(fileType, elm, "Description"))
 
-	if n, err := strconv.Atoi(elm.attr("IconIndex")); err == nil && elm.has("Icon") {
-		fileType.set("iconIndex", n)
+	if elm.has("Icon") {
+		cc.iconIndex(elm, fileType)
 	}
 
 	target := ""
@@ -801,7 +802,7 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 			continue
 		}
 
-		x := newMap().set("extension", conv.value(ext, "Id")).set("contentType", conv.value(ext, "ContentType"))
+		x := newMap().set("extension", conv.typeText(fileType, ext, "Id")).set("contentType", conv.typeText(fileType, ext, "ContentType"))
 		fileType.add("extensions", x)
 
 		for _, verb := range ext.kids {
@@ -811,7 +812,7 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 				continue
 			}
 
-			verbOut := newMap().set("id", conv.value(verb, "Id")).set("text", conv.value(verb, "Command"))
+			verbOut := newMap().set("id", conv.value(verb, "Id")).set("text", conv.typeText(fileType, verb, "Command"))
 			if verb.has("Argument") {
 				verbOut.set("arguments", conv.value(verb, "Argument"))
 
@@ -837,6 +838,108 @@ func (cc *compConv) progID(elm *elem) { //nolint:cyclop // a flat list of indepe
 	conv.pendingTypes = append(conv.pendingTypes, pendingType{e: elm, comp: cc.cp, target: target, out: fileType, parent: cc.out})
 }
 
+// iconIndex sets a ProgId's icon index. Without an IconIndex, DefaultIcon
+// names the file alone, which Windows reads as its first icon.
+func (cc *compConv) iconIndex(elm *elem, fileType *omap) {
+	if !elm.has("IconIndex") {
+		fileType.set("iconIndex", 0)
+
+		return
+	}
+
+	text := strings.TrimSpace(cc.c.literal(elm.attr("IconIndex")))
+
+	index, err := strconv.Atoi(text)
+	if err != nil {
+		cc.c.todof(fileType, "", elm.line, "the ProgId %s has the icon index %q, which is no number; set iconIndex by hand",
+			elm.attr("Id"), text)
+
+		return
+	}
+
+	fileType.set("iconIndex", index)
+}
+
+// typeText returns an attribute of a ProgId, Extension or Verb with the
+// properties it references filled in when they have a constant value:
+// msi-builder writes these texts as they are, and WiX formats them. Other
+// formatted text left over gets a TODO.
+func (c *converter) typeText(out *omap, elm *elem, attr string) string {
+	text := bracketRef.ReplaceAllStringFunc(c.value(elm, attr), func(ref string) string {
+		if value, ok := c.constProperty(ref[1 : len(ref)-1]); ok {
+			return value
+		}
+
+		return ref
+	})
+
+	if formattedLeft(text) {
+		c.todof(out, "", elm.line, "%s %s=%q holds formatted text convert cannot fill in (a property without a constant "+
+			"value, or another reference); msi-builder writes file type texts as they are, so write the text out",
+			elm.name, attr, text)
+	}
+
+	return text
+}
+
+// constProperty returns the value of a property that a Property element
+// or the package sets and nothing in the source changes. A public one could
+// still come from the command line; convert assumes it does not.
+func (c *converter) constProperty(name string) (string, bool) {
+	if attr, ok := map[string]string{"ProductName": "Name", "Manufacturer": "Manufacturer", "ProductVersion": "Version"}[name]; ok {
+		value := c.expandVars(c.pkg, c.pkg.attr(attr))
+
+		return value, c.pkg.has(attr) && !formattedLeft(value)
+	}
+
+	var found *elem
+
+	for _, prop := range c.properties {
+		if prop.attr("Id") == name {
+			found = prop
+		}
+	}
+
+	if found == nil || !found.has("Value") || len(found.kids) > 0 || c.propertyChanged(name) {
+		return "", false
+	}
+
+	value := c.value(found, "Value")
+
+	return value, !formattedLeft(value)
+}
+
+// varRef matches a ${NAME} reference that msi-builder fills in on load.
+var varRef = regexp.MustCompile(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`)
+
+// formattedLeft reports whether text still holds formatted text or a WiX
+// bind or localization variable once the ${NAME} references are left out.
+func formattedLeft(text string) bool {
+	text = varRef.ReplaceAllString(text, "")
+
+	return strings.ContainsAny(text, "[]{}") || strings.Contains(text, "!(")
+}
+
+// propertyChanged reports whether an action, a SetProperty, a Publish
+// event or a dialog control sets the property.
+func (c *converter) propertyChanged(name string) bool {
+	if slices.ContainsFunc(c.commandSources(), func(src commandSource) bool { return src.property == name }) {
+		return true
+	}
+
+	var changed func(elm *elem) bool
+
+	changed = func(elm *elem) bool {
+		if (elm.is("Publish") || elm.is("Control")) && elm.attr(attrProperty) == name {
+			return true
+		}
+
+		return slices.ContainsFunc(elm.kids, changed)
+	}
+
+	return changed(c.doc.root)
+}
+
 // pendingType is a ProgId that goes onto the file its verbs start, once
 // every file is known.
 type pendingType struct {
@@ -848,6 +951,8 @@ type pendingType struct {
 }
 
 func (c *converter) placeTypes() {
+	placed := make(map[string]placedType)
+
 	for _, pending := range c.pendingTypes {
 		var file *fileRef
 
@@ -863,9 +968,193 @@ func (c *converter) placeTypes() {
 			continue
 		}
 
+		progID := strings.ToLower(pending.out.str("progId"))
+		if first, ok := placed[progID]; ok {
+			c.mergeType(first, pending, file)
+
+			continue
+		}
+
+		placed[progID] = placedType{pending: pending, file: file}
+
 		file.out.add("fileTypes", pending.out)
+		c.typeIconNote(pending, file)
 		c.typeFeatureNote(pending, file)
+		c.typeConditionNote(pending, file)
 	}
+}
+
+// placedType is a ProgId placed on the file it opens.
+type placedType struct {
+	file    *fileRef
+	pending pendingType
+}
+
+// typeConditionNote notes a ProgId whose component has a condition that the
+// component of the file it opens does not share: the file type now
+// installs with the file.
+func (c *converter) typeConditionNote(pending pendingType, file *fileRef) {
+	if pending.comp == file.comp || pending.comp.out == nil {
+		return
+	}
+
+	cond := pending.comp.out.str("condition")
+	if cond == "" || file.comp.out != nil && file.comp.out.str("condition") == cond {
+		return
+	}
+
+	c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with the condition %s; msi-builder installs "+
+		"file types with their file, so that condition no longer applies to it", pending.e.attr("Id"), cond)
+}
+
+// typeExtensions returns the extensions of a converted file type.
+func typeExtensions(fileType *omap) []*omap {
+	list, ok := fileType.get("extensions").([]any)
+	if !ok {
+		return nil
+	}
+
+	var exts []*omap
+
+	for _, item := range list {
+		if entry, ok := item.(*omap); ok {
+			exts = append(exts, entry)
+		}
+	}
+
+	return exts
+}
+
+// mergeType adds the extensions of a second declaration of a ProgId to
+// the first one: msi-builder registers each ProgId once. WiX writes each
+// declaration into its own component, so a condition of that component
+// no longer applies. A second declaration that opens another file is
+// left out.
+func (c *converter) mergeType(first placedType, again pendingType, file *fileRef) {
+	if file != first.file {
+		c.todof(first.pending.out, "", again.e.line, "the ProgId %s is declared again for the file %s; msi-builder registers a ProgId "+
+			"once, so convert left that declaration out, add its extensions to a ProgId of its own", again.e.attr("Id"), file.key)
+		first.pending.out.head = append(first.pending.out.head, commentsOf(again.out, nil)...)
+
+		return
+	}
+
+	seen := make(map[string]bool)
+
+	for _, entry := range typeExtensions(first.pending.out) {
+		seen[strings.ToLower(entry.str("extension"))] = true
+	}
+
+	merged := make(map[*omap]bool)
+
+	for _, entry := range typeExtensions(again.out) {
+		if !seen[strings.ToLower(entry.str("extension"))] {
+			seen[strings.ToLower(entry.str("extension"))] = true
+			merged[entry] = true
+
+			first.pending.out.add("extensions", entry)
+		}
+	}
+
+	note := ""
+	if again.comp != file.comp && c.componentDiffers(file.comp, again.comp) {
+		note = "; it installs with the file now, so the condition and features of the component that declared it again no longer apply"
+	}
+
+	c.todof(first.pending.out, "", again.e.line, "the ProgId %s is declared again; convert merged its extensions into this file type "+
+		"and kept the description and verbs of the first one%s", again.e.attr("Id"), note)
+
+	// The notes of the second declaration stay in the YAML, except those
+	// of the extensions that moved over with their own notes.
+	first.pending.out.head = append(first.pending.out.head, commentsOf(again.out, merged)...)
+}
+
+// componentDiffers reports whether the second component has a condition
+// or features that the first one does not share.
+func (c *converter) componentDiffers(first, again *comp) bool {
+	if again.out == nil {
+		return false
+	}
+
+	if cond := again.out.str("condition"); cond != "" && (first.out == nil || first.out.str("condition") != cond) {
+		return true
+	}
+
+	return !slices.Equal(c.featureIDs(first), c.featureIDs(again))
+}
+
+// commentsOf returns the comment lines of mapping and of the mappings in it,
+// leaving out the mappings in skip.
+func commentsOf(mapping *omap, skip map[*omap]bool) []string {
+	if mapping == nil || skip[mapping] {
+		return nil
+	}
+
+	lines := slices.Clone(mapping.head)
+
+	for _, key := range mapping.keys {
+		lines = append(lines, mapping.comments[key]...)
+		lines = append(lines, commentsIn(mapping.values[key], skip)...)
+	}
+
+	return lines
+}
+
+func commentsIn(value any, skip map[*omap]bool) []string {
+	switch typed := value.(type) {
+	case *omap:
+		return commentsOf(typed, skip)
+	case []any:
+		var lines []string
+
+		for _, item := range typed {
+			lines = append(lines, commentsIn(item, skip)...)
+		}
+
+		return lines
+	}
+
+	return nil
+}
+
+// typeIconNote notes a ProgId whose icon is in another file than the one
+// it opens: iconIndex only picks an icon of the file the type goes on.
+func (c *converter) typeIconNote(pending pendingType, file *fileRef) {
+	icon := strings.TrimSpace(c.literal(pending.e.attr("Icon")))
+	if icon == "" || icon == file.key || icon == strings.TrimSpace(c.literal(file.key)) {
+		return
+	}
+
+	pending.out.del("iconIndex")
+
+	progID := pending.e.attr("Id")
+	isFile := slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == icon })
+
+	if !isFile && slices.ContainsFunc(c.icons, func(e *elem) bool { return e.attr("Id") == icon }) {
+		c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from the <Icon> %s, which only advertised "+
+			"ProgIds use; install the icon as a file and add the DefaultIcon key HKCR\\%s\\DefaultIcon as a registry value "+
+			"naming it", progID, icon, progID)
+
+		return
+	}
+
+	where := ""
+	if !isFile {
+		where = " (a file this source does not define)"
+	}
+
+	c.todof(pending.out, "", pending.e.line, "the ProgId %s takes its icon from %s%s, not from the file it opens; "+
+		"iconIndex only picks an icon of that file, so add the DefaultIcon key as a registry value "+
+		"(HKCR\\%s\\DefaultIcon = [#%s],%s)", progID, icon, where, progID, icon, c.iconIndexText(pending.e))
+}
+
+// iconIndexText returns a ProgId's icon index, 0 when it gives none.
+func (c *converter) iconIndexText(elm *elem) string {
+	if elm.has("IconIndex") {
+		return strings.TrimSpace(c.literal(elm.attr("IconIndex")))
+	}
+
+	return "0"
 }
 
 // typeFeatureNote notes a ProgId whose component is in other features than

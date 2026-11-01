@@ -101,6 +101,7 @@ package:
   platform: x64            # wix build -arch x64
 
 upgrade:
+  allowSameVersion: false  # WiX's AllowSameVersionUpgrades="no" default
   downgradeMessage: A newer version of [ProductName] is already installed.
 
 installDir:
@@ -164,7 +165,7 @@ msi-builder does the same by default:
 | `SetDirectory` | `customActions[].setDirectory` |
 | `Feature` | `features` |
 | `Component` | `components` |
-| `File` | `components[].files` |
+| `File` | `components[].files`; a File without `Source` takes the `FileSource` of its Directory |
 | Heat harvesting, `Files` (v5) | A folder `source` ending in `/` |
 | `CreateFolder` | `components[].createFolder` |
 | `RemoveFile`, `RemoveFolder` | `components[].removeFiles` |
@@ -173,7 +174,7 @@ msi-builder does the same by default:
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
 | `Environment` | `components[].environment` |
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
-| `ProgId`, `Extension`, `Verb` | `files[].fileTypes` |
+| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
 | `ServiceControl` for another service | `components[].serviceControl` |
@@ -182,7 +183,8 @@ msi-builder does the same by default:
 | `PermissionEx` (SDDL), `Permission` | `permissions.sddl`, `folderPermissions.sddl` |
 | `util:PermissionEx` | `permissions.grant`, `folderPermissions.grant`; on a registry key, `permissions.sddl` |
 | `Property` | `properties` |
-| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search` |
+| `RegistrySearch`, `DirectorySearch`, `FileSearch`, `ComponentSearch` | `properties.<NAME>.search`; a `DirectorySearch` without `Path` in a `RegistrySearch` with `Type="directory"` adds nothing, because that search already finds only a folder that exists. In a `Type="raw"` search, or one without `Type`, it returns the folder that holds the path in the value without checking that it exists (SEARCH-09). Convert keeps the value and adds a note, which says that for a value that is a path the property is set whenever the value exists, so the raw value is enough when only that matters. A search nested in it looks in that folder, while convert searches in the folder the value names, so convert notes that too |
+| `ProductSearch UpgradeCode` | an `upgrade.related` row with `onlyDetect: true` that sets the property |
 | `Launch` (v3 `Condition` under `Product`) | `launchConditions` |
 | `CustomAction`, `SetProperty`, `Custom` | `customActions` |
 | `InstallExecuteSequence`, `InstallUISequence` | `customActions[].schedule` |
@@ -238,7 +240,7 @@ icons:
 
 upgrade:
   removeOld: afterInstallValidate   # MajorUpgrade Schedule
-  allowSameVersion: true            # the default
+  allowSameVersion: true            # AllowSameVersionUpgrades="yes"
   downgradeMessage: A newer version of [ProductName] is already installed.
   related:                          # Upgrade / UpgradeVersion
     - upgradeCode: 513044d7-fae5-4715-984a-14f911d06fcc
@@ -258,6 +260,10 @@ upgrade:
   never removes a newer version. `downgrade: allow` and `downgrade: ignore`
   install the older version next to the newer one.
 - `IgnoreRemoveFailure="yes"` is `ignoreRemoveFailure: true`.
+- WiX's `AllowSameVersionUpgrades` defaults to `no`, msi-builder's
+  `allowSameVersion` to `true`. convert writes `allowSameVersion: false` for
+  every `MajorUpgrade` without `AllowSameVersionUpgrades="yes"` or
+  `AllowDowngrades="yes"`, so the same version is still not taken as an upgrade.
 - A hand-made major upgrade without `MajorUpgrade`, an `UpgradeVersion` of
   the package's own `UpgradeCode` with a `Minimum` below this version and a
   `Maximum` at it, with `RemoveExistingProducts` scheduled, is `minVersion`
@@ -495,6 +501,9 @@ when the component is installed. `RemoveRegistryKey` with
 removed, and the install does not create it. A `type: key` entry with
 `removeOnUninstall: true` deletes the key at uninstall too, but also
 creates it at install.
+A `RegistryKey` with `ForceDeleteOnUninstall="yes"` and no values, also none in
+nested keys, only deletes the key, so convert writes it as such a
+`removeRegistry` entry.
 
 ## Environment variables
 
@@ -689,7 +698,11 @@ launchConditions:
 
 `DirectorySearch`, `FileSearch` and `ComponentSearch` are `directory`,
 `file` and `component` searches; a list of searches takes the first one
-that finds something. One thing works differently: in WiX, a search
+that finds something. `ComponentSearch Type="directory"`, for another product's
+component keyed on its folder, is `keyPath: directory`; without it the
+search returns the folder's parent (tested on Windows). For a component
+of the same package msi-builder picks the type from the component itself,
+and `convert` leaves `keyPath` out. One thing works differently: in WiX, a search
 overwrites a value given on the command line. In msi-builder the command
 line wins, and the search result is used only when the property is still
 empty.
@@ -723,6 +736,10 @@ element in a sequence becomes a `schedule` placement of that entry:
 | `BinaryRef` + `ExeCommand` | `exe` with a `binaries` entry |
 | `Error` | `error` |
 | `Execute`, `Impersonate`, `Return`, `HideTarget` | `execute`, `impersonate`, `return`, `hideTarget` |
+| `Impersonate="no"` on a deferred action in a per-user package | dropped with a note: a per-user package cannot run an action without impersonation (ICE105), and CA-09 saw per-user installs of dual-scope packages run such an action as the installing user; `Impersonate="no"` on an immediate action is dropped silently, since an immediate action always runs as the installing user |
+| `Impersonate="no"` on a deferred action in a dual-scope package | `impersonate: false` with `scope: perMachine`: the action runs only in per-machine installs (CA-09); one whose conditions all say `NOT ALLUSERS` becomes an impersonated `scope: perUser` action, since CA-09 saw a per-user install run it as the installing user anyway; one also scheduled outside `InstallExecuteSequence` keeps `impersonate: false` without a scope and gets a note to split it, since a scope needs the execute sequence; one whose condition tests `ALLUSERS` among other terms keeps it and gets `scope: perMachine` with a note, since a per-user test then never holds |
+| A `Custom` condition that only names the context (such as `ALLUSERS=1`, `ALLUSERS`, `NOT ALLUSERS` or `ALLUSERS=""`) in a dual-scope package, on every placement and all in `InstallExecuteSequence` | `scope: perMachine` or `scope: perUser`; otherwise the condition stays |
+| `CustomAction Directory` naming a folder ICE105 rejects (`SystemFolder`, `WindowsFolder`, `TempFolder`, …) in a per-user or dual-scope package | A `run` action runs without a working directory and an `exec` action keeps it, both with a note: msi-builder refuses these folders as an action's directory there |
 | `ProgressText` for the action (in `UI`) | `progress`; a `Template` has no counterpart |
 
 | WiX `Custom` | `schedule` entry |
@@ -804,6 +821,14 @@ ui:
 (seen in a real-world port, also with `/qn`). msi-builder installs per
 user to `%LOCALAPPDATA%\Programs\<folder>`. A per-user msi-builder upgrade of
 such an installation should therefore move the files there.
+
+Per machine, `WixUI_Advanced` installs to
+`[ProgramFilesFolder][ApplicationFolderName]`, also with `/qn` (seen in real-world
+packages), or to the value of an action that sets `WixPerMachineFolder`. It
+does not use the name of the install folder's Directory. convert takes
+`installDir.name` and `parent` from that folder. In a 64-bit package
+`ProgramFilesFolder` is `Program Files (x86)`, and convert adds a note to keep
+it for installed versions or switch to `ProgramFiles64Folder`.
 
 The wizard pages are msi-builder's own, with its own bitmaps. It has no
 setup type page (Typical, Custom, Complete) like `WixUI_Mondo`, and dialogs

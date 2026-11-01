@@ -156,26 +156,33 @@ func TestWalkStopsEarly(t *testing.T) {
 	}
 }
 
-// TestWalkRejectsOverlap checks that a cabinet whose files share bytes is
-// refused by Walk and accepted by Read.
-func TestWalkRejectsOverlap(t *testing.T) {
+// TestWalkSharedRecord checks that Walk, like Read, serves a file whose
+// record points back at the bytes of the file before it (section 5).
+func TestWalkSharedRecord(t *testing.T) {
 	t.Parallel()
 
 	raw, _ := cab.Write([]cab.File{{Name: "one", Data: []byte("abcdef")}, {Name: "two", Data: []byte("xyz")}}, cab.Options{Compression: cab.None})
 
 	// Point "two" at offset 0 like "one": a shared record (section 5).
-	bad := append([]byte(nil), raw...)
+	shared := append([]byte(nil), raw...)
 	pos := 36 + 8 + 16 + len("one") + 1
-	copy(bad[pos+4:], []byte{0, 0, 0, 0})
+	copy(shared[pos+4:], []byte{0, 0, 0, 0})
 
-	files, err := cab.Read(bad)
+	files, err := cab.Read(shared)
 	if err != nil || string(files[1].Data) != "abc" {
 		t.Errorf("Read of the shared record: %v, %+v", err, files)
 	}
 
-	err = cab.Walk(bytes.NewReader(bad), int64(len(bad)), func(cab.File, io.Reader) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "overlaps") {
-		t.Errorf("Walk accepted the shared record: %v", err)
+	var got []string
+
+	err = cab.Walk(bytes.NewReader(shared), int64(len(shared)), func(_ cab.File, data io.Reader) error {
+		read, err := io.ReadAll(data)
+		got = append(got, string(read))
+
+		return err
+	})
+	if err != nil || strings.Join(got, ",") != "abcdef,abc" {
+		t.Errorf("Walk of the shared record: %v, %q", err, got)
 	}
 }
 

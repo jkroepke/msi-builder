@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
+# Converted from componentsearch.wxs by msi-builder convert.
+# Review it, resolve the TODO comments, then run msi-builder validate.
+schema: msi-builder/v1
+product:
+  name: Hello
+  manufacturer: Example
+  version: 1.0.0
+  upgradeCode: '{6A1B2C3D-4E5F-4A7B-8C9D-0E1F2A3B4C5D}'
+package:
+  platform: x64
+upgrade:
+  allowSameVersion: false
+  downgradeMessage: A newer version of [ProductName] is already installed.
+installDir:
+  id: INSTALLFOLDER
+  name: Hello
+features:
+  - id: Complete
+    components: [MainExecutable, InstallFolder]
+components:
+  - id: MainExecutable
+    guid: '{7B2C3D4E-5F60-4B8C-9DAE-1F2A3B4C5D6E}'
+    files:
+      - source: hello.exe
+  - id: InstallFolder
+    guid: '{8C3D4E5F-6071-4C9D-AEBF-2A3B4C5D6E7F}'
+    removeFolders:
+      - property: CLEANUP_DIR
+    createFolder: true
+properties:
+  # The install folder itself: the component's key path is the folder.
+  CLEANUP_DIR:
+    search:
+      component:
+        guid: '{8C3D4E5F-6071-4C9D-AEBF-2A3B4C5D6E7F}'
+  # The folder of the companion product's main program.
+  COMPANION_DIR:
+    search:
+      component:
+        guid: '{9D4E5F60-7182-4DAE-BFC0-3B4C5D6E7F80}'
+  # The companion product's data folder, a folder key path.
+  COMPANION_DATA:
+    search:
+      component:
+        guid: '{AE5F6071-8293-4EBF-C0D1-4C5D6E7F8091}'
+        keyPath: directory

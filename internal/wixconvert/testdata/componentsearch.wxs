@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A sample that finds its own install folder through a component keyed on
+     that folder and removes it on uninstall, and a companion product's data
+     folder through its component. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Hello" Version="1.0.0" Manufacturer="Example" UpgradeCode="{6A1B2C3D-4E5F-4A7B-8C9D-0E1F2A3B4C5D}">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="MainExecutable" Guid="{7B2C3D4E-5F60-4B8C-9DAE-1F2A3B4C5D6E}">
+          <File Source="hello.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="InstallFolder" Guid="{8C3D4E5F-6071-4C9D-AEBF-2A3B4C5D6E7F}">
+          <CreateFolder />
+          <util:RemoveFolderEx On="uninstall" Property="CLEANUP_DIR" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- The install folder itself: the component's key path is the folder. -->
+    <Property Id="CLEANUP_DIR">
+      <ComponentSearch Id="InstallFolderSearch" Guid="{8C3D4E5F-6071-4C9D-AEBF-2A3B4C5D6E7F}" Type="directory" />
+    </Property>
+    <!-- The folder of the companion product's main program. -->
+    <Property Id="COMPANION_DIR">
+      <ComponentSearch Id="CompanionSearch" Guid="{9D4E5F60-7182-4DAE-BFC0-3B4C5D6E7F80}" Type="file" />
+    </Property>
+    <!-- The companion product's data folder, a folder key path. -->
+    <Property Id="COMPANION_DATA">
+      <ComponentSearch Id="CompanionDataSearch" Guid="{AE5F6071-8293-4EBF-C0D1-4C5D6E7F8091}" Type="directory" />
+    </Property>
+
+    <Feature Id="Complete">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="InstallFolder" />
+    </Feature>
+  </Package>
+</Wix>

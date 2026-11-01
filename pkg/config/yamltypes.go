@@ -338,12 +338,21 @@ type FileSearch struct { //nolint:govet // field order is the YAML key order
 type ComponentSearch struct {
 	// GUID is the component code, of this or of another product.
 	GUID string `yaml:"guid"`
+	// KeyPath is what the component's key path is: file (the default for
+	// another product's component), which returns the folder of the key
+	// file, or directory, which returns the key path folder itself. The
+	// engine returns the parent of a folder key path for file and nothing
+	// for a file key path for directory (SEARCH-05, SEARCH-08).
+	// For a component of this package the builder knows it, and a value
+	// that contradicts the component is an error.
+	KeyPath string `yaml:"keyPath"`
 }
 
-// Registry search types.
+// Registry search types, and the component search key path kinds.
 const (
 	SearchValue     = "value"
 	SearchDirectory = "directory"
+	SearchFile      = "file"
 )
 
 // Properties maps property names to their settings.

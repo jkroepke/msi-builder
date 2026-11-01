@@ -11,6 +11,7 @@ product:
 package:
   platform: x64
 upgrade:
+  allowSameVersion: false
   downgradeMessage: A newer version is installed.
 installDir:
   id: INSTALLFOLDER

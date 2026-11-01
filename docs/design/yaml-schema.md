@@ -257,7 +257,8 @@ Above 5.0 every platform fails with 1613 on Windows Installer 5.0, the
 current engine, so it is rejected.
 
 `perUser` packages are checked for ICE105: no services, no HKLM registry
-values, no no-impersonate actions and no per-machine directories.
+values, no no-impersonate actions and no per-machine directories. A dual
+package may run a no-impersonate action with `scope: perMachine` (CA-09).
 
 #### Install scope
 
@@ -336,6 +337,36 @@ out of a per-user install, and the builder passes that warning on; it
 reported nothing for them in a `perMachineOrUser` package and nothing for
 the machine variable in either (ENVVAR-03). HKU values were not tested,
 and a standard user's install was tested with an HKLM value only.
+
+A custom action with `scope: perMachine` runs only per machine, and one
+with `scope: perUser` only per user: the builder adds `ALLUSERS=1` or `NOT
+ALLUSERS` to the condition of each of its schedules (and of the data
+action of a `run` action). Only a `perMachine` action may have
+`impersonate: false`, so an action that changes the machine as LocalSystem
+is left out of every per-user install, also one that an administrator
+runs elevated, and a standard user's per-user install needs no elevation
+for it (CA-09). A scoped action runs in the execute sequence only: in the
+UI sequence the scope page sets `ALLUSERS` back to 2, and an administrative
+install has no context. ICE105 reads only the action's type, so in a
+`perUserOrMachine` package it warns about a `perMachine` action without
+impersonation although the condition keeps it out of per-user installs,
+and the builder passes that warning on; it is silent in a
+`perMachineOrUser` package (CA-09). The same holds for the Directory row
+that an action's `directory` adds, so a dual or per-user package refuses a
+folder ICE105 rejects, such as `System64Folder`, `WindowsFolder` or
+`TempFolder`, as an action's working directory, as it does for components.
+
+```yaml
+customActions:
+  - id: RegisterMachine
+    run: { command: '"[#tool.exe]" register --all-users' }
+    execute: deferred
+    impersonate: false
+    scope: perMachine                # left out of a per-user install
+    return: check
+    schedule:
+      - { sequence: execute, after: InstallFiles, when: install }
+```
 
 ### 4.3 `upgrade`
 
@@ -515,8 +546,9 @@ values, and so do machine environment variables, HKLM and HKU
 `removeRegistry` entries, and file types and HKMU or HKCR removals outside
 a `perUser` package. A firewall carrier in the profile
 gets the value. A `component` search for the GUID of a component whose
-key path becomes the value finds the registry value after the upgrade, not the file
-(not tested). In a per-machine install the desktop and Start menu folders
+key path becomes the value is expected to find nothing, not the file (not
+tested for this HKCU value; an HKLM registry key path found nothing with
+either type, SEARCH-08). In a per-machine install the desktop and Start menu folders
 are the all-users ones; the value still goes to the installing user's
 HKCU, as ICE38 asks. A dual package's install dir is under Program Files in the
 package, so its components keep their key files; components in profile
@@ -1815,7 +1847,8 @@ folder (SEARCH-04).
 | | `minSize`, `maxSize` | Inclusive bounds in bytes, up to 2147483647 |
 | | `minDate`, `maxDate` | Inclusive bounds on the modification date, `YYYY-MM-DD` from 1980-01-01 to 2043-12-31: `minDate` starts at 00:00:00 and `maxDate` ends at 23:59:58, since the engine compares the time of day too (SEARCH-05). Whether it compares local time or UTC is not tested |
 | | `languages` | Language IDs the file's version resource must list; compared only when the file's version equals `minVersion` |
-| `component` | `guid` | The component code of an installed component, of this or another product. Returns the folder of its key file |
+| `component` | `guid` | The component code of an installed component, of this or another product. Returns the folder of its key file, or the folder itself for a component keyed on its folder (SEARCH-08) |
+| | `keyPath` | `file` (default) or `directory`: what the component's key path is. The engine returns the folder's parent for a folder key path searched as `file` (SEARCH-08), and nothing for a file key path searched as `directory` (SEARCH-05), so it must match. For a component of this package the builder sets it from the component, and a `keyPath` that contradicts it is an error. A component of this package keyed on a registry value (also one with only shortcuts) gets a warning, and `keyPath` on it is an error: the search found nothing for an HKLM registry key path with either type (SEARCH-08; HKCU not tested) |
 
 The engine finds a file whose version equals `MinVersion` only when
 `Languages` lists the file's languages, even for a language-neutral file
@@ -1842,8 +1875,9 @@ standard folder gets a warning: if that property is empty, the path is
 relative and the engine searches every fixed drive. The standard folder
 properties are set before `AppSearch` (`[WindowsFolder]` and
 `[ProgramFiles64Folder]` work, SEARCH-05). A component search finds components
-whose key path is a file; a component with a registry or folder key path
-was not tested.
+whose key path is a file (SEARCH-05) and, with the locator type of a folder
+key path, those keyed on their folder (`keyPath`, SEARCH-08); it found nothing
+for an HKLM registry key path (SEARCH-08; HKCU not tested).
 
 The precedence is: a value from the command line, then the first search
 that finds something, then `value`. Search *n* fills `<NAME>_FOUND`
@@ -1967,7 +2001,9 @@ package, a DLL or no Windows program. How long the engine keeps the
 temporary file of an `asyncNoWait` action is not tested.
 
 Options: `execute` (default `immediate`), `impersonate` (default `true`;
-`false` needs a deferred action), `return` (required for `exec`,
+`false` needs a deferred action, and in a dual package `scope: perMachine`),
+`scope` (`perMachine` or `perUser`, dual packages only, see "Install
+scope"), `return` (required for `exec`,
 `execProperty`, `exe` and `run`, default `check` otherwise), `hideTarget`, `once`
 (`firstSequence`, `oncePerProcess`, `clientRepeat`), `progress`.
 

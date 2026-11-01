@@ -19,6 +19,7 @@ package:
   embedCabinets: false
   cabinet: tools.cab
 upgrade:
+  allowSameVersion: false
   downgradeMessage: A newer version of [ProductName] is already installed.
   related:
     - upgradeCode: '{6A3F1B2C-1D2E-4F50-9A8B-7C6D5E4F3A21}'

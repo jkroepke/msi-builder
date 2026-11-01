@@ -53,6 +53,12 @@ func (c *converter) placements() map[string][]any {
 		if !ok {
 			c.todof(nil, "", seq.line, "<%s> has no counterpart", seq.name)
 
+			for _, entry := range seq.kids {
+				if id := entry.attr("Action"); entry.is("Custom") && c.otherSequences[id] == nil {
+					c.otherSequences[id] = seq
+				}
+			}
+
 			continue
 		}
 
@@ -166,6 +172,7 @@ func (c *converter) emitActions() {
 	c.quietExecCommands()
 	reanchor := c.reanchor(byAction)
 	progress := c.progress()
+	scheduled := c.scheduledBinaries(byAction)
 
 	for _, custom := range c.actionOrder {
 		actionID := custom.attr("Id")
@@ -178,10 +185,18 @@ func (c *converter) emitActions() {
 			continue
 		}
 
-		c.setProgress(action, actionID, progress)
 		reanchor(actionID, byAction[actionID])
+
+		if len(byAction[actionID]) == 0 {
+			c.unscheduledAction(custom, scheduled)
+
+			continue
+		}
+
+		c.setProgress(action, actionID, progress)
 		action.set("schedule", byAction[actionID])
 		delete(byAction, actionID)
+		c.actionScope(action, custom)
 		c.extensionAnchors(action, custom, byAction, sides)
 		c.out.add("customActions", action)
 	}
@@ -209,6 +224,136 @@ func (c *converter) emitActions() {
 	}
 
 	c.leftoverProgress(progress)
+}
+
+// actionScope gives an action of a dual package a scope: perMachine for
+// one without impersonation, which msi-builder runs only in per-machine
+// installs (CA-09), and the scope its schedules' conditions name when each
+// of them names the same one. A condition that only names the scope goes,
+// since the builder writes it.
+func (c *converter) actionScope(action *omap, custom *elem) {
+	if !c.dualScope() {
+		return
+	}
+
+	placements := schedulePlacements(action)
+	// Only a deferred, rollback or commit action can run elevated.
+	elevated := custom.no("Impersonate") && action.str("execute") != ""
+
+	if !inExecuteOnly(placements) {
+		if elevated {
+			c.outsideExecute(action, custom, placements)
+		}
+
+		return
+	}
+
+	scope := c.namedScope(placements)
+
+	switch {
+	case scope != "" && (!elevated || scope == scopeMachine):
+		dropConditions(placements)
+		action.set("scope", scope)
+	case scope == scopeUser:
+		dropConditions(placements)
+		action.del("impersonate")
+		action.set("scope", scope)
+		c.todof(action, "scope", custom.line, "%s runs only per user; in the per-user installs CA-09 tested, a standard "+
+			"user's and an administrator's, an action without impersonation ran as the installing user, so it runs "+
+			"impersonated; a per-user install elevated by policy (AlwaysInstallElevated) was not tested", custom.attr("Id"))
+	case elevated:
+		c.machineScope(action, custom, placements)
+	}
+}
+
+// machineScope gives an action without impersonation scope: perMachine,
+// with a note that names a condition testing ALLUSERS itself.
+func (c *converter) machineScope(action *omap, custom *elem, placements []*omap) {
+	action.set("scope", scopeMachine)
+
+	note := "check that %[2]s still runs when it should"
+	if testsAllUsers(placements) {
+		note = "a condition of %[2]s tests ALLUSERS itself: one that holds only per user now never holds, so move " +
+			"that schedule into an impersonated action with scope: perUser"
+	}
+
+	c.todof(action, "scope", custom.line, "msi-builder runs an action without impersonation in a %[1]s package only in "+
+		"per-machine installs (CA-09), so it adds ALLUSERS=1 to the schedule; "+note, c.scope, custom.attr("Id"))
+}
+
+// testsAllUsers reports whether a placement's condition names ALLUSERS.
+func testsAllUsers(placements []*omap) bool {
+	return slices.ContainsFunc(placements, func(placement *omap) bool {
+		return strings.Contains(strings.ToUpper(placement.str("condition")), "ALLUSERS")
+	})
+}
+
+// outsideExecute notes an action without impersonation that runs outside
+// the execute sequence, where no scope keeps it out of per-user installs.
+func (c *converter) outsideExecute(action *omap, custom *elem, placements []*omap) {
+	fix := "move the other placements into an action of their own"
+	if !slices.ContainsFunc(placements, func(p *omap) bool { return p.str("sequence") == seqExecute }) {
+		fix = "it cannot run without impersonation in this package"
+	}
+
+	c.todof(action, "impersonate", custom.line, "%s runs without impersonation outside the execute sequence; in a %s "+
+		"package msi-builder runs such an action only with scope: perMachine, which needs the execute sequence: %s",
+		custom.attr("Id"), c.scope, fix)
+}
+
+// dropConditions removes the conditions of placements whose context the
+// action's scope now names.
+func dropConditions(placements []*omap) {
+	for _, placement := range placements {
+		placement.del("condition")
+	}
+}
+
+// inExecuteOnly reports whether every placement is in the execute
+// sequence, the only one where an action may have a scope.
+func inExecuteOnly(placements []*omap) bool {
+	for _, placement := range placements {
+		if placement.str("sequence") != seqExecute {
+			return false
+		}
+	}
+
+	return true
+}
+
+// schedulePlacements returns the placements of an action's schedule.
+func schedulePlacements(action *omap) []*omap {
+	schedule, ok := action.get("schedule").([]any)
+	if !ok {
+		return nil
+	}
+
+	placements := make([]*omap, 0, len(schedule))
+
+	for _, entry := range schedule {
+		if placement, ok := entry.(*omap); ok {
+			placements = append(placements, placement)
+		}
+	}
+
+	return placements
+}
+
+// namedScope returns the scope that the condition of every placement
+// names alone, or "".
+func (c *converter) namedScope(placements []*omap) string {
+	scope := ""
+
+	for _, placement := range placements {
+		found := c.scopeCondition(placement.str("condition"))
+		if found == "" || scope != "" && found != scope {
+			return ""
+		}
+
+		scope = found
+	}
+
+	return scope
 }
 
 // leftoverProgress notes the progress texts that no converted action took:
@@ -407,6 +552,59 @@ func anchorText(placement *omap) string {
 	}
 
 	return keyAfter + " " + placement.str(keyAfter)
+}
+
+// unscheduledAction notes a custom action that no sequence schedules,
+// which msi-builder refuses: one that only a DoAction control event runs,
+// or one that never runs.
+func (c *converter) unscheduledAction(custom *elem, scheduled map[string]bool) {
+	actionID := custom.attr("Id")
+
+	// The action's binary stays in binaries, which nothing may use now.
+	binary := ""
+	if id := actionBinary(custom); id != "" && !scheduled[id] {
+		binary = "; drop the binary " + id + " from binaries unless something else uses it"
+	}
+
+	if publish := c.doActions[actionID]; publish != nil {
+		where := "a dialog"
+		if dialog := publish.attr("Dialog"); dialog != "" {
+			where = "the dialog " + dialog
+		}
+
+		c.todof(nil, "", custom.line, "the action %s runs only from the DoAction control event of %s (line %d), which has "+
+			"no counterpart; convert left it out%s", actionID, where, publish.line, binary)
+
+		return
+	}
+
+	if seq := c.otherSequences[actionID]; seq != nil {
+		c.todof(nil, "", custom.line, "only <%s> (line %d), which has no counterpart, schedules the action %s; convert left it out%s",
+			seq.name, seq.line, actionID, binary)
+
+		return
+	}
+
+	c.todof(nil, "", custom.line, "no sequence schedules the action %s, so it never runs; convert left it out%s", actionID, binary)
+}
+
+// actionBinary returns the Binary a custom action runs, if any.
+func actionBinary(custom *elem) string {
+	return custom.attr("BinaryRef") + custom.attr("BinaryKey")
+}
+
+// scheduledBinaries returns the binaries that scheduled custom actions
+// run, before emitActions takes the schedules out of byAction.
+func (c *converter) scheduledBinaries(byAction map[string][]any) map[string]bool {
+	scheduled := make(map[string]bool)
+
+	for id, custom := range c.actions {
+		if binary := actionBinary(custom); binary != "" && len(byAction[id]) > 0 {
+			scheduled[binary] = true
+		}
+	}
+
+	return scheduled
 }
 
 // skipAction reports whether a custom action is left out of
@@ -816,7 +1014,7 @@ func (c *converter) command(quiet *elem) (string, bool) {
 func newAction(e *elem) *omap {
 	action := newMap()
 	action.order("id", "setProperty", "setDirectory", "error", "exec", "execProperty", "dll", "exe", "run",
-		"execute", "impersonate", "return", "hideTarget", "once", "progress", "schedule")
+		"execute", "impersonate", "scope", "return", "hideTarget", "once", "progress", "schedule")
 	action.head = comments(e)
 
 	return action
@@ -848,6 +1046,35 @@ func (c *converter) action(custom *elem) *omap {
 	c.actionFlags(action, custom, true)
 
 	return action
+}
+
+// ice105Folders are the standard folders whose Directory row ICE105
+// rejects in a package that may install per user; msi-builder refuses them
+// as an action's working directory there (section 8.2, CA-09).
+var ice105Folders = map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"AdminToolsFolder": true, "CommonAppDataFolder": true, "FontsFolder": true, "System16Folder": true,
+	"System64Folder": true, "SystemFolder": true, "TempFolder": true, "WindowsFolder": true, "WindowsVolume": true,
+}
+
+// actionFolder handles a working directory that ICE105 rejects in a
+// per-user or dual package: a run action leaves it out, an exec action
+// keeps it with a note. It reports whether it left the directory out.
+func (c *converter) actionFolder(action *omap, custom *elem, dir string) bool {
+	if !ice105Folders[dir] || c.scope != scopeUser && !c.dualScope() {
+		return false
+	}
+
+	if runKey(custom) == "run" {
+		c.todof(action, "run", custom.line, "%s ran in %s, which msi-builder refuses as a working directory in a %s package "+
+			"(ICE105), so it runs without one; check that the command does not rely on it", custom.attr("Id"), dir, c.scope)
+
+		return true
+	}
+
+	c.todof(action, "exec", custom.line, "%s runs in %s, which msi-builder refuses as a working directory in a %s package "+
+		"(ICE105): use INSTALLDIR", custom.attr("Id"), dir, c.scope)
+
+	return false
 }
 
 // runKey returns the kind a program action becomes: run, or exec for one
@@ -897,7 +1124,12 @@ func (c *converter) programKind(action *omap, custom *elem) bool { //nolint:cycl
 	case file != "" && custom.has("ExeCommand"):
 		action.set(runKey(custom), newMap().set("command", strings.TrimSpace(`"[#`+file+`]" `+exe)))
 	case custom.has(attrDirectory) && custom.has("ExeCommand"):
-		action.set(runKey(custom), newMap().set("command", exe).set("directory", c.dirRef(custom.attr(attrDirectory))))
+		program := newMap().set("command", exe)
+		action.set(runKey(custom), program)
+
+		if dir := c.dirRef(custom.attr(attrDirectory)); !c.actionFolder(action, custom, dir) {
+			program.set("directory", dir)
+		}
 
 		c.quoteNote(action, runKey(custom), custom.line, exe)
 	case custom.has(attrProperty) && custom.has("ExeCommand"):
@@ -950,7 +1182,15 @@ func (c *converter) actionFlags(action *omap, custom *elem, program bool) { //no
 		c.todof(action, "", custom.line, "Execute=%q has no counterpart", execute)
 	}
 
-	if custom.no("Impersonate") {
+	// Impersonation only matters for actions in the script: an immediate
+	// action always runs as the installing user.
+	switch {
+	case !custom.no("Impersonate") || action.str("execute") == "":
+	case c.scope == scopeUser:
+		c.todof(action, "execute", custom.line, "%s ran without impersonation, which a per-user package cannot (ICE105), so it "+
+			"runs impersonated; in the per-user installs of dual packages CA-09 tested such an action ran as the installing user",
+			custom.attr("Id"))
+	default:
 		action.set("impersonate", false)
 	}
 
@@ -1043,12 +1283,15 @@ func (c *converter) setter(setter *elem) (*omap, []any) {
 	return action, schedule
 }
 
-// emitActionRefs notes references to actions of WiX extensions.
+// emitActionRefs notes references to actions of WiX extensions. A
+// reference to an action that the file defines itself, such as one in a
+// Fragment, needs nothing: the action converts with its definition.
 func (c *converter) emitActionRefs() {
 	for _, ref := range c.actionRefs {
 		refID := ref.attr("Id")
 
 		switch {
+		case c.actions[refID] != nil || c.isSetter(refID):
 		case strings.Contains(refID, "BroadcastEnvironmentChange"):
 			c.todof(nil, "", ref.line,
 				"drop %s: Windows Installer announces environment changes itself", refID)

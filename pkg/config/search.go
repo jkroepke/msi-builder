@@ -493,4 +493,8 @@ func (v *validator) componentSearch(field string, comp *ComponentSearch) {
 	if v.required(field+".guid", comp.GUID) {
 		v.guid(field+".guid", comp.GUID)
 	}
+
+	if comp.KeyPath != "" {
+		v.oneOf(field+".keyPath", comp.KeyPath, SearchFile, SearchDirectory)
+	}
 }
