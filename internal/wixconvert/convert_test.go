@@ -1369,7 +1369,7 @@ func TestConvertConfigurableFolders(t *testing.T) {
       </Directory>
     </StandardDirectory>
     <Feature Id="Main"><ComponentRef Id="App" /></Feature>`,
-			want: []string{"the rest equals another row"},
+			want: []string{"the uninstall half equals another row"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

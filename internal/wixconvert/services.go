@@ -431,8 +431,9 @@ func (cc *compConv) removeFile(elm *elem) {
 	key := [5]string{elm.name, strings.ToLower(row.str("name")), row.str("directory"), row.str("property"), row.str("on")}
 	if cc.removeRows[key] {
 		if elm.attr("On") != when {
-			conv.todof(cc.out, "", elm.line, "the install half of %s On=%q on the property %s was not converted, and "+
-				"the rest equals another row; see the note there", elm.name, elm.attr("On"), elm.attr(attrProperty))
+			conv.todof(cc.out, "", elm.line, "the install half of %s On=%q on the property %s was not converted: a repair, "+
+				"which a standard user can start elevated, would remove files wherever the property points; the uninstall "+
+				"half equals another row", elm.name, elm.attr("On"), elm.attr(attrProperty))
 		}
 
 		return
