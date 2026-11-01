@@ -176,16 +176,18 @@ func (c *converter) skipContextSetter(action *elem, byAction map[string][]any) b
 
 // contextSources returns the setters of ALLUSERS and MSIINSTALLPERUSER
 // that skipContextSetter leaves out, so that actions placed on them move
-// to their anchors.
+// to their anchors: all of them in a dual package, the ALLUSERS=1 setters
+// that always run in a perMachine one.
 func (c *converter) contextSources() []commandSource {
-	if !c.dualScope() {
+	dual := c.dualScope()
+	if !dual && c.scope != "" && c.scope != scopeMachine {
 		return nil
 	}
 
 	var sources []commandSource
 
 	for _, src := range c.commandSources() {
-		if contextSetter(src.e) != "" {
+		if contextSetter(src.e) != "" && (dual || c.machineSetter(src.e)) {
 			sources = append(sources, src)
 		}
 	}

@@ -166,8 +166,18 @@ func TestConvertMachineSetter(t *testing.T) {
   </Product>
 </Wix>`
 
+	anchored := func(setter, other string) string {
+		return strings.Replace(src, `<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" Sequence="first" />`, setter+other, 1)
+	}
+
 	for name, doc := range map[string]string{
 		"plain": src,
+		// Actions placed on the dropped setter move to its place.
+		"anchored custom action": anchored(`<CustomAction Id="SetAllUsers" Property="ALLUSERS" Value="1" />`,
+			`<CustomAction Id="SetOther" Property="FOO" Value="x" />
+    <InstallExecuteSequence><Custom Action="SetAllUsers" Before="FindRelatedProducts" /><Custom Action="SetOther" After="SetAllUsers" /></InstallExecuteSequence>`),
+		"anchored set property": anchored(`<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" />`,
+			`<SetProperty Id="FOO" Value="x" After="SetALLUSERS" />`),
 		// A condition on the context always holds per machine.
 		"conditioned": strings.Replace(src, `<Component Id="Machine" Guid="*">`,
 			`<Component Id="Machine" Guid="*"><Condition>ALLUSERS</Condition>`, 1),
