@@ -230,6 +230,26 @@ func TestConvertChosenBranch(t *testing.T) {
 			want: "pro", without: "signed",
 			note: "<?if $(var.Edition) = basic and $(var.Signed) = 1?> is not converted as a template: only the branch on line 8, which a build without -d variables takes, was converted",
 		},
+		"known false after a group": {
+			body: `<?define Known = 0 ?>
+    <?if ($(var.Pro) = 1) and $(var.Known) = 1 ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="pro" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="other" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			want: "other", without: "pro",
+			note: "<?if ($(var.Pro) = 1) and $(var.Known) = 1?> is not converted as a template: only the branch on line 8, which a build without -d variables takes, was converted",
+		},
+		"known false before a group": {
+			body: `<?define Known = 0 ?>
+    <?if $(var.Known) = 1 and ($(var.Pro) = 1) ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="pro" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="other" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			want: "other", without: "pro",
+			note: "<?if $(var.Known) = 1 and ($(var.Pro) = 1)?> is not converted as a template: only the branch on line 8, which a build without -d variables takes, was converted",
+		},
 		"platform through a branch": {
 			body: `<?if $(sys.BUILDARCH) = x64 ?><?define Wide = "yes" ?><?else ?><?define Wide = "no" ?><?endif ?>
     <?if $(var.Wide) = yes ?>

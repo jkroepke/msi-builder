@@ -434,8 +434,10 @@ func (e *ppEvaluator) unary() (bool, error) {
 
 	e.tokens = e.tokens[1:]
 
+	// An unknown group still ends at its parenthesis, so that the
+	// operands after it are read.
 	result, err := e.or()
-	if err != nil {
+	if err != nil && !errors.Is(err, errPPUnknown) {
 		return false, err
 	}
 
@@ -445,7 +447,7 @@ func (e *ppEvaluator) unary() (bool, error) {
 
 	e.tokens = e.tokens[1:]
 
-	return result, nil
+	return result, err
 }
 
 // ppValue is an evaluated operand; number is set on a literal that is a
