@@ -264,12 +264,15 @@ func TestConvertChosenMachineSetter(t *testing.T) {
     </Dialog></UI>`),
 		"ui only custom": src("", `<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />
     <InstallUISequence><Custom Action="SetAU" Before="FindRelatedProducts" /></InstallUISequence>`),
+		"public switch": src("", `<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />
+    <InstallExecuteSequence><Custom Action="SetAU" Before="FindRelatedProducts">MACHINE="1"</Custom></InstallExecuteSequence>`),
 		"unless set": src("", `<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />
     <InstallExecuteSequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT ALLUSERS</Custom></InstallExecuteSequence>`),
 	} {
 		yaml := convertValid(t, doc)
 
-		if strings.Contains(yaml, "\n  scope:") || strings.Contains(yaml, "\n    scope:") || !strings.Contains(yaml, "condition: NOT ALLUSERS") {
+		if strings.Contains(yaml, "\n  scope:") || strings.Contains(yaml, "\n    scope:") || !strings.Contains(yaml, "condition: NOT ALLUSERS") ||
+			strings.Contains(yaml, "always sets ALLUSERS=1") || !strings.Contains(yaml, "which Windows Installer installs per user") {
 			t.Errorf("%s: want a perMachine package with its condition:\n%s", name, yaml)
 		}
 	}

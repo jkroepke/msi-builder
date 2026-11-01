@@ -296,7 +296,8 @@ upgrade:
   note, also in a package that already has `ALLUSERS=2`, and moves actions
   placed after a dropped setter to its place. A per-machine package keeps
   its scope and its conditions, since `ALLUSERS=1` always holds there; a
-  setter that always sets `ALLUSERS=1` there is dropped with a note. A WiX
+  setter of `ALLUSERS=1` there that runs in the execute sequence without a
+  condition or under `NOT Installed` is dropped with a note. A WiX
   v3 package without `InstallScope` and `ALLUSERS` converts to perMachine,
   as before, whatever it does with `ALLUSERS`; only one that sets
   `MSIINSTALLPERUSER` or tests it in a condition becomes

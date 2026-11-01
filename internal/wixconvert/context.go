@@ -209,25 +209,32 @@ func (c *converter) setterValue(action *elem) string {
 	return c.value(action, "Value")
 }
 
-// contextProperties matches the properties that pick the install context.
-var contextProperties = regexp.MustCompile(`\b(ALLUSERS|MSIINSTALLPERUSER)\b`)
-
-// contextFree reports whether a setter's condition does not read the
-// install context. A setter of ALLUSERS=1 under such a condition, such as
-// NOT Installed, states the per-machine context of every install it runs
-// in; one whose condition reads ALLUSERS or MSIINSTALLPERUSER chooses it.
-func contextFree(cond string) bool {
-	return !contextProperties.MatchString(cond)
+// firstInstallConditions are the setter conditions that hold in every
+// first install, normalized by normalizeCondition; a later maintenance
+// install keeps the context the product was registered in.
+var firstInstallConditions = map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"":                             true,
+	"1":                            true,
+	"NOT Installed":                true,
+	"NOT Installed AND NOT REMOVE": true,
+	"NOT REMOVE AND NOT Installed": true,
+	"NOT Installed AND NOT UPGRADINGPRODUCTCODE": true,
 }
 
-// alwaysRuns reports whether a context setter runs in the execute
-// sequence under a condition that does not read the context: a SetProperty
-// outside the UI sequence, or a CustomAction that InstallExecuteSequence
-// schedules. A setter that only a dialog button or the UI sequence runs, or
-// whose condition reads the context, lets the install choose the context.
+// firstInstallCondition reports whether a setter's condition holds in
+// every first install. Any other condition, such as a public property of
+// the package, lets the install choose the context.
+func firstInstallCondition(cond string) bool {
+	return firstInstallConditions[normalizeCondition(cond)]
+}
+
+// alwaysRuns reports whether a context setter runs in every first install:
+// a SetProperty outside the UI sequence, or a CustomAction that
+// InstallExecuteSequence schedules, without a condition or with one of
+// firstInstallConditions.
 func (c *converter) alwaysRuns(action *elem) bool {
 	if action.is("SetProperty") {
-		return contextFree(c.condition(action)) && action.attr("Sequence") != "ui"
+		return firstInstallCondition(c.condition(action)) && action.attr("Sequence") != "ui"
 	}
 
 	runs := false
@@ -237,7 +244,7 @@ func (c *converter) alwaysRuns(action *elem) bool {
 
 	walk = func(elm *elem, execute bool) {
 		execute = execute || elm.is("InstallExecuteSequence")
-		if execute && elm.is("Custom") && elm.attr("Action") == actionID && contextFree(c.condition(elm)) {
+		if execute && elm.is("Custom") && elm.attr("Action") == actionID && firstInstallCondition(c.condition(elm)) {
 			runs = true
 		}
 
