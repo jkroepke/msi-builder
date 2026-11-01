@@ -396,7 +396,7 @@ func componentIDs(cfg *Config) {
 
 // componentBase is the name a component without an id is named after.
 // product is the product name, which a shortcut without a name defaults to.
-func componentBase(comp *Component, product string) string {
+func componentBase(comp *Component, product string) string { //nolint:cyclop // a flat list of naming rules
 	base := "Component"
 
 	switch {

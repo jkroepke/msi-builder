@@ -954,13 +954,7 @@ func (c *converter) placeTypes() {
 	placed := make(map[string]placedType)
 
 	for _, pending := range c.pendingTypes {
-		var file *fileRef
-
-		for _, f := range c.files {
-			if pending.target != "" && f.key == pending.target || pending.target == "" && f.comp == pending.comp && file == nil {
-				file = f
-			}
-		}
+		file := c.typeFile(pending)
 
 		if file == nil {
 			c.todof(pending.parent, "", pending.e.line, "the ProgId %s opens no file of the package; file types go on the file they start", pending.e.attr("Id"))
@@ -993,6 +987,20 @@ func (c *converter) placeTypes() {
 
 		file.out.add("fileTypes", pending.out)
 	}
+}
+
+// typeFile returns the file a ProgId opens: the target of its verbs, else
+// the first file of its component.
+func (c *converter) typeFile(pending pendingType) *fileRef {
+	var file *fileRef
+
+	for _, f := range c.files {
+		if pending.target != "" && f.key == pending.target || pending.target == "" && f.comp == pending.comp && file == nil {
+			file = f
+		}
+	}
+
+	return file
 }
 
 // fileRefName returns how the YAML names a converted file from another
@@ -1181,14 +1189,6 @@ func (c *converter) featureIDs(cp *comp) []string {
 	slices.Sort(ids)
 
 	return slices.Compact(ids)
-}
-
-func orNone(ids []string) string {
-	if len(ids) == 0 {
-		return valueNone
-	}
-
-	return strings.Join(ids, ", ")
 }
 
 // Rights names of grants.

@@ -1163,14 +1163,14 @@ func (v *validator) permissions(field string, perm *Permissions, kind string) bo
 // userRegistryKeyPath reports whether the component's key path, resolved as
 // the builder does, is a registry value under HKCU (HKMU is HKCU in a
 // per-user package).
-func userRegistryKeyPath(c *Component, perUser bool) bool {
+func userRegistryKeyPath(comp *Component, perUser bool) bool {
 	// A per-user package writes file types to HKCU\Software\Classes, so a
 	// component keyed on one of their values has an HKCU key path.
-	if perUser && fileTypesOnly(c) {
+	if perUser && fileTypesOnly(comp) {
 		return true
 	}
 
-	key := registryKeyPath(c)
+	key := registryKeyPath(comp)
 
 	return key != nil && (key.Root == "HKCU" || perUser && key.Root == "HKMU")
 }
