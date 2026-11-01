@@ -171,7 +171,9 @@ versioning after 1.0.
   see the searches). `dialogAnchors` moves UI placements on the dialog to
   after `AppSearch` (before it) or `LaunchConditions` (after it). A kept
   property no longer follows the page's choice: readers after the dialog
-  get a todo to test `ALLUSERS`.
+  get a todo to test `ALLUSERS`. A dialog whose `Show` does not lead to
+  `AppSearch` keeps a todo, and actions moved off it get one too, since
+  they now run before costing.
   A ProgId without `Extension` children takes its verbs and `openWithOnly`
   extensions from the `RegistryValue`s of its component that write
   `<ProgId>\shell\<verb>\command` (running `[#file]`) and

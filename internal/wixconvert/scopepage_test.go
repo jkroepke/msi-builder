@@ -226,6 +226,30 @@ func TestConvertScopeDialogEarlySetter(t *testing.T) {
 	wantNone(t, yaml, "perMachine: PREVMACHINE")
 }
 
+// TestConvertScopeDialogProblemAnchors checks that actions placed on the
+// dialog move also when its preselection does not map, and that a dialog
+// shown after costing gets a todo, as do the actions placed on it, which
+// now run before costing.
+func TestConvertScopeDialogProblemAnchors(t *testing.T) {
+	t.Parallel()
+
+	yaml := convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="CostFinalize" Sequence="ui" Condition="PREVMACHINE" />
+    <SetProperty Id="CHOSEN" Value="1" After="ScopeDlg" Sequence="ui" />`))
+	wantAll(t, yaml, "does not lead to the dialog or AppSearch", "{sequence: ui, after: LaunchConditions}")
+
+	src := strings.Replace(scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="DIRCOPY" Value="[INSTALLFOLDER]" After="ScopeDlg" Sequence="ui" />`),
+		`<Show Dialog="ScopeDlg" After="AppSearch"`, `<Show Dialog="ScopeDlg" After="CostFinalize"`, 1)
+	yaml = convertValid(t, src)
+	wantAll(t, yaml,
+		"the sequence does not show it right after AppSearch",
+		"SetDIRCOPY was placed next to the dialog ScopeDlg, which the scope page replaces",
+		"{sequence: ui, after: LaunchConditions}",
+	)
+	wantNone(t, yaml, "scopePage:")
+}
+
 // TestConvertScopeDialogPerUser checks a scope dialog in a package that
 // does not become a dual one: no ui.scopePage, which needs a dual scope.
 func TestConvertScopeDialogPerUser(t *testing.T) {

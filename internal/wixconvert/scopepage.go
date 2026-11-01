@@ -39,8 +39,9 @@ type scopePreference struct {
 	// readers is set when something but the dialog and its setters names
 	// the property.
 	readers bool
-	// early is set when a setter runs before AppSearch.
-	early bool
+	// early is set when a setter runs before AppSearch, late when the
+	// dialog is not shown right after it.
+	early, late bool
 }
 
 // propertyIs matches a condition that compares a property with a quoted
@@ -158,6 +159,13 @@ func (c *converter) scopePref() *scopePreference {
 // stand in for them (mapConditions) and they are left out; otherwise they
 // stay and the page reads the property itself (mapProperty).
 func (c *converter) mapScopePref(pref *scopePreference) {
+	if !leadsToAppSearch(c.uiAnchors(), pref.dialog.e.attr("Id")) {
+		pref.late = true
+		pref.problem = "the sequence does not show it right after AppSearch, where the scope page runs before costing"
+
+		return
+	}
+
 	c.scopeSetters(pref)
 
 	if pref.problem != "" {
@@ -403,6 +411,25 @@ func (c *converter) uiEntries() []*elem {
 	}
 
 	return entries
+}
+
+// leadsToAppSearch reports whether an entry of the UI sequence is placed,
+// through other entries, next to AppSearch.
+func leadsToAppSearch(anchors map[string]uiAnchor, name string) bool {
+	for range len(anchors) + 1 {
+		anchor, ok := anchors[name]
+		if !ok {
+			return false
+		}
+
+		if anchor.target == actAppSearch {
+			return true
+		}
+
+		name = anchor.target
+	}
+
+	return false
 }
 
 // The places of a setter relative to the scope dialog.
@@ -668,11 +695,9 @@ func (pref *scopePreference) comment() string {
 // after the page, for one after it.
 func (c *converter) dialogAnchors() {
 	pref := c.scopePref()
-	if pref == nil || pref.problem != "" {
+	if pref == nil {
 		return
 	}
-
-	dialog := pref.dialog.e.attr("Id")
 
 	actions, ok := c.out.get("customActions").([]any)
 	if !ok {
@@ -681,13 +706,17 @@ func (c *converter) dialogAnchors() {
 
 	for _, entry := range actions {
 		if action, isMap := entry.(*omap); isMap {
-			moveDialogAnchors(action, dialog)
+			c.moveDialogAnchors(action, pref)
 		}
 	}
 }
 
 // moveDialogAnchors moves an action's UI placements off the scope dialog.
-func moveDialogAnchors(action *omap, dialog string) {
+// When the dialog was not shown right after AppSearch, the action now runs
+// before costing, which a todo says.
+func (c *converter) moveDialogAnchors(action *omap, pref *scopePreference) {
+	dialog := pref.dialog.e.attr("Id")
+
 	schedule, ok := action.get("schedule").([]any)
 	if !ok {
 		return
@@ -695,7 +724,13 @@ func moveDialogAnchors(action *omap, dialog string) {
 
 	for i, item := range schedule {
 		if placement, isMap := item.(*omap); isMap && placement.str("sequence") == seqUI {
-			schedule[i] = moveDialogAnchor(placement, dialog)
+			moved := moveDialogAnchor(placement, dialog)
+			if moved != placement && pref.late {
+				c.todof(moved, "", pref.dialog.e.line, "%s was placed next to the dialog %s, which the scope page replaces; the page "+
+					"runs right after AppSearch, before costing, so check that this action can run there", action.str("id"), dialog)
+			}
+
+			schedule[i] = moved
 		}
 	}
 }
