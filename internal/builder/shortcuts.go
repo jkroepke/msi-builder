@@ -137,7 +137,7 @@ func (b *build) fileTarget(compID string, file *fileInfo) string {
 		return "[#" + file.Key + "]"
 	}
 
-	return "[" + file.Component.dir.id + "]" + file.LongName
+	return "[" + file.Component.dir.id + "]" + escapeFormatted(file.LongName)
 }
 
 // fileByRef returns the packaged file that ref names, by key or by the long

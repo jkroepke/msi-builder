@@ -298,3 +298,24 @@ func TestComponentFileTypesPerUser(t *testing.T) {
 		}
 	}
 }
+
+// TestComponentFileTypesEscapedName escapes a long name with brackets in
+// the folder-and-name form, which is formatted text.
+func TestComponentFileTypesEscapedName(t *testing.T) {
+	t.Parallel()
+
+	cfg := shortcutConfig(t, `
+  - id: App
+    files: [{ source: app.exe, name: 'app[1].exe' }]
+  - id: Assoc
+    fileTypes: [{ progId: Acme.Doc, file: 'app[1].exe', extensions: [{ extension: acmedoc }] }]
+features:
+  - { id: Main, components: [App], features: [{ id: Doc, components: [Assoc] }] }
+`)
+	database := mustBuild(t, cfg).Database
+
+	row := rowWhere(t, database, "Registry", func(r []any) bool { return r[2] == `Acme.Doc\shell\open\command` })
+	if row == nil || row[4] != `"[INSTALLDIR]app[\[]1[\]].exe" "%1"` {
+		t.Errorf("command row %v", row)
+	}
+}

@@ -428,5 +428,15 @@ func assocDefaultIcon(t *testing.T, ext string) string {
 //nolint:paralleltest // msi.dll's external UI handler is process-wide
 func TestICEComponentFileTypes(t *testing.T) {
 	cub := iceCube(t)
-	requireCleanICE(t, buildFileTypePackage(t, componentFileTypesConfig, "filetypefeatures.msi"), cub)
+
+	// Per user, the components are below LocalAppDataFolder and keyed on
+	// their HKCU\Software\Classes values (ICE38).
+	for scope, text := range map[string]string{
+		"perMachine": componentFileTypesConfig,
+		"perUser":    strings.Replace(componentFileTypesConfig, "platform: x64 }", "platform: x64, scope: perUser }", 1),
+	} {
+		t.Run(scope, func(t *testing.T) {
+			requireCleanICE(t, buildFileTypePackage(t, text, "filetypefeatures-"+scope+".msi"), cub)
+		})
+	}
 }

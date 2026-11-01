@@ -1210,13 +1210,15 @@ name, `"[INSTALLDIR]viewer.exe" "%1"`, instead of `[#id]`, by the rule of
 component shortcuts (SHORTCUT-04 observed ICE69 on shortcuts; Microsoft
 lists the `Registry` table for ICE69 too). Like a component shortcut, a
 file in another component of the same feature is named `[#id]`, which
-ICE69 reports as a warning. With the file's feature as the parent, as above,
+ICE69 reports as a warning (observed on shortcuts; for `Registry` rows
+documented, not tested). With the file's feature as the parent, as above,
 the file is always there. A component with nothing but
 file types is keyed on the first value with data they write: the ProgID's
-description, else its `DefaultIcon`, a verb's command or the default of an
-extension it owns (an `openWithOnly` entry alone is not enough, which is an
+description, else its `DefaultIcon`, a verb's text or command or the default
+of an extension it owns, in the order they are written (an `openWithOnly` entry alone is not enough, which is an
 error). In a per-user package that value is under
-`HKCU\Software\Classes`, so it is the HKCU key path a profile folder needs.
+`HKCU\Software\Classes`, so it is the HKCU key path a profile folder needs (ICE38; REG-09 runs the
+ICE suite on a per-user package).
 Adding a feature later should write only its rows and removing it remove
 only those, with the uninstall removing the rest (REG-09, not yet run on
 Windows). Give each optional
