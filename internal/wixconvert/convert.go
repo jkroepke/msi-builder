@@ -1,13 +1,16 @@
 // Package wixconvert converts a WiX source file (.wxs) to an msi-builder
 // YAML file. The conversion is best effort: it maps the elements that
 // docs/Migrating from WiX.md describes and writes a "# TODO" comment for
-// everything it cannot convert, such as preprocessor conditions, includes,
-// bind variables, hand-built dialogs and extensions without a counterpart.
+// everything it cannot convert, such as includes, bind variables,
+// hand-built dialogs and extensions without a counterpart. Preprocessor
+// blocks become template actions where it can carry their conditions into
+// the output (preprocess.go).
 // The result is a starting point that a person reviews; it is not meant to
 // build the same package byte for byte.
 package wixconvert
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -167,8 +170,15 @@ type converter struct {
 	icons         []*elem
 	closeApps     []*elem
 	defines       [][2]string
-	// defined are the define values with earlier defines filled in.
-	defined     map[string]string
+	// defined are the define values with earlier defines filled in, for
+	// the variables that no kept block defines.
+	defined map[string]string
+	// ppUsed collects the variables a block's conditions read until the
+	// block is kept.
+	ppUsed map[string]bool
+	// ppFails are the template lines of the <?error?> instructions in
+	// kept blocks.
+	ppFails     []string
 	sequences   []*elem
 	setters     []*elem
 	structure   map[string]func(c *converter, e *elem, sc scope)
@@ -245,6 +255,7 @@ type group struct {
 // reference to a component or group.
 type member struct {
 	comp  *comp
+	e     *elem  // the ComponentRef or ComponentGroupRef
 	ref   string // ComponentRef Id
 	group string // ComponentGroupRef Id
 }
@@ -325,6 +336,7 @@ func (c *converter) todof(target *omap, key string, line int, format string, arg
 
 // index walks the file once and records the elements by kind.
 func (c *converter) index() error {
+	c.planBlocks()
 	c.preprocessor()
 	c.extensionAttrs()
 
@@ -461,14 +473,14 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 
 			conv.walk(elm, inner)
 		},
-		"Component": (*converter).addComp,
+		elemComponent: (*converter).addComp,
 		// WiX 4 lets a File or Files stand outside a Component; each one
 		// is a component of its own.
-		"File":              func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
-		"Files":             func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
-		"ComponentRef":      func(c *converter, e *elem, sc scope) { c.addMember(sc, member{ref: e.attr("Id")}) },
-		"ComponentGroupRef": func(c *converter, e *elem, sc scope) { c.addMember(sc, member{group: e.attr("Id")}) },
-		"Feature":           (*converter).addFeature,
+		elemFile:          func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
+		"Files":           func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
+		refComponent:      func(c *converter, e *elem, sc scope) { c.addMember(sc, member{ref: e.attr("Id"), e: e}) },
+		refComponentGroup: func(c *converter, e *elem, sc scope) { c.addMember(sc, member{group: e.attr("Id"), e: e}) },
+		"Feature":         (*converter).addFeature,
 		// A FeatureRef adds the components and features it contains to
 		// the feature it names.
 		"FeatureRef": func(conv *converter, elm *elem, within scope) {
@@ -601,7 +613,7 @@ func (c *converter) keyFileID(elm *elem) string {
 	switch {
 	case key == nil:
 		return ""
-	case key.has("Id") || !key.is("File"):
+	case key.has("Id") || !key.is(elemFile):
 		return key.attr("Id")
 	}
 
@@ -629,11 +641,11 @@ func keyElem(elm *elem) *elem {
 		switch {
 		case kid.yes("KeyPath"):
 			return kid
-		case kid.is("RegistryKey"):
+		case kid.is(elemRegistryKey):
 			if key := markedKey(kid); key != nil {
 				return key
 			}
-		case kid.is("File") && first == nil:
+		case kid.is(elemFile) && first == nil:
 			first = kid
 		}
 	}
@@ -713,7 +725,7 @@ func (c *converter) group(id string) *group {
 // component WiX makes for it, which takes its Id, Directory and
 // Subdirectory.
 func implicitComponent(file *elem) *elem {
-	component := &elem{attrs: make(map[string]string), ns: file.ns, space: file.space, name: "Component", kids: []*elem{file}, line: file.line}
+	component := &elem{attrs: make(map[string]string), ns: file.ns, space: file.space, name: elemComponent, kids: []*elem{file}, line: file.line}
 
 	// WiX names the component after the file.
 	for _, name := range []string{"Id", attrDirectory, "Subdirectory"} {
@@ -777,15 +789,18 @@ func (c *converter) collectWixVars(elm *elem) {
 	}
 }
 
-// preprocessor turns <?define?> into vars and notes everything else.
+// preprocessor turns <?define?> into vars and notes everything else. The
+// blocks convert writes as templates need no note.
 func (c *converter) preprocessor() { //nolint:cyclop // one branch per processing instruction
 	for _, proc := range c.doc.procs {
 		if proc.skipped {
 			continue
 		}
 
+		kept := proc.block != nil && proc.block.keep
+
 		switch proc.target {
-		case "define":
+		case piDefine:
 			name, value, ok := strings.Cut(proc.inst, "=")
 			if !ok {
 				c.todof(nil, "", proc.line, "<?define %s?> has no value", proc.inst)
@@ -797,15 +812,23 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 			c.defines = append(c.defines, [2]string{varName(strings.TrimSpace(name)), value})
 		case "include":
 			c.todof(nil, "", proc.line, "<?include %s?>: convert the included file and merge it in by hand", proc.inst)
-		case "if", "ifdef", "ifndef":
-			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.inst)
-		case "elseif", "else":
+		case piIf, piIfdef, piIfndef:
+			if !kept {
+				c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.inst)
+			}
+		case piElseif, piElse:
 			if proc.leftOut {
 				c.todof(nil, "", proc.line, "the <?%s?> branch was left out; convert it by hand if your build takes it", strings.TrimSpace(proc.target+" "+proc.inst))
 			}
-		case "foreach":
-			c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.inst)
-		case "endif", "endforeach":
+		case piForeach:
+			if !kept {
+				c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.inst)
+			}
+		case "error":
+			if !c.ppFail(proc) {
+				c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.inst)
+			}
+		case piEndif, piEndforeach:
 		default:
 			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.inst)
 		}
@@ -851,6 +874,10 @@ func (c *converter) render(opts Options) ([]byte, error) {
 		source = "a WiX file"
 	}
 
+	// Values such as Ids are written as they are in the source; their
+	// variables are filled in last, inside the loops of their entries.
+	c.expandLeftMap(c.out, nil)
+
 	head := []string{
 		"Converted from " + source + " by msi-builder convert.",
 		"Review it, resolve the TODO comments, then run msi-builder validate.",
@@ -882,6 +909,14 @@ func (c *converter) render(opts Options) ([]byte, error) {
 	out, err := encodeDocs(docs)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(c.ppFails) > 0 {
+		// The <?error?> instructions of kept blocks fail the build at the
+		// top of the body.
+		body := []byte("\nschema: ")
+		at := bytes.Index(out, body) + 1
+		out = slices.Concat(out[:at], []byte(strings.Join(c.ppFails, "\n")+"\n"), out[at:])
 	}
 
 	return append([]byte("# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json\n"), out...), nil

@@ -11,20 +11,34 @@ import (
 
 // emitVars writes the defines as vars. A define that uses an earlier one
 // takes in its value, as the WiX preprocessor does.
+// A variable that a kept block defines becomes a template that tests the
+// block's conditions.
 func (c *converter) emitVars() {
 	c.resolveDefines()
 
+	conditional := c.conditionalValues(c.conditionalVars())
+
 	for _, define := range c.defines {
+		if v, ok := conditional[define[0]]; ok {
+			c.out.child("vars").set(define[0], v)
+
+			continue
+		}
+
 		c.out.child("vars").set(define[0], c.expand(c.pkg, c.defined[define[0]]))
 	}
 }
 
 // resolveDefines fills the values of earlier defines into each define.
+// The variables that kept blocks define stay variables.
 func (c *converter) resolveDefines() {
 	c.defined = make(map[string]string)
+	conditional := c.conditionalVars()
 
 	for _, define := range c.defines {
-		c.defined[define[0]] = c.literal(define[1])
+		if !conditional[define[0]] {
+			c.defined[define[0]] = c.literal(define[1])
+		}
 	}
 }
 
@@ -36,7 +50,7 @@ func (c *converter) literal(text string) string {
 
 	return preprocessorVar.ReplaceAllStringFunc(text, func(ref string) string {
 		parts := preprocessorVar.FindStringSubmatch(ref)
-		if v, ok := c.defined[varName(parts[2])]; ok && parts[1] != "env" && parts[1] != "sys" {
+		if v, ok := c.defined[varName(parts[2])]; ok && parts[1] != "env" && parts[1] != varSys {
 			return v
 		}
 
@@ -759,14 +773,20 @@ func (c *converter) emitProperties() {
 			value = propOut.get("value")
 		}
 
-		props.set(propID, value)
+		key := propID
+		if len(elm.opens) > 0 {
+			// The property may repeat in other branches of the block.
+			key += keySep + strconv.Itoa(elm.line)
+		}
+
+		props.setIn(key, elm.opens, value)
 
 		if lines := comments(elm); len(lines) > 0 {
-			props.comment(propID, lines...)
+			props.comment(key, lines...)
 		}
 
 		if comment := propOut.head; len(comment) > 0 {
-			props.comment(propID, comment...)
+			props.comment(key, comment...)
 
 			propOut.head = nil
 		}

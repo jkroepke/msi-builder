@@ -1,0 +1,79 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
+# Converted from preprocessor.wxs by msi-builder convert.
+# Review it, resolve the TODO comments, then run msi-builder validate.
+# WiX variables became template variables; pass them with --var NAME=value: Edition, Platform.
+vars:
+  Version: 1.0.0
+  Folder: '{{ if eq .Platform "arm64" }}ProgramFiles64Folder{{ else if eq (lower .Platform) (lower "X64") }}ProgramFiles64Folder{{ else }}ProgramFilesFolder{{ end }}'
+  Arch: '{{ if eq .Platform "arm64" }}arm64{{ else if eq (lower .Platform) (lower "X64") }}x64{{ else }}x86{{ end }}'
+---
+{{ if or (eq .Platform "ia64") (eq .Platform "arm") }}{{ fail (print "Platform " .Platform " is not supported") }}{{ end }}
+schema: msi-builder/v1
+product:
+  name: Hello
+  manufacturer: Example
+  version: {{ .Version | quote }}
+  upgradeCode: 0b7c3f1e-2d4a-4e6b-9c8d-1a2b3c4d5e6f
+package:
+  platform: x64
+upgrade:
+  allowSameVersion: false
+  downgradeMessage: A newer version of Hello is already installed.
+installDir:
+  id: INSTALLFOLDER
+  name: Hello
+features:
+  - id: Main
+    title: Hello
+    components:
+      - MainExe
+      {{ if and (not (eq .Edition "lite")) (ne .Arch "x86") }}
+      - Plugins
+      {{ end }}
+      - Settings
+      {{ range $Lang := split ";" "en;de;fr" }}
+      - {{ print `Lang_` $Lang | quote }}
+      {{ end }}
+components:
+  - id: MainExe
+    files:
+      - source: {{ print `dist/` .Arch `/hello.exe` | quote }}
+        id: hello.exe
+  {{ if and (not (eq .Edition "lite")) (ne .Arch "x86") }}
+  - id: Plugins
+    files:
+      - source: {{ print `dist/` .Arch `/plugins.dll` | quote }}
+        id: plugins.dll
+    registry:
+      - root: HKLM
+        key: Software\Example\Hello
+        name: plugins
+        type: dword
+        value: "1"
+  {{ end }}
+  - id: Settings
+    registry:
+      - root: HKLM
+        key: Software\Example\Hello
+        name: version
+        value: {{ .Version | quote }}
+      {{ if has "Debug" }}
+      - root: HKLM
+        key: Software\Example\Hello
+        name: debug
+        type: dword
+        value: "1"
+      {{ end }}
+  {{ range $Lang := split ";" "en;de;fr" }}
+  - id: {{ print `Lang_` $Lang | quote }}
+    directory: lang
+    files:
+      - source: {{ print `dist/lang/` $Lang `.txt` | quote }}
+        id: {{ print `lang_` $Lang `.txt` | quote }}
+  {{ end }}
+properties:
+  {{ if has "Debug" }}
+  HELLO_LOG: debug
+  {{ else }}
+  HELLO_LOG: info
+  {{ end }}

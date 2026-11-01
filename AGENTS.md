@@ -106,6 +106,15 @@ versioning after 1.0.
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
   WiX 5 package on CI). The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
+  Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
+  branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
+  a block only when every element directly in it is one whose output stays
+  in one entry (`directAllowed`) and no Id repeats in branches that apply
+  together, else it falls back to the first branch. Kept entries carry
+  `opens`; `omap.node` writes them as marker comments, which
+  `applyBlocks` turns into `{{ if }}`/`{{ else }}`/`{{ range }}`/`{{ end }}`
+  lines, closing at the next line not indented deeper. Ids keep
+  `$(var.X)` until `expandLeftMap` fills them in inside their loops.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a

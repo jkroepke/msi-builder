@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
+# Converted from a.wxs by msi-builder convert.
+# Review it, resolve the TODO comments, then run msi-builder validate.
+# WiX variables became template variables; pass them with --var NAME=value: L.
+# TODO(line 2): the WiX package has no MajorUpgrade; msi-builder adds the standard major upgrade (set upgrade: false to leave it out)
+schema: msi-builder/v1
+product:
+  name: Hello
+  manufacturer: Example
+  version: 1.0.0
+  upgradeCode: 5d9b2f3a-7c1e-4b8d-9f0a-2e6c4a8b1d37
+package:
+  platform: x64
+installDir:
+  id: INSTALLFOLDER
+  name: Hello
+features:
+  - id: Main
+    title: Hello
+    components: [Lang$(var.L)]
+components:
+  - id: Lang$(var.L)
+    files:
+      - source: {{ print `dist/` .L `/a.dll` | quote }}
+        id: f$(var.L)
+    registry:
+      - root: HKLM
+        key: Software\Example
+        name: {{ print `n` .L | quote }}
+        value: "1"
+properties:
+  P$(var.L): x

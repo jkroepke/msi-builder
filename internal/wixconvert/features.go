@@ -125,15 +125,41 @@ func (c *converter) eachFeature(fn func(*feature)) {
 
 // members resolves the components of a member list.
 func (c *converter) members(ms []member, seen map[string]bool) []*comp {
-	var out []*comp
+	in := c.membersIn(ms, seen)
+	out := make([]*comp, len(in))
+
+	for i, m := range in {
+		out[i] = m.comp
+	}
+
+	return out
+}
+
+// compIn is a component of a member list and the template actions that
+// its membership sits in: those of the references that lead to it and of
+// the component itself.
+type compIn struct {
+	comp  *comp
+	opens []openRef
+}
+
+// membersIn resolves the components of a member list with the template
+// actions of their membership.
+func (c *converter) membersIn(ms []member, seen map[string]bool) []compIn {
+	var out []compIn
 
 	for _, member := range ms {
+		var opens []openRef
+		if member.e != nil {
+			opens = member.e.opens
+		}
+
 		switch {
 		case member.comp != nil:
-			out = append(out, member.comp)
+			out = append(out, compIn{comp: member.comp, opens: member.comp.e.opens})
 		case member.ref != "":
 			if cp := c.compByID[member.ref]; cp != nil {
-				out = append(out, cp)
+				out = append(out, compIn{comp: cp, opens: unionOpens(opens, sameLoops(cp.e.opens, opens))})
 			} else {
 				c.todof(nil, "", 0, "ComponentRef %s names no component of this file", member.ref)
 			}
@@ -147,12 +173,47 @@ func (c *converter) members(ms []member, seen map[string]bool) []*comp {
 
 			if !seen[member.group] {
 				seen[member.group] = true
-				out = append(out, c.members(group.members, seen)...)
+
+				for _, in := range c.membersIn(group.members, seen) {
+					out = append(out, compIn{comp: in.comp, opens: unionOpens(opens, in.opens)})
+				}
 			}
 		}
 	}
 
 	return out
+}
+
+// unionOpens returns the actions of one followed by those of other that
+// one does not have.
+func unionOpens(one, other []openRef) []openRef {
+	out := slices.Clone(one)
+
+	for _, open := range other {
+		if !slices.Contains(out, open) {
+			out = append(out, open)
+		}
+	}
+
+	return out
+}
+
+// sameLoops leaves out the loops of a component that a reference to it
+// sits in a loop of the same variable for: the reference's loop names
+// each of the components, as in WiX.
+func sameLoops(comp, ref []openRef) []openRef {
+	refLoops := opensLoops(ref)
+
+	return slices.DeleteFunc(slices.Clone(comp), func(open openRef) bool {
+		loops := opensLoops([]openRef{open})
+
+		return len(loops) == 1 && slices.Contains(refLoops, loops[0])
+	})
+}
+
+// withoutOpens returns the actions of opens that base does not have.
+func withoutOpens(opens, base []openRef) []openRef {
+	return slices.DeleteFunc(slices.Clone(opens), func(open openRef) bool { return slices.Contains(base, open) })
 }
 
 // needFeatures reports whether the features say more than msi-builder's
@@ -283,15 +344,31 @@ func (c *converter) feature(feat *feature) *omap { //nolint:cyclop // a flat lis
 
 	c.featureConditions(out, elm)
 
-	var ids []string
+	var (
+		ids         []string
+		items       []any
+		conditional bool
+	)
 
-	for _, cp := range c.members(feat.members, make(map[string]bool)) {
-		if cp.out != nil {
-			ids = append(ids, c.compID(cp))
+	for _, member := range c.membersIn(feat.members, make(map[string]bool)) {
+		if member.comp.out == nil {
+			continue
 		}
+
+		id := c.compID(member.comp)
+		ids = append(ids, id)
+
+		opens := withoutOpens(member.opens, feat.e.opens)
+		conditional = conditional || len(opens) > 0
+		items = append(items, condItem{value: id, opens: opens})
 	}
 
-	out.set("components", ids)
+	if conditional {
+		// Entries inside template actions need a block list.
+		out.set("components", items)
+	} else {
+		out.set("components", ids)
+	}
 
 	for _, k := range feat.kids {
 		out.add("features", c.feature(k))

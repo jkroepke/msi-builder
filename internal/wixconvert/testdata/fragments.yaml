@@ -1,16 +1,12 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
 # Converted from fragments.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
-# WiX variables became template variables; pass them with --var NAME=value: ProductName.
-# TODO(line 5): <?if $(var.Edition) = "full"?> is not evaluated: only its first branch was converted
-# TODO(line 7): the <?else?> branch was left out; convert it by hand if your build takes it
-# TODO(line 52): <?if $(var.Arch) = "arm64"?> is not evaluated: only its first branch was converted
-# TODO(line 54): the <?else?> branch was left out; convert it by hand if your build takes it
+# WiX variables became template variables; pass them with --var NAME=value: Arch, Edition, Lang, ProductName.
 # TODO(line 51): the extension attributes util:Extra on <Component> have no counterpart
 # TODO(line 65): advertised shortcuts are never supported; this one is a plain shortcut
 # TODO(line 65): the shortcut "Hello Help" has no Target: advertised shortcuts are never supported; point it at a file
 vars:
-  Greeting: Hello
+  Greeting: '{{ if eq .Edition "full" }}Hello{{ else }}{{ if eq .Lang "de" }}Hallo{{ else }}Hi{{ end }}{{ end }}'
 ---
 schema: msi-builder/v1
 product:
@@ -41,8 +37,13 @@ components:
         id: plugin_a.dll
   - id: MainExe
     files:
+      {{ if eq .Arch "arm64" }}
       - source: dist/arm64/hello.exe
         id: hello.exe
+      {{ else }}
+      - source: dist/x64/hello.exe
+        id: hello.exe
+      {{ end }}
   - id: Notes
     files:
       - source: dist/notes.txt
