@@ -528,7 +528,6 @@ it on pushes to that branch only and run nothing but the probe:
 ```yaml
 name: Probe
 on:
-  workflow_dispatch:
   push:
     branches:
       - <the pull request branch>
@@ -551,12 +550,15 @@ jobs:
 
 Delete `probe.yaml` before marking the pull request ready for review: the
 `Detect changes` job of `ci.yaml` fails while the file exists, so the probe
-never reaches `main`. Every msiexec call of a probe passes `/norestart
-REBOOT=ReallySuppress`; the test helpers `msiexecCode` and `msiexecQuiet` add
-both since #215. A `/f` repair ignores `/norestart`, restarted the machine
-with 1641 and so lost the hosted runner and its job log; run it as `/i
-<package> REINSTALL=ALL REINSTALLMODE=<modes>` with `REBOOT=ReallySuppress`
-instead, as the helpers do.
+never reaches `main`. GitHub only offers `workflow_dispatch` for workflows on
+the default branch, so rerun a probe with a new push or with "Re-run jobs" on
+its run. Every msiexec call of a probe passes `/norestart` and
+`REBOOT=ReallySuppress` (#215 makes the test helpers `msiexecCode` and
+`msiexecQuiet` add both). A `/f` repair passes no command-line property to
+the install server, so `/norestart` does not stop it from restarting: one
+returned 1641, restarted the machine and so lost the hosted runner and its
+job log. Run a repair as `/i <package> REINSTALL=ALL REINSTALLMODE=<modes>`
+with `REBOOT=ReallySuppress` instead.
 
 Automatic releases are controlled by the repository Actions variable
 `RELEASE_ENABLED`: the `release` job in `ci.yaml` runs only when it is

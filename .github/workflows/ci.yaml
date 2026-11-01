@@ -5,12 +5,15 @@ on:
   # Draft pull requests run nothing but the fail job below, which fails, so
   # a draft never looks green. Marking the pull request ready for review
   # starts the full run (ready_for_review); later pushes run it again.
+  # Converting it back to a draft runs the failing fail job again
+  # (converted_to_draft).
   pull_request:
     types:
       - opened
       - synchronize
       - reopened
       - ready_for_review
+      - converted_to_draft
   push:
     tags:
       - 'v*'
@@ -42,7 +45,7 @@ jobs:
       # delete it before marking the pull request ready for review.
       - name: Check for a probe workflow
         run: |
-          if [ -e .github/workflows/probe.yaml ]; then
+          if [ -e .github/workflows/probe.yaml ] || [ -e .github/workflows/probe.yml ]; then
             echo "::error file=.github/workflows/probe.yaml::Delete the probe workflow before the pull request is ready for review."
             exit 1
           fi
