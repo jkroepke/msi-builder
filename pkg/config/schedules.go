@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/jkroepke/msi-builder/internal/sequence"
 )
@@ -39,9 +40,11 @@ func (v *validator) schedules(cfg *Config) {
 		}
 	}
 
+	v.takenChainNames(cfg, byID)
+
 	for _, name := range slices.Sorted(maps.Keys(sequenceTables)) {
 		table := sequenceTables[name]
-		actions, paths, dups := scheduleOf(cfg, byID, name)
+		actions, paths, notes, dups := scheduleOf(cfg, byID, name)
 		v.diags = append(v.diags, dups...)
 
 		v.unscheduledAnchors(byID, name, actions, paths)
@@ -66,9 +69,55 @@ func (v *validator) schedules(cfg *Config) {
 		}
 
 		if path != "" {
-			v.errorf(path, "%s", serr.Reason)
+			v.errorf(path, "%s", explain(serr, paths, notes))
 		}
 	}
+}
+
+// takenChainNames reports a custom action whose id is the name of an
+// action the builder chains after CostFinalize or AppSearch: the build
+// finds the name twice.
+func (v *validator) takenChainNames(cfg *Config, byID map[string]*CustomAction) {
+	notes := make(map[string]string)
+
+	for _, table := range []string{sequenceTables[sequenceExecute], sequenceTables["ui"]} {
+		_, tableNotes := builderChains(cfg, table)
+		maps.Copy(notes, tableNotes)
+	}
+
+	for i, action := range cfg.CustomActions {
+		if note := notes[action.ID]; note != "" && byID[action.ID] == action && !reportedID(action.ID) {
+			path := fmt.Sprintf("customActions[%d].id", i)
+			if action.origin != "" {
+				path = action.origin
+			}
+
+			v.errorf(path, "%s is the name of an action the build adds: %s", action.ID, note)
+		}
+	}
+}
+
+// reportedID reports whether actionID and rememberIDs already refuse an id
+// named like a chain action: a standard action, or an action of the scope
+// page or of installDir.remember.
+func reportedID(id string) bool {
+	return standardActions[id] || slices.ContainsFunc(dualActionPrefixes, func(prefix string) bool { return strings.HasPrefix(id, prefix) })
+}
+
+// explain returns the reason of a numbering error with a note on where
+// each action it names that the configuration does not place comes from.
+func explain(serr *sequence.Error, paths, notes map[string]string) string {
+	var reason strings.Builder
+
+	reason.WriteString(strings.ReplaceAll(serr.Reason, scopePageNode, strings.TrimSuffix(scopePageNode, ".")))
+
+	for _, action := range []string{serr.Action, serr.Other} {
+		if note := notes[action]; note != "" && paths[action] == "" {
+			reason.WriteString("; " + note)
+		}
+	}
+
+	return reason.String()
 }
 
 // unscheduledAnchors reports a placement anchored to a custom action that
@@ -93,7 +142,7 @@ func (v *validator) unscheduledAnchors(byID map[string]*CustomAction, name strin
 // error for each further placement of an action in the same sequence.
 //
 //nolint:cyclop // a flat filter over the placements
-func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequence.Action, map[string]string, Diagnostics) {
+func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequence.Action, map[string]string, map[string]string, Diagnostics) {
 	var actions []sequence.Action
 
 	paths := make(map[string]string)
@@ -137,15 +186,28 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 
 	actions = append(actions, movedActions(cfg, sequenceTables[name], paths)...)
 
-	// The scope page of a dual-scope wizard follows AppSearch, and
-	// FindRelatedProducts and LaunchConditions follow the page, all before
-	// costing.
-	if scopePageIn(cfg, sequenceTables[name]) {
-		actions = append(actions,
-			sequence.Action{Name: scopePageNode, After: actAppSearch},
-			sequence.Action{Name: actFindRelatedProducts, After: scopePageNode},
-			sequence.Action{Name: actLaunchConditions, After: actFindRelatedProducts})
+	// The chains the builder adds after CostFinalize and AppSearch, such
+	// as the scope page of a dual-scope wizard with FindRelatedProducts
+	// and LaunchConditions after it. The builder adds them before every
+	// placement, which keeps the order of actions that share an anchor
+	// (launchBeforeFind compares two of them). A chain whose name a
+	// custom action took is reported by takenChainNames and left out from
+	// there on.
+	chained, notes := builderChains(cfg, sequenceTables[name])
+
+	var taken []string
+
+	children := make(map[string][]string)
+
+	for _, action := range chained {
+		children[action.After] = append(children[action.After], action.Name)
+
+		if _, used := paths[action.Name]; used || byID[action.Name] != nil {
+			taken = append(taken, action.Name)
+		}
 	}
+
+	actions = append(dropChains(chained, taken, children), actions...)
 
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.
@@ -156,7 +218,7 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 		}
 	}
 
-	return actions, paths, dups
+	return actions, paths, notes, dups
 }
 
 // wellPlaced reports whether a placement passed placementPosition, so that
