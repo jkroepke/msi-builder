@@ -1386,8 +1386,9 @@ properties:
 `DisableShutdown` is documented to keep Restart Manager for finding the processes but
 shut nothing down. Microsoft documents that a custom action cannot change
 the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
-line of a repair did not reach the engine, like the repair's other public
-properties (CLOSE-04), so the package itself sets it. The `windows_exporter` example turns it off, because its service
+line of a repair left Restart Manager on, presumably dropped like the
+repair's other public properties (CLOSE-04, inferred), so the package
+itself sets it. The `windows_exporter` example turns it off, because its service
 and `close` already stop everything it installs.
 
 `restartResources` on a component adds what the package does not
