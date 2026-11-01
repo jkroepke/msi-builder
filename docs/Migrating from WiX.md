@@ -264,7 +264,27 @@ actions, is converted with its first branch only and a `# TODO`. So is a
 block whose branches define the same component ID or hold a key path, an
 `<?ifdef?>` of a variable that the file defines (`has` is true for every
 variable in the vars header), and a block whose condition reads a
-variable that the file defines again later.
+variable that a block, or a define on the same line, sets again later.
+
+The vars header holds one value per variable, where WiX reads the value
+a variable has at each place. When a `<?define?>` outside the blocks sets
+a variable again, convert writes the value it has into every element and
+condition that reads it, so `--var` no longer changes them (in WiX, a
+define wins over `-d` too). A reader on the same line as a later define
+reads the variable and gets a `# TODO`, as convert cannot tell which
+comes first. Inside a
+`<?foreach?>`, the loop variable wins over a define of the same name.
+A variable that only defines outside the blocks set to a standard
+folder, such as `<?define ProgramFiles = ProgramFilesFolder ?>`, is filled
+into every attribute that is just that variable and every
+`[$(var.ProgramFiles)]`, so convert sees the folder and picks the platform
+from it; `--var` no longer changes those places. A directory ID
+whose variable a block sets to a standard folder in every branch stays a
+variable, so a folder per platform or per build still works; set
+`package.platform` for each build yourself. Service names are
+matched with the values of the defines filled in, so a `ServiceControl`
+written with a variable controls the `ServiceInstall` written without
+one.
 
 `[INSTALLFOLDER]`, `[#hello.exe]` and other names in brackets work as they
 do in WiX: Windows Installer fills them in at install time.

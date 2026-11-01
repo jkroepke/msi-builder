@@ -253,6 +253,7 @@ type compConv struct {
 	removeFolder []*omap
 	services     []*omap
 	serviceLines []int
+	serviceKeys  []string // the services' match keys (serviceKey)
 	controls     []*elem
 	shortcuts    int
 	files        int

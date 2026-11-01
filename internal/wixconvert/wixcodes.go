@@ -296,6 +296,10 @@ func (c *converter) folderStart(folder *dir, dirID string) (string, error) {
 		return "", errUnresolved
 	case folder != nil && !folder.std:
 		return "", nil
+	case preprocessorVar.MatchString(dirID):
+		// A standard folder that a block picks per build (standardVar)
+		// has no one ID to start the path from.
+		return "", errUnresolved
 	}
 
 	return c.platformFolder(dirID)
