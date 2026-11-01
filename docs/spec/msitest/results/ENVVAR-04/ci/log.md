@@ -24,3 +24,26 @@ dualscope_windows_test.go:98: ENVVAR-04 user: PATH unchanged by install and unin
 The user `PATH` started with a trailing `;`; the uninstall wrote it back
 without that empty entry, with the same entries. The test compared whole
 values in this run; later commits compare the non-empty entries.
+
+## Order of the parts (PR #220)
+
+- CI run 41322373604 (probe workflow, commit 2cda4e6), `windows-latest`,
+  2026-11-01, same test
+
+The run above matches the stored order of the hash keys msi-builder wrote
+then (`prepend1`, `prepend2`, `append2`, `append1`) applied one after the
+other. PR #220 numbers the keys in YAML order (`env0` to `env4`, with `m`
+and `u` for the two contexts) and adds a second component `Extra` that
+appends `append3`; its carriers sort before those of the first
+component, so an order by component would put `append3` first.
+
+```text
+dualscope_windows_test.go:95: ENVVAR-04 machine: PATH parts after the install [prepend2 prepend1 append1 append2 append3]
+dualscope_windows_test.go:95: ENVVAR-04 user: PATH parts after the install [prepend2 prepend1 append1 append2 append3]
+--- PASS: TestMsiexecEnvironmentParts/machine (2.12s)
+--- PASS: TestMsiexecEnvironmentParts/user (1.03s)
+```
+
+The engine applies the rows in key order (table order), not grouped by
+component. The uninstall again restored the machine `PATH` and the user
+`PATH` without its trailing `;`.

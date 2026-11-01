@@ -1089,7 +1089,7 @@ components:
 	}
 
 	if len(table) != len(want) {
-		t.Errorf("variables %v, want %v", table, want)
+		t.Fatalf("variables %v, want %v", table, want)
 	}
 
 	for name, values := range want {

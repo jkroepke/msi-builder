@@ -1948,12 +1948,16 @@ and scope more than once only to add several parts with `append` or
 install adds and the uninstall removes (ENVVAR-04). Any other repeat, and
 the same part twice, is an error.
 
-The install applies the parts one after the other in YAML order, also
-across components: a later `append` goes behind an earlier one, and a later
+One installation applies the parts one after the other in YAML order,
+also across components: a later `append` goes behind an earlier one, and a later
 `prepend` in front of it, so `prepend` entries `[INSTALLDIR]` and
 `[INSTALLDIR]Scripts` give `[INSTALLDIR]Scripts;[INSTALLDIR];…`. The
 engine applies `Environment` rows in key order (ENVVAR-04), so the builder
 numbers the keys (`env0`, `env1`, …, padded to one width) in config order.
+A part that a later installation adds, such as a feature installed
+afterwards, goes to the front or the end of the variable as it is then, and
+an append of a part already present is skipped (MSISPEC section 8.13;
+inferred for the later installation, not run).
 
 **Top-level `files` shorthand.** Not in version 1. Every listed file belongs
 to an explicit component, so that its GUID and key path are visible in

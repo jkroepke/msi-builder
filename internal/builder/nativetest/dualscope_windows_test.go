@@ -21,7 +21,9 @@ const (
 
 // environmentPartsConfig is a dual package whose component adds two parts
 // to the end and two to the front of PATH, following the context, and
-// whose second component adds a fifth part to the end (ENVVAR-04).
+// whose second component adds a fifth part to the end (ENVVAR-04). The
+// carriers of Extra sort before those of the first component, so that the
+// fifth part tells table order from an order by component.
 const environmentPartsConfig = `schema: msi-builder/v1
 product: { name: MsiBuilderEnvParts, manufacturer: msi-builder tests, version: 1.0.0, upgradeCode: d7714381-0ecb-45c7-8ddf-8c92b2ba4c8e }
 package: { platform: x64, scope: perUserOrMachine }
