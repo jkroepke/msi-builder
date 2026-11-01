@@ -1596,8 +1596,8 @@ process token, so an ACL that grants the service SID (a `grant` to
 `NT SERVICE\<name>`) applies to the service; that `restricted` also adds
 the service SID, Everyone, the service logon SID and the write-restricted
 SID (S-1-5-33) to the token's restricted SID list, which presumably limits
-where the service can write (inferred); and that `none` leaves the SID
-out. `none` matters for a service
+where the service can write (inferred); `none` presumably leaves the SID
+out (inferred). `none` matters for a service
 that is already registered, since InstallServices reconfigures it
 (SVC-06). Microsoft also documents that a change takes effect at the next
 system start; whether a service started by the same install already runs
@@ -1610,9 +1610,10 @@ applies; whether they hold after an install and a repair is untested until
 SVC-10 runs. Microsoft documents that a restricted service in a
 shared process needs every service of that process restricted, so a
 `shareProcess` service with `sidType: restricted` next to another
-`shareProcess` service of the package that is not restricted is a warning.
+`shareProcess` service of the same component (the same executable) that is
+not restricted is a warning.
 A service's required privileges (ConfigType 6) are not
-supported; see `MSISPEC.md` section 19.1.
+supported; see `MSISPEC.md` section 10.3.
 
 `deleteOnInstall` (default `false`) adds event 8: DeleteServices removes a
 service of the same name that is already registered, for example by an old

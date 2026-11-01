@@ -915,45 +915,40 @@ func (v *validator) components(cfg *Config, known *refs) {
 }
 
 // sharedSidTypes warns about a restricted shareProcess service next to a
-// shareProcess service that is not restricted: Microsoft documents that a
-// restricted service in a shared process needs every service there
-// restricted (documented, unverified: SERVICE_SID_INFO). Two such services of a package
-// need not share a process, so this is a warning.
+// shareProcess service of the same component, which runs the same image,
+// that is not restricted: Microsoft documents that a restricted service in a
+// shared process needs every service of that process restricted
+// (documented, unverified: SERVICE_SID_INFO). Services of other components
+// run other executables, so they are not compared.
 func (v *validator) sharedSidTypes(cfg *Config) {
-	type entry struct{ path, name string }
-
-	var restricted, others []entry
-
 	for i, comp := range cfg.Components {
+		others := unrestrictedShared(comp)
+		if len(others) == 0 {
+			continue
+		}
+
 		for j, svc := range comp.Services {
-			if svc == nil || svc.Type != "shareProcess" {
-				continue
-			}
-
-			e := entry{fmt.Sprintf("%s.services[%d]", comp.Path(i), j), svc.Name}
-			if svc.SidType == "restricted" {
-				restricted = append(restricted, e)
-			} else {
-				others = append(others, e)
+			if svc != nil && svc.Type == "shareProcess" && svc.SidType == "restricted" {
+				v.warnf(fmt.Sprintf("%s.services[%d].sidType", comp.Path(i), j), "a restricted service in a shared "+
+					"process needs every service of that process restricted; %s is shareProcess without sidType: restricted",
+					strings.Join(others, ", "))
 			}
 		}
 	}
+}
 
-	for _, svc := range restricted {
-		// Twin components may install the same service; it is no neighbour.
-		var names []string
+// unrestrictedShared returns the names of a component's shareProcess
+// services without sidType: restricted.
+func unrestrictedShared(comp *Component) []string {
+	var names []string
 
-		for _, o := range others {
-			if !strings.EqualFold(o.name, svc.name) {
-				names = append(names, o.name)
-			}
-		}
-
-		if len(names) > 0 {
-			v.warnf(svc.path+".sidType", "a restricted service in a shared process needs every service of that process "+
-				"restricted; %s is shareProcess without sidType: restricted", strings.Join(names, ", "))
+	for _, svc := range comp.Services {
+		if svc != nil && svc.Type == "shareProcess" && svc.SidType != "restricted" {
+			names = append(names, svc.Name)
 		}
 	}
+
+	return names
 }
 
 // componentID checks a component's id and records it in seen.
