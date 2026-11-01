@@ -246,17 +246,18 @@ type Table struct {
 	Rows    [][]any
 }
 
-// Keys returns the number of primary key columns.
+// Keys returns the number of primary key columns: the key columns before
+// the first column that is not a key. Validate requires every key column
+// there; in a catalog that has one later, msi.dll ignores its key flag too
+// (MsiDatabaseGetPrimaryKeys, MSIDB-21).
 func (t *Table) Keys() int {
-	count := 0
-
-	for _, c := range t.Columns {
-		if c.Type.Key {
-			count++
+	for i, c := range t.Columns {
+		if !c.Type.Key {
+			return i
 		}
 	}
 
-	return count
+	return len(t.Columns)
 }
 
 // Column returns the index of the named column, or -1.
