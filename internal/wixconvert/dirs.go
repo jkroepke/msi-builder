@@ -189,7 +189,7 @@ func (c *converter) markNeededDirs() {
 	idAttrs := map[string][]string{
 		elemShortcut:      {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
-		"SetDirectory":    {"Id"},
+		elemSetDirectory:  {"Id"},
 		elemRemoveFile:    {attrDirectory},
 		elemRemoveFolder:  {attrDirectory},
 		"Property":        {"Id"},

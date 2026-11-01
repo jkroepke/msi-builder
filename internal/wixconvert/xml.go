@@ -117,6 +117,9 @@ type procInst struct {
 	block  *ppBlock
 	target string
 	inst   string
+	// text is inst as the source writes it, for notes: fillRedefined
+	// fills values into inst.
+	text string
 	// pos are the blocks the instruction sits in; for one that opens,
 	// continues or closes a block, the blocks around that block.
 	pos  []ppPos
@@ -267,7 +270,9 @@ func (b *treeBuilder) procInst(tok xml.ProcInst, line int) {
 		return
 	}
 
-	proc := procInst{target: tok.Target, inst: strings.TrimSpace(string(tok.Inst)), line: line}
+	inst := strings.TrimSpace(string(tok.Inst))
+
+	proc := procInst{target: tok.Target, inst: inst, text: inst, line: line}
 	if b.firstBranch {
 		b.firstBranchInst(&proc)
 	}

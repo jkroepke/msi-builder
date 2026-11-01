@@ -68,6 +68,7 @@ func (cc *compConv) service(elm *elem) { //nolint:cyclop // a flat list of indep
 
 	cc.services = append(cc.services, svc)
 	cc.serviceLines = append(cc.serviceLines, elm.line)
+	cc.serviceKeys = append(cc.serviceKeys, conv.serviceKey(elm))
 	cc.out.add("services", svc)
 }
 
@@ -215,12 +216,12 @@ func (cc *compConv) resolveControls() {
 	conv := cc.c
 
 	for _, elm := range cc.controls {
-		name := conv.value(elm, "Name")
+		name, key := conv.value(elm, "Name"), conv.serviceKey(elm)
 
 		var own *omap
 
-		for _, s := range cc.services {
-			if strings.EqualFold(s.str("name"), name) {
+		for i, s := range cc.services {
+			if cc.serviceKeys[i] == key {
 				own = s
 			}
 		}
@@ -234,7 +235,7 @@ func (cc *compConv) resolveControls() {
 			conv.todof(cc.out, "", elm.line, "the ServiceControl for %s was left out: msi-builder takes one control per "+
 				"service of a component; merge the events into the first one", name)
 		default:
-			cc.otherComponentControl(elm, name)
+			cc.otherComponentControl(elm, name, key)
 		}
 	}
 
@@ -243,14 +244,14 @@ func (cc *compConv) resolveControls() {
 
 // otherComponentControl converts a ServiceControl of a service that the
 // component does not install.
-func (cc *compConv) otherComponentControl(elm *elem, name string) {
+func (cc *compConv) otherComponentControl(elm *elem, name, key string) {
 	conv := cc.c
-	withOwn, without := conv.serviceInstallers(name)
+	withOwn, without := conv.serviceInstallers(key)
 
 	switch {
 	case len(withOwn)+len(without) == 0:
 		cc.foreignControl(elm)
-	case elm == conv.borrowedControl(name) && len(without) > 0:
+	case elm == conv.borrowedControl(key) && len(without) > 0:
 		msg := "the ServiceControl for %s became services[].control of %s, which keeps that component's condition " +
 			"and feature instead of this one's"
 		if len(withOwn) > 0 {
@@ -272,11 +273,11 @@ func (cc *compConv) otherControls() {
 			continue
 		}
 
-		name := svc.str("name")
-		if elm := cc.c.borrowedControl(name); elm != nil {
+		name, key := svc.str("name"), cc.serviceKeys[i]
+		if elm := cc.c.borrowedControl(key); elm != nil {
 			cc.ownControl(svc, elm)
 
-			withOwn, _ := cc.c.serviceInstallers(name)
+			withOwn, _ := cc.c.serviceInstallers(key)
 			if slices.ContainsFunc(withOwn, func(comp *comp) bool { return slices.Contains(comp.e.kids, elm) }) {
 				cc.c.todof(svc, "", cc.serviceLines[i], "services[].control of %s comes from the ServiceControl on line %d, "+
 					"which belongs to another component that installs it; WiX runs that one only when its own component "+
@@ -292,23 +293,55 @@ func (cc *compConv) otherControls() {
 	}
 }
 
-// namedKid returns a matcher of the elements of a kind that name a service;
-// service names do not depend on case.
-func (c *converter) namedKid(kind, name string) func(e *elem) bool {
-	return func(e *elem) bool { return e.is(kind) && strings.EqualFold(c.value(e, "Name"), name) }
+// namedKid returns a matcher of the elements of a kind that name a service
+// by its key (serviceKey).
+func (c *converter) namedKid(kind, key string) func(e *elem) bool {
+	return func(e *elem) bool { return e.is(kind) && c.serviceKey(e) == key }
+}
+
+// serviceKey is the name of the service that a ServiceInstall or a
+// ServiceControl names, as the converter matches them: with the values
+// of the defines filled in, so that a name written with a variable
+// matches one written without, and in lower case, as service names do
+// not depend on case.
+// The variables left, which blocks set, are written one way and keep
+// their case, as variable names depend on it.
+func (c *converter) serviceKey(elm *elem) string {
+	text := c.staticFill(elm.attr("Name"), posLoops(elm.pos))
+
+	var key strings.Builder
+
+	last := 0
+
+	for _, loc := range preprocessorVar.FindAllStringSubmatchIndex(text, -1) {
+		key.WriteString(strings.ToLower(text[last:loc[0]]))
+
+		kind := "var"
+		if loc[2] >= 0 {
+			kind = text[loc[2]:loc[3]]
+		}
+
+		key.WriteString("$(" + kind + "." + varName(text[loc[4]:loc[5]]) + ")")
+
+		last = loc[1]
+	}
+
+	key.WriteString(strings.ToLower(text[last:]))
+
+	return key.String()
 }
 
 // serviceInstallers returns the components that install a service, those
 // with a ServiceControl of it and those without.
-func (c *converter) serviceInstallers(name string) ([]*comp, []*comp) {
+func (c *converter) serviceInstallers(key string) ([]*comp, []*comp) {
 	var withOwn, without []*comp
 
 	for _, comp := range c.comps {
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, key)) {
 			continue
 		}
 
-		if slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceControl, name)) {
+		if slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceControl, key)) {
 			withOwn = append(withOwn, comp)
 		} else {
 			without = append(without, comp)
@@ -322,16 +355,16 @@ func (c *converter) serviceInstallers(name string) ([]*comp, []*comp) {
 // service in the components that install it without one of their own: the
 // first in a component that does not install the service, else the first
 // in one that does.
-func (c *converter) borrowedControl(name string) *elem {
+func (c *converter) borrowedControl(key string) *elem {
 	var installer *elem
 
 	for _, comp := range c.comps {
-		i := slices.IndexFunc(comp.e.kids, c.namedKid(elemServiceControl, name))
+		i := slices.IndexFunc(comp.e.kids, c.namedKid(elemServiceControl, key))
 		if i < 0 {
 			continue
 		}
 
-		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, name)) {
+		if !slices.ContainsFunc(comp.e.kids, c.namedKid(elemServiceInstall, key)) {
 			return comp.e.kids[i]
 		}
 

@@ -237,7 +237,12 @@ type converter struct {
 	// conversion finds.
 	forced, unkeep map[int]bool
 	// condVars caches conditionalVars.
-	condVars    map[string]bool
+	condVars map[string]bool
+	// staticVars are the last values of the variables that only defines
+	// outside the blocks set (fillRedefined).
+	staticVars map[string]string
+	// staticDefs are the defines behind staticVars, in file order.
+	staticDefs  []staticDefine
 	sequences   []*elem
 	setters     []*elem
 	structure   map[string]func(c *converter, e *elem, sc scope)
@@ -414,6 +419,7 @@ func (c *converter) todof(target *omap, key string, line int, format string, arg
 
 // index walks the file once and records the elements by kind.
 func (c *converter) index() error {
+	c.fillRedefined()
 	c.planBlocks()
 	c.preprocessor()
 	c.extensionAttrs()
@@ -543,7 +549,7 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
-		"DirectoryRef": func(c *converter, e *elem, sc scope) {
+		elemDirectoryRef: func(c *converter, e *elem, sc scope) {
 			sc.dir = e.attr("Id")
 			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
@@ -610,7 +616,7 @@ var packageElems = map[string]func(c *converter, e *elem){ //nolint:gochecknoglo
 		c.actionOrder = append(c.actionOrder, e)
 	},
 	"SetProperty":              func(c *converter, e *elem) { c.setters = append(c.setters, e) },
-	"SetDirectory":             func(c *converter, e *elem) { c.setters = append(c.setters, e) },
+	elemSetDirectory:           func(c *converter, e *elem) { c.setters = append(c.setters, e) },
 	"InstallExecuteSequence":   func(c *converter, e *elem) { c.sequences = append(c.sequences, e) },
 	"InstallUISequence":        func(c *converter, e *elem) { c.sequences = append(c.sequences, e) },
 	"AdminExecuteSequence":     func(c *converter, e *elem) { c.sequences = append(c.sequences, e) },
@@ -690,7 +696,7 @@ func (c *converter) addDir(elm *elem, parentID string, standard bool) *dir {
 		wixName: elm.attr("Name"), seed: elm.attr("ComponentGuidGenerationSeed"),
 	}
 
-	if dirID == folderTargetDir || standard || isStandardFolder(dirID) {
+	if dirID == folderTargetDir || standard || c.isStandard(dirID) {
 		folder.std, folder.name, folder.parentID = true, "", ""
 	}
 
@@ -766,7 +772,7 @@ func markedKey(elm *elem) *elem {
 // subdir adds the folders of a Subdirectory path, such as bin\\x64, below a
 // directory and returns the ID of the last one.
 func (c *converter) subdir(parentID, path, wixPath string, line int) string {
-	if c.dirs[parentID] == nil && isStandardFolder(parentID) {
+	if c.dirs[parentID] == nil && c.isStandard(parentID) {
 		folder := &dir{id: parentID, std: true, line: line}
 		c.dirs[parentID] = folder
 		c.dirOrder = append(c.dirOrder, folder)
@@ -921,23 +927,23 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 			c.todof(nil, "", proc.line, "<?include %s?>: convert the included file and merge it in by hand", proc.inst)
 		case piIf, piIfdef, piIfndef:
 			if !kept {
-				c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.inst)
+				c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
 			}
 		case piElseif, piElse:
 			if proc.leftOut {
-				c.todof(nil, "", proc.line, "the <?%s?> branch was left out; convert it by hand if your build takes it", strings.TrimSpace(proc.target+" "+proc.inst))
+				c.todof(nil, "", proc.line, "the <?%s?> branch was left out; convert it by hand if your build takes it", strings.TrimSpace(proc.target+" "+proc.text))
 			}
 		case piForeach:
 			if !kept {
-				c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.inst)
+				c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.text)
 			}
 		case "error":
 			if !c.ppFail(proc) {
-				c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.inst)
+				c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.text)
 			}
 		case piEndif, piEndforeach:
 		default:
-			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.inst)
+			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.text)
 		}
 	}
 }

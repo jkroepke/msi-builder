@@ -151,6 +151,20 @@ versioning after 1.0.
   sets, falls back. A hand-written WiX semantics simulator that compares
   rendered properties for every -d assignment (differential fuzzing) found
   the order bugs fastest; keep repros of new finds in `preprocess_test.go`.
+  `variables.go`: `fillRedefined` runs before the planning and rewrites
+  the source, so that every reader of a variable that defines outside the
+  blocks set more than once holds the value it sees in WiX (all readers,
+  also after the last define, or IDs written the same way stop matching;
+  loop variables hide defines; a reader on the line of a later define
+  gets a TODO), then
+  `fillStandardFolders` fills a standard folder variable that only
+  defines outside the blocks set (its last value) into
+  every attribute that is just the variable and every `[$(var.X)]` (all
+  readers, never only some attributes, or the literal and the variable
+  become two roots); `standardVar` makes a block-set directory ID such
+  as `$(var.PF)` a standard folder when every define sets one (the ID
+  keeps the variable everywhere), and `serviceKey`
+  matches services and their controls by the filled-in name.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a
