@@ -192,6 +192,12 @@ func firewallCarrier(cfg *Config, feature *Feature, featurePath string) *Compone
 		carrierOf:       feature,
 	}
 
+	// netsh needs an elevated per-machine install, so in a dual package
+	// the carrier installs only per machine (INST-08).
+	if cfg.Package.Scope.Dual() {
+		carrier.Scope = ScopePerMachine
+	}
+
 	cfg.Components = append(cfg.Components, carrier)
 	feature.Components = append(feature.Components, carrier)
 

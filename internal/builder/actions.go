@@ -431,6 +431,14 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 		install := "$" + cfgRule.Component + "=3"
 		remove := "$" + cfgRule.Component + "=2"
 
+		// In a dual package the rule's component installs only per
+		// machine; the actions test the context too, as a perMachine
+		// custom action does (CA-09, INST-08).
+		if b.cfg.Package.Scope.Dual() {
+			install += " AND " + condPerMachine
+			remove += " AND " + condPerMachine
+		}
+
 		remoteIP := cfgRule.RemoteAddresses
 		if remoteIP == "" {
 			remoteIP = fwAny

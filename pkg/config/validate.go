@@ -1108,11 +1108,14 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 		}
 	}
 
-	// The builder keys an Environment row by name, action and scope, so a
-	// second entry with all three equal would be a duplicate key. Names are
-	// compared without case to be safe; how the engine treats FOO and foo
-	// in two Environment rows is not tested.
+	// Two entries with the same name, action and scope set the variable
+	// twice, which only append and prepend can do with different values:
+	// each adds its own part (ENVVAR-04). The builder then keys the second
+	// row by its value too. Names are compared without case to be safe;
+	// how the engine treats FOO and foo in two Environment rows is not
+	// tested.
 	seen := make(map[[3]string]bool)
+	values := make(map[[4]string]bool)
 
 	if slices.ContainsFunc(comp.Environment, func(env *Environment) bool { return env.Scope == envAuto }) {
 		v.contextConditionLength(compPath+".condition", comp.Condition)
@@ -1123,11 +1126,19 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 		v.environment(envPath, env, perUser)
 
 		key := [3]string{strings.ToUpper(env.Name), env.Action, env.Scope}
-		if env.Name != "" && seen[key] {
-			v.errorf(envPath, "%s with action %s and scope %s is set twice in this component", env.Name, env.Action, env.Scope)
+		part := [4]string{key[0], key[1], key[2], env.Value}
+
+		switch {
+		case env.Name == "":
+		case values[part]:
+			v.errorf(envPath, "%s with action %s, scope %s and this value is set twice in this component", env.Name, env.Action, env.Scope)
+		case seen[key] && env.Action != envAppend && env.Action != envPrepend:
+			v.errorf(envPath, "%s with action %s and scope %s is set twice in this component; "+
+				"only append and prepend may add several parts", env.Name, env.Action, env.Scope)
 		}
 
 		seen[key] = true
+		values[part] = true
 	}
 }
 
@@ -2551,9 +2562,27 @@ func (v *validator) firewall(cfg *Config, known *refs) { //nolint:cyclop // a fl
 			v.oneOf(fmt.Sprintf("%s.profiles[%d]", p, j), prof, "all", "domain", "private", "public")
 		}
 
-		if cfg.Package.Scope.MayBePerUser() {
-			v.errorf(p, "firewall rules need a perMachine package")
-		}
+		v.firewallScope(p, known.components[rule.Component])
+	}
+}
+
+// firewallScope checks the context a firewall rule's component installs
+// in: netsh runs without impersonation, so the rule needs a perMachine
+// package or, in a dual package, a component with scope perMachine
+// (INST-08).
+func (v *validator) firewallScope(rulePath string, comp *Component) {
+	switch {
+	case !v.scope.MayBePerUser():
+	case !v.scope.Dual():
+		v.errorf(rulePath, "firewall rules need a perMachine package, or a component with scope perMachine in a "+
+			"perUserOrMachine or perMachineOrUser package")
+	case comp == nil:
+	case comp.Scope != ScopePerMachine:
+		v.errorf(rulePath+".component", "a firewall rule in a %s package needs a component with scope perMachine, "+
+			"since netsh needs an elevated per-machine install", v.scope)
+	case v.scope == ScopePerUserOrMachine:
+		// ICE105 reads only the CustomAction type (CA-09).
+		v.warnf(rulePath, "ICE105 warns about the netsh actions without impersonation, although they run only per machine")
 	}
 }
 
@@ -2929,6 +2958,9 @@ const (
 	envMachine = "machine"
 	envUser    = "user"
 	envAuto    = "auto"
+	// envAppend and envPrepend add a part to a variable.
+	envAppend  = "append"
+	envPrepend = "prepend"
 )
 
 // componentRoots lists the registry roots a component writes to or
