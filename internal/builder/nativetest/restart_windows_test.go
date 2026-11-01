@@ -47,11 +47,12 @@ func restartLines(log string) string {
 
 // TestMsiexecRestartResources installs a package that registers a file
 // held by a program outside the package, a program outside the package and
-// a service it does not install (CLOSE-04): in a silent install Restart
-// Manager shuts down the holder and the program, and a copy of the program
-// in another folder, which is not registered, keeps running. A repair with
+// a service it does not install (CLOSE-04). It expects that in a silent
+// install Restart Manager shuts down the holder and the program, and that a
+// copy of the program in another folder, which is not registered, keeps
+// running. It then checks whether a repair with
 // MSIRESTARTMANAGERCONTROL=Disable on the command line starts no session,
-// so the action registers nothing and the programs keep running.
+// so that the action registers nothing and the programs keep running.
 //
 //nolint:paralleltest // msiexec runs one installation at a time
 func TestMsiexecRestartResources(t *testing.T) {
@@ -134,6 +135,13 @@ func TestMsiexecRestartResources(t *testing.T) {
 				"BuilderRestart: service " + restartService + ": registered",
 				"(" + prog + "): registered",
 			}, map[string]*running{"holder of the file": holder, "registered program": run})
+
+			// Restart Manager sends WM_ENDSESSION to a program it shuts
+			// down; the helper writes a marker for it.
+			for _, marker := range []string{".holder", ".prog"} {
+				_, err := os.Stat(filepath.Join(dir, step.name+marker+".endsession"))
+				t.Logf("%s: %s got WM_ENDSESSION: %v", step.name, marker[1:], err == nil)
+			}
 		}
 
 		if got := copyElsewhere.exited(time.Second); got != -1 {
@@ -192,11 +200,12 @@ func closeRMConfig() string {
 }
 
 // TestMsiexecClosesAppsWithRestartManager repairs a package with close on
-// its programs while Restart Manager is on (CLOSE-03): the program with a
-// window gets close's WM_CLOSE before InstallValidate and exits with 0, the
-// console program is gone afterwards (by Restart Manager or by close's
-// deferred action), the repair succeeds, and a copy of the console program
-// in another folder keeps running.
+// its programs while Restart Manager is on (CLOSE-03). It expects that the
+// program with a window gets close's WM_CLOSE before InstallValidate and
+// exits with 0, that the console program is gone afterwards (by Restart
+// Manager or by close's deferred action), that msiexec succeeds, and that a
+// copy of the console program in another folder keeps running; it records
+// what happens to the program with terminate: false.
 //
 //nolint:paralleltest // msiexec runs one installation at a time
 func TestMsiexecClosesAppsWithRestartManager(t *testing.T) {
@@ -205,8 +214,8 @@ func TestMsiexecClosesAppsWithRestartManager(t *testing.T) {
 	}
 
 	src := closeRMConfig()
-	if strings.Contains(src, "MSIRESTARTMANAGERCONTROL") || !strings.Contains(src, "5b0e2d71") {
-		t.Fatal("closeRMConfig still turns Restart Manager off or keeps the product name")
+	if strings.Contains(src, "MSIRESTARTMANAGERCONTROL") || !strings.Contains(src, "5b0e2d71") || !strings.Contains(src, "MsiBuilderCloseRM") {
+		t.Fatal("closeRMConfig still turns Restart Manager off, or keeps the upgrade code or the product name")
 	}
 
 	helper := closeHelper(t)

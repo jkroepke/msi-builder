@@ -1284,8 +1284,10 @@ repaired or removed, by an immediate action on the embedded DLL before
 installer's session (specification section 17.11). `program` matches the
 running processes by their image path like `close`, so a copy of the
 program in another folder is not registered; the action runs as the
-installing user, so it registers only processes that user may open, and
-another user's copy or a service process is only logged. Restart Manager is expected
+installing user, so it registers only processes that user may open: from
+an elevated prompt that may include another user's copy or a service
+process running that file, without elevation those are only logged
+(inferred from the access rights, not tested). Restart Manager is expected
 to shut down what it finds the same way as for the package's own files,
 and to restart only programs that registered for a restart (it restarted
 none in the close-apps evaluation); that the action can join the session
