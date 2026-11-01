@@ -38,8 +38,17 @@ func TestStandardActionsAccepted(t *testing.T) {
 			"  - {action: FindRelatedProducts, schedule: [{sequence: execute, before: AppSearch}]}\n",
 		"launch conditions after a custom action": setAllUsers +
 			"standardActions:\n  - {action: LaunchConditions, schedule: [{sequence: execute, after: SetAllUsers}]}\n",
+		// Without launch conditions the builder adds no LaunchConditions
+		// after a moved AppSearch.
+		"AppSearch before LaunchConditions without launch conditions": "upgrade: {downgrade: allow}\n" + search +
+			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: LaunchConditions}]}\n",
 	} {
-		if ds := validate(t, base+appComponent+doc); errorCount(ds) != 0 {
+		full := base
+		if strings.HasPrefix(doc, "upgrade:") {
+			full = strings.Replace(base, "upgrade: {}\n", "", 1)
+		}
+
+		if ds := validate(t, full+appComponent+doc); errorCount(ds) != 0 {
 			t.Errorf("%s: %v", name, ds)
 		}
 	}

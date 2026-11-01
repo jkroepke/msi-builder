@@ -295,6 +295,7 @@ func (c *converter) emittedActions() map[string]bool {
 func (c *converter) emitMoved(reanchor func(string, []any)) {
 	emitted := c.emittedActions()
 	kept := make(map[string][]*omap)
+	c.launchKept = c.keptLaunchMoves(emitted)
 
 	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
 		placements := c.moved[name]
@@ -357,6 +358,10 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 		return silent, reason
 	}
 
+	if reason := c.atCollision(name, placement); reason != "" {
+		return false, reason
+	}
+
 	return false, c.movedAnchorFails(placement, emitted)
 }
 
@@ -365,7 +370,7 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 // moved in the same sequence too: before it is the default order, so the
 // move is dropped silently; after it cannot be taken.
 func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, string) {
-	if name != actAppSearch || c.launchMovedIn(placement.str("sequence")) {
+	if name != actAppSearch || !c.runsLaunchConditions() || c.launchKept[placement.str("sequence")] {
 		return false, ""
 	}
 
@@ -379,10 +384,55 @@ func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, stri
 	}
 }
 
-// launchMovedIn reports whether the sequences move LaunchConditions in a
-// sequence.
-func (c *converter) launchMovedIn(seq string) bool {
-	return slices.ContainsFunc(c.moved[actLaunchConditions], func(entry any) bool {
+// keptLaunchMoves returns the sequences in which convert keeps a
+// LaunchConditions move, decided before the AppSearch moves that depend on
+// it.
+func (c *converter) keptLaunchMoves(emitted map[string]bool) map[string]bool {
+	kept := make(map[string]bool)
+	if c.movedIdle(actLaunchConditions) != "" {
+		return kept
+	}
+
+	for _, entry := range c.moved[actLaunchConditions] {
+		if placement, ok := entry.(*omap); ok && c.atCollision(actLaunchConditions, placement) == "" && c.movedAnchorFails(placement, emitted) == "" {
+			kept[placement.str("sequence")] = true
+		}
+	}
+
+	return kept
+}
+
+// atCollision returns why a moved action's number collides with the
+// default number of another movable action that the converted package runs
+// and does not move in that sequence, or "".
+func (c *converter) atCollision(name string, placement *omap) string {
+	number, ok := placement.get("at").(int)
+	if !ok {
+		return ""
+	}
+
+	seq := placement.str("sequence")
+
+	for _, other := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
+		std, _ := msisequence.LookupStandard(other)
+		if other == name || std.Number(sequenceTable(seq)) != number || c.movedIdle(other) != "" || c.movesIn(other, seq) {
+			continue
+		}
+
+		// LaunchConditions follows a moved AppSearch.
+		if other == actLaunchConditions && c.movesIn(actAppSearch, seq) {
+			continue
+		}
+
+		return fmt.Sprintf("the number %d is that of %s", number, other)
+	}
+
+	return ""
+}
+
+// movesIn reports whether the sequences move an action in a sequence.
+func (c *converter) movesIn(name, seq string) bool {
+	return slices.ContainsFunc(c.moved[name], func(entry any) bool {
 		placement, ok := entry.(*omap)
 
 		return ok && placement.str("sequence") == seq

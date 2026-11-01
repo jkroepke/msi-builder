@@ -130,6 +130,9 @@ type converter struct {
 	moved map[string][]any
 	// movedLines holds the source line of each moved placement.
 	movedLines map[*omap]int
+	// launchKept holds the sequences in which convert keeps a
+	// LaunchConditions move.
+	launchKept map[string]bool
 	pkg        *elem
 	major      *elem
 	summary    *elem

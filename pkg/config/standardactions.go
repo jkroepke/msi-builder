@@ -303,12 +303,20 @@ func (v *validator) standardAnchors(cfg *Config, placePath, action string, place
 			v.errorf(placePath, "%s cannot be placed next to itself", action)
 		case !knownAnchor(cfg, anchor, place.Sequence):
 			v.errorf(placePath, "anchor %q is neither a standard action nor a custom action", anchor)
-		case action == actAppSearch && anchor == actLaunchConditions && !launchMovedIn(cfg, place.Sequence):
+		case anchor == actLaunchConditions && searchBesideLaunch(cfg, action, place.Sequence):
 			v.errorf(placePath, "AppSearch cannot be placed next to LaunchConditions, which follows a moved AppSearch; move LaunchConditions instead")
 		case standardActions[anchor] && !earlyAnchor(anchor, place.Sequence, i == 0):
 			v.errorf(placePath, "%s must run before CostInitialize, which it does not %s %s", action, []string{"before", "after"}[i], anchor)
 		}
 	}
+}
+
+// searchBesideLaunch reports whether an action is an AppSearch that cannot
+// be placed next to LaunchConditions in a sequence: the builder puts an
+// unmoved LaunchConditions after a moved AppSearch when the package has
+// launch conditions.
+func searchBesideLaunch(cfg *Config, action, schedule string) bool {
+	return action == actAppSearch && hasLaunchConditions(cfg) && !launchMovedIn(cfg, schedule)
 }
 
 // launchMovedIn reports whether standardActions moves LaunchConditions in

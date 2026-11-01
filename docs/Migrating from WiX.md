@@ -830,8 +830,10 @@ number is dropped, and so is AppSearch before an unmoved LaunchConditions,
 which is the default order. With a note, convert also drops the move of
 AppSearch without searches, of LaunchConditions without launch conditions or
 a downgrade check, and a move to a place msi-builder refuses (at or after
-CostInitialize, next to a dialog, or AppSearch after an unmoved
-LaunchConditions, which msi-builder puts after a moved AppSearch). A move that puts LaunchConditions
+CostInitialize, next to a dialog, AppSearch after an unmoved
+LaunchConditions, which msi-builder puts after a moved AppSearch, or the
+number of another of the three actions that keeps its place, such as
+FindRelatedProducts at 50). A move that puts LaunchConditions
 before FindRelatedProducts (FindRelatedProducts at Microsoft's 200, for
 example) gets a note, because the downgrade check then sees no newer
 version and the build refuses it.

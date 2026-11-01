@@ -2679,3 +2679,50 @@ func TestConvertAppSearchNextToLaunchConditions(t *testing.T) {
 		t.Errorf("a move next to LaunchConditions was kept or noted:\n%s", out)
 	}
 }
+
+// A number of another movable action that keeps its place collides with it,
+// and an AppSearch move next to a dropped LaunchConditions move is dropped
+// as next to an unmoved one.
+func TestConvertMoveCollisions(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    <InstallExecuteSequence>
+      <FindRelatedProducts Sequence="50" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <AppSearch After="LaunchConditions" />
+      <LaunchConditions Sequence="900" />
+    </InstallUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"FindRelatedProducts in execute, which msi-builder cannot take (the number 50 is that of AppSearch)",
+		"AppSearch in ui, which msi-builder cannot take (LaunchConditions follows a moved AppSearch)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "action: ") {
+		t.Errorf("a refused move was kept:\n%s", out)
+	}
+}

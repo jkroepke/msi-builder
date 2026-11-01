@@ -230,7 +230,7 @@ func wellMoved(cfg *Config, action string, place Placement) bool {
 		return false
 	}
 
-	if action == actAppSearch && (place.Before == actLaunchConditions || place.After == actLaunchConditions) && !launchMovedIn(cfg, place.Sequence) {
+	if slices.Contains([]string{place.Before, place.After}, actLaunchConditions) && searchBesideLaunch(cfg, action, place.Sequence) {
 		return false
 	}
 
