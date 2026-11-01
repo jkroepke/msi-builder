@@ -74,8 +74,8 @@ func (v *validator) removeFolderProperty(field, name string) bool {
 // removeFolderSource checks where the folder comes from at removal, when
 // the action reads it after costing: a directory has its path, but an
 // install dir chosen at install time is only known again when
-// installDir.remember searches for it; any other property needs something
-// that sets it.
+// installDir.remember or a property search of its ID finds it; any other
+// property needs something that sets it.
 func (v *validator) removeFolderSource(cfg *Config, known *refs, field, name string, set map[string]bool) {
 	switch {
 	case name == cfg.InstallDir.ID || known.dirs[name] != nil:
@@ -93,8 +93,15 @@ func (v *validator) removeFolderSource(cfg *Config, known *refs, field, name str
 // path the command line can change at install time without the uninstall
 // knowing it again: the install dir without installDir.remember, or a
 // configurable directory, which nothing remembers; "" when there is none.
+// A property search of a directory id finds its folder again before costing,
+// as installDir.remember does (which refuses a second search of the install
+// dir), so the folders from there down keep their installed paths.
 func movableFolder(cfg *Config, known *refs, dirID string) string {
 	for cur, depth := dirID, 0; cur != "" && depth < 64; cur, depth = known.dirParent[cur], depth+1 {
+		if prop := cfg.Properties[cur]; prop != nil && len(prop.Search) > 0 {
+			return ""
+		}
+
 		if cur == cfg.InstallDir.ID {
 			if cfg.InstallDir.Remember {
 				return ""

@@ -164,7 +164,12 @@ versioning after 1.0.
   calls, actions of another source file) to `reanchor`'s drop function, so
   that placements anchored on them move to their anchors like those on
   left-out setters. Converted output must build or carry a todo that says
-  why not: check new cases with `validConfig` (`rerun_test.go`).
+  why not: check new cases with `validConfig` (`rerun_test.go`). WiX v3
+  accepts an `<Icon>` Id that is no MSI identifier (`app-name.ico`); every
+  place that writes an icon id goes through `iconID` (`package.go`), so the
+  `icons` key and its references stay the same. When `downgrade: ignore`
+  stands in for the WiX downgrade check (`noteLaunchBeforeFind`), its todo
+  carries the move's line and the moves get no second todo.
   Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
   branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
   a block only when every element directly in it is one whose output stays

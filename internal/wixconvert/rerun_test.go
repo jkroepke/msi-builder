@@ -273,8 +273,11 @@ func TestConvertLaunchConditionsFirst(t *testing.T) {
 </Wix>`
 
 	yaml := convertWith(t, src, wixconvert.Options{})
-	wantAll(t, yaml, "  downgrade: ignore\n", "the WiX package has no downgrade check",
-		"  - action: LaunchConditions\n")
+	wantAll(t, yaml, "  downgrade: ignore\n", "TODO(line 19): LaunchConditions runs before FindRelatedProducts, where",
+		"the WiX package has no downgrade check", "  - action: LaunchConditions\n")
+	// downgrade: ignore's todo says it all; the move gets no second one
+	// (BowPad).
+	wantNone(t, yaml, "LaunchConditions runs before FindRelatedProducts here")
 }
 
 // TestConvertLaunchConditionsFirstEverywhere sets downgrade: ignore for a
@@ -303,7 +306,9 @@ func TestConvertLaunchConditionsFirstEverywhere(t *testing.T) {
 </Wix>`
 
 	yaml := convertWith(t, src, wixconvert.Options{})
-	wantAll(t, yaml, "  downgrade: ignore\n", "the WiX package never saw a newer version in a launch condition")
+	wantAll(t, yaml, "  downgrade: ignore\n", "TODO(line 14): LaunchConditions runs before FindRelatedProducts, where",
+		"the WiX package never saw a newer version in a launch condition")
+	wantNone(t, yaml, "LaunchConditions runs before FindRelatedProducts here")
 }
 
 // TestConvertDroppedActionBothSides keeps the order of actions on both
@@ -518,4 +523,69 @@ func TestConvertRememberWithUnconvertedSearch(t *testing.T) {
 	}
 
 	wantAll(t, string(res.YAML), "  remember: true\n")
+}
+
+// TestConvertIconIDNotIdentifier renames a WiX v3 <Icon> Id that is no MSI
+// identifier, which the build refuses, and every reference to it (Input
+// Leap).
+func TestConvertIconIDNotIdentifier(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Icon Id="hello-app.ico" SourceFile="res/hello-app.ico" />
+    <Icon Id="1st.ico" SourceFile="res/first.ico" />
+    <Property Id="ARPPRODUCTICON" Value="hello-app.ico" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Hello">
+          <Component Id="App" Guid="*" Win64="yes">
+            <File Source="hello.exe" KeyPath="yes" />
+            <Shortcut Id="Menu" Directory="ProgramMenuFolder" Name="Hello" Target="[INSTALLDIR]hello.exe" Icon="hello-app.ico" />
+            <Shortcut Id="Other" Directory="ProgramMenuFolder" Name="Hello 2" Target="[INSTALLDIR]hello.exe" Icon="1st.ico" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+  </Product>
+</Wix>`
+
+	yaml := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, yaml, "    icon: hello_app.ico\n", "icon: _1st.ico\n", "  hello_app.ico: res/hello-app.ico\n",
+		"  _1st.ico: res/first.ico\n", `TODO(line 5): <Icon> Id="hello-app.ico" is not an MSI identifier`)
+	wantNone(t, yaml, "icon: hello-app.ico", "icon: 1st.ico", "  hello-app.ico:")
+}
+
+// TestConvertIconIDClash notes a renamed icon id that another icon has.
+func TestConvertIconIDClash(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <Icon Id="app-icon" SourceFile="a.ico" />
+    <Icon Id="app_icon" SourceFile="b.ico" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Hello">
+          <Component Id="App" Guid="*" Win64="yes"><File Source="hello.exe" KeyPath="yes" /></Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+  </Product>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	yaml := string(res.YAML)
+	wantAll(t, yaml, "  app_icon: b.ico\n", `<Icon> Id="app-icon" is not an MSI identifier and becomes "app_icon", the id of another icon`)
+	wantNone(t, yaml, "a.ico")
 }

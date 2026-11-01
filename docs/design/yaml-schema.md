@@ -961,7 +961,8 @@ a property or directory ID holds, with every file and subfolder in it,
 including what the application wrote there. The removal reads the folder
 after costing, so a directory ID has its path; an install dir chosen at
 install time is only known again at uninstall with `installDir.remember`
-(a warning otherwise), and any other property needs something that sets
+or a `properties` search of its ID (a warning otherwise; the same holds
+for a configurable directory and the folders below it), and any other property needs something that sets
 it, typically a search for a path the first install wrote to the
 registry.
 

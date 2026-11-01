@@ -137,6 +137,13 @@ func TestValidateAccepted(t *testing.T) {
 			"installDir: {id: INSTALLDIR, remember: true}\n" + strings.Replace(appComponent, "    files:",
 			"    removeFolders: [{property: INSTALLDIR}, {property: DATA_DIR, on: both, condition: DELETE_DATA=\"1\"}, {property: DATADIR}]\n    files:", 1) +
 			"properties: {DATA_DIR: {search: {registry: {root: HKLM, key: Software\\X, name: Data, type: directory}}}}\n",
+		// A property search of the install dir finds it again at uninstall,
+		// like installDir.remember, so neither folder gets the remember
+		// warning (VSCodium).
+		"remove folders searched install dir": strings.Replace(base, "        configurable: true\n",
+			"        configurable: true\n        children: [{id: DATADIR, name: data}]\n", 1) +
+			strings.Replace(appComponent, "    files:", "    removeFolders: [{property: INSTALLDIR}, {property: DATADIR}]\n    files:", 1) +
+			"properties: {INSTALLDIR: {search: {registry: {root: HKLM, key: Software\\X, name: Path, type: directory}}}}\n",
 		// The same key at install and at uninstall, and an uninstall id
 		// that a RemoveRegistry row of another entry uses too.
 		"remove registry on uninstall": base + strings.Replace(appComponent, "    files:",

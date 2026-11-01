@@ -159,7 +159,7 @@ msi-builder does the same by default:
 | `Package` `Codepage`, `Scope`; `-arch` | `package.codepage`, `package.scope`, `package.platform` |
 | `SummaryInformation` | `package.summary`, `product.description`, `product.comments` |
 | `ARPPRODUCTICON`, `ARPHELPLINK`, `ARPURLINFOABOUT`, `ARPURLUPDATEINFO`, `ARPCONTACT`, `ARPCOMMENTS`, `ARPNOREPAIR`, `ARPNOMODIFY`, `ARPNOREMOVE`, `ARPINSTALLLOCATION` | `product.arp` keys `icon`, `helpLink`, `aboutLink`, `updateLink`, `contact`, `comments`, `noRepair`, `noModify`, `noRemove`, `installLocation` |
-| `Icon` | `icons` |
+| `Icon` | `icons`; an `Id` that is no MSI identifier, such as `app-name.ico` (WiX v3 accepts it, WiX 5 does not), gets `_` for each other character, in `icons` and where the package names it, with a note |
 | `Binary` | `binaries` |
 | `MajorUpgrade`, `Upgrade`, `UpgradeVersion` | `upgrade` |
 | `StandardDirectory`, `Directory`, `DirectoryRef` | `installDir`, `components[].directory`, `directories` |
