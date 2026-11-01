@@ -3,6 +3,7 @@
 package nativetest_test
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -51,54 +52,112 @@ func TestMsiexecRestartManagerControl(t *testing.T) {
 
 	target := filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilderRestartManager", "a.txt")
 
+	report := make([]string, 0, 12)
+
 	for _, value := range []string{"0", "Disable", "DisableShutdown", "disable"} {
-		t.Run(value, func(t *testing.T) {
-			dir := t.TempDir()
-			path := buildConfig(t, dir, "rm", fmt.Sprintf(restartManagerConfig, value), map[string][]byte{"a.txt": []byte("a")})
+		report = append(report, restartManagerRun(t, value, target)...)
+	}
 
-			t.Cleanup(func() {
-				_ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn", "/norestart").Run()
-			})
+	t.Errorf("PROP-04 probe:\n%s", strings.Join(report, "\n"))
+}
 
-			log := filepath.Join(dir, "install.log")
-			if code := msiexecCode(t, log, "/i", path); code != 0 {
-				t.Fatalf("msiexec /i returned %d\n%s", code, readLog(log))
-			}
+// restartManagerRun installs the package with one value, repairs it while
+// PowerShell holds the file open and uninstalls it, and returns what the
+// logs show.
+func restartManagerRun(t *testing.T, value, target string) []string {
+	t.Helper()
 
-			t.Logf("install: %q", restartManagerLines(log))
+	dir := t.TempDir()
+	path := buildConfig(t, dir, "rm", fmt.Sprintf(restartManagerConfig, value), map[string][]byte{"a.txt": []byte("a")})
 
-			// A second process holds the file open for reading, so the
-			// repair finds it in use.
-			holder := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-Command", //nolint:gosec // a test path
-				"$f = [IO.File]::Open('"+target+"', 'Open', 'Read', 'Read'); Start-Sleep -Seconds 300")
-			if err := holder.Start(); err != nil {
-				t.Fatal(err)
-			}
+	defer func() {
+		if err := exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn", "/norestart").Run(); err != nil {
+			t.Logf("%s: uninstall: %v", value, err)
+		}
+	}()
 
-			exited := make(chan error, 1)
+	report := []string{"== " + value}
 
-			go func() { exited <- holder.Wait() }()
+	log := filepath.Join(dir, "install.log")
+	if code := msiexecCode(t, log, "/i", path); code != 0 {
+		t.Fatalf("msiexec /i returned %d\n%s", code, readLog(log))
+	}
 
-			t.Cleanup(func() { _ = holder.Process.Kill() })
+	report = append(report, fmt.Sprintf("install: %q", restartManagerLines(log)))
 
-			time.Sleep(5 * time.Second) // let PowerShell open the file
+	// A second process holds the file open for reading, so the repair
+	// finds it in use. It prints a line once the file is open.
+	holder := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-Command", //nolint:gosec // a test path
+		"$f = [IO.File]::Open('"+target+"', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('open'); [Console]::Out.Flush(); Start-Sleep -Seconds 300")
 
-			log = filepath.Join(dir, "repair.log")
-			code := msiexecCode(t, log, "/fa", path)
+	out, err := holder.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			alive := "still running"
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
 
-			select {
-			case err := <-exited:
-				alive = fmt.Sprintf("ended (%v)", err)
-			case <-time.After(time.Second):
-			}
+	exited := make(chan error, 1)
 
-			t.Logf("repair with the file held open: exit %d, holder %s, %q", code, alive, restartManagerLines(log))
+	defer func() {
+		_ = holder.Process.Kill()
 
-			if code != 0 && code != 3010 {
-				t.Errorf("msiexec /fa returned %d\n%s", code, readLog(log))
-			}
-		})
+		<-exited //nolint:errcheck // the process was killed
+	}()
+
+	line, err := bufio.NewReader(out).ReadString('\n')
+
+	go func() { exited <- holder.Wait() }()
+
+	if err != nil || strings.TrimSpace(line) != "open" {
+		t.Fatalf("PowerShell did not open %s: %q %v", target, line, err)
+	}
+
+	log = filepath.Join(dir, "repair.log")
+	code := msiexecCode(t, log, "/fa", path)
+
+	if code == 3010 {
+		// The engine replaces the held file at the next restart; drop
+		// that, so that a developer machine does not get it back.
+		defer dropPendingRenames(t, filepath.Dir(target))
+	}
+
+	alive := "still running"
+
+	select {
+	case err := <-exited:
+		exited <- err
+
+		alive = fmt.Sprintf("ended (%v)", err)
+	case <-time.After(time.Second):
+	}
+
+	return append(report, fmt.Sprintf("repair with the file held open: exit %d, holder %s, %q", code, alive, restartManagerLines(log)))
+}
+
+// dropPendingRenames removes the restart renames of files below dir from
+// PendingFileRenameOperations.
+func dropPendingRenames(t *testing.T, dir string) {
+	t.Helper()
+
+	script := `$k = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
+$v = (Get-ItemProperty $k -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
+if ($v) {
+  $keep = @()
+  for ($i = 0; $i + 1 -lt $v.Count; $i += 2) {
+    if ($v[$i] -notlike ('*' + $env:RM_DIR + '\*')) { $keep += $v[$i]; $keep += $v[$i + 1] }
+  }
+  if ($keep.Count) { Set-ItemProperty $k -Name PendingFileRenameOperations -Value $keep -Type MultiString }
+  else { Remove-ItemProperty $k -Name PendingFileRenameOperations }
+}`
+
+	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-Command", script)
+
+	cmd.Env = append(os.Environ(), "RM_DIR="+dir)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("clearing the pending renames: %v\n%s", err, out)
 	}
 }

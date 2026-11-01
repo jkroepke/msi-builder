@@ -1847,10 +1847,11 @@ The JSON Schema (`pkg/config/schema.json`) lists the Windows Installer
 properties a package may set, such as `MSIRESTARTMANAGERCONTROL`, `REBOOT`,
 `ARPSYSTEMCOMPONENT`, `MSIFASTINSTALL` and `INSTALLLEVEL`, with a description
 and their documented values, so that an editor completes and checks them. It
-refuses the properties the builder writes and names the key to use instead
-(`ARPNOMODIFY` is `product.arp.noModify`). Any other name is accepted with any
-value. The descriptions follow Microsoft's documentation; MSISPEC section 19.2
-says which values were tested on Windows.
+refuses the properties the builder writes; their hover text names the key to
+use instead (`ARPNOMODIFY` is `product.arp.noModify`). Any other name is
+accepted with any value. The descriptions follow Microsoft's documentation and
+are not verified on Windows unless MSISPEC names a case (PROP-04 for
+`MSIRESTARTMANAGERCONTROL`).
 
 **Search.** `search` fills a property from the target machine before the
 install. It is one search or a list of them; each search has exactly one of

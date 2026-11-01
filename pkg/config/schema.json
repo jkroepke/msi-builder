@@ -377,7 +377,7 @@
     },
     "properties": {
       "type": "object",
-      "description": "Properties of the package. Any name can be defined; the Windows Installer properties listed here are described from Microsoft's documentation, which docs/spec/MSISPEC.md section 19.2 says is not verified unless a test case is named, and the properties the builder writes are refused.",
+      "description": "Properties of the package. Any name can be defined. The Windows Installer properties listed here are described from Microsoft's documentation, which is not verified on Windows unless docs/spec/MSISPEC.md names a test case; the properties the builder writes are refused, and their description names the key to use.",
       "properties": {
         "ADDDEFAULT": {
           "description": "A request property, given on the msiexec command line; a package cannot define it.",
@@ -408,15 +408,27 @@
             {
               "anyOf": [
                 {
-                  "type": "string",
-                  "minLength": 1
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "type": "string",
-                      "minLength": 1
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }
@@ -437,7 +449,7 @@
           "not": {}
         },
         "ARPHELPTELEPHONE": {
-          "description": "Support telephone number shown in Apps & features, written to the Uninstall key as HelpTelephone.",
+          "description": "Support telephone number, written to the Uninstall key as HelpTelephone.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -445,15 +457,27 @@
             {
               "anyOf": [
                 {
-                  "type": "string",
-                  "minLength": 1
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "type": "string",
-                      "minLength": 1
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }
@@ -490,15 +514,27 @@
             {
               "anyOf": [
                 {
-                  "type": "string",
-                  "minLength": 1
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "type": "string",
-                      "minLength": 1
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }
@@ -527,6 +563,12 @@
                       ]
                     },
                     {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
                       "$ref": "#/$defs/var"
                     }
                   ]
@@ -541,6 +583,12 @@
                             "1",
                             1
                           ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -590,6 +638,12 @@
                       ]
                     },
                     {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
                       "$ref": "#/$defs/var"
                     }
                   ]
@@ -604,6 +658,12 @@
                             "1",
                             1
                           ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -629,7 +689,7 @@
           "not": {}
         },
         "INSTALLLEVEL": {
-          "description": "The install level of a first install: a feature is installed when its level is from 1 to this value. Default 1.",
+          "description": "The install level of a first install: a feature is installed when its level is from 1 to this value. Default 1. Write a decimal number.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -645,7 +705,13 @@
                     },
                     {
                       "type": "string",
-                      "pattern": "^[0-9]+$"
+                      "pattern": "^([1-9][0-9]{0,3}|[12][0-9]{4}|3[01][0-9]{3}|32[0-6][0-9]{2}|327[0-5][0-9]|3276[0-7])$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -664,7 +730,13 @@
                         },
                         {
                           "type": "string",
-                          "pattern": "^[0-9]+$"
+                          "pattern": "^([1-9][0-9]{0,3}|[12][0-9]{4}|3[01][0-9]{3}|32[0-6][0-9]{2}|327[0-5][0-9]|3276[0-7])$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -678,7 +750,7 @@
           ]
         },
         "LIMITUI": {
-          "description": "1 limits the user interface to basic UI, so the wizard is never shown.",
+          "description": "Any value limits the user interface to basic UI, so the wizard is never shown. Microsoft asks such a package to set ARPNOMODIFY too (product.arp.noModify).",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -692,6 +764,12 @@
                         "1",
                         1
                       ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -708,6 +786,12 @@
                             "1",
                             1
                           ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -733,15 +817,27 @@
             {
               "anyOf": [
                 {
-                  "type": "string",
-                  "minLength": 1
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "type": "string",
-                      "minLength": 1
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }
@@ -750,7 +846,7 @@
           ]
         },
         "MSIDISABLERMRESTART": {
-          "description": "1: programs Restart Manager shut down are not restarted after the install. 0 (default) restarts them. Ignored when Restart Manager is disabled.",
+          "description": "1: programs Restart Manager shut down are not restarted after the install; 0 restarts them. Ignored when Restart Manager is unavailable or disabled.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -766,6 +862,12 @@
                         "1",
                         1
                       ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -786,6 +888,12 @@
                           ]
                         },
                         {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
                           "$ref": "#/$defs/var"
                         }
                       ]
@@ -797,7 +905,7 @@
           ]
         },
         "MSIENFORCEUPGRADECOMPONENTRULES": {
-          "description": "1 makes small updates and minor upgrades fail when they remove a component.",
+          "description": "1 makes small updates and minor upgrades fail when they remove a component or add a feature that is not a leaf.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -811,6 +919,12 @@
                         "1",
                         1
                       ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -827,6 +941,12 @@
                             "1",
                             1
                           ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -850,13 +970,30 @@
                 {
                   "anyOf": [
                     {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 7
+                      "enum": [
+                        "0",
+                        0,
+                        "1",
+                        1,
+                        "2",
+                        2,
+                        "3",
+                        3,
+                        "4",
+                        4,
+                        "5",
+                        5,
+                        "6",
+                        6,
+                        "7",
+                        7
+                      ]
                     },
                     {
-                      "type": "string",
-                      "pattern": "^[0-9]+$"
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -869,13 +1006,30 @@
                     "value": {
                       "anyOf": [
                         {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 7
+                          "enum": [
+                            "0",
+                            0,
+                            "1",
+                            1,
+                            "2",
+                            2,
+                            "3",
+                            3,
+                            "4",
+                            4,
+                            "5",
+                            5,
+                            "6",
+                            6,
+                            "7",
+                            7
+                          ]
                         },
                         {
-                          "type": "string",
-                          "pattern": "^[0-9]+$"
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -893,11 +1047,11 @@
           "not": {}
         },
         "MSIINSTALLPERUSER": {
-          "description": "1 installs a package with ALLUSERS 2 per user. package.scope perUserOrMachine and perMachineOrUser set it, so it cannot be defined in those packages, and it has no effect in others.",
+          "description": "1 installs a package with ALLUSERS 2 per user. Packages with package.scope perUserOrMachine or perMachineOrUser manage it, so it cannot be defined there, and it has no effect in other packages.",
           "$ref": "#/$defs/property"
         },
         "MsiLogging": {
-          "description": "Logs every install of the product, as with msiexec /l: the letters iwearucmopvx and !. The log is written to the temp folder.",
+          "description": "Logs every install of the product, as with msiexec /l: the letters iwearucmopvx and !. MsiLogFileLocation names the log file. Windows Installer 4.0.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -908,8 +1062,13 @@
                   "anyOf": [
                     {
                       "type": "string",
-                      "minLength": 1,
-                      "pattern": "^[iwearucmopvx!]+$"
+                      "pattern": "^[iwearucmopvxIWEARUCMOPVX!]+$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -923,8 +1082,13 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "minLength": 1,
-                          "pattern": "^[iwearucmopvx!]+$"
+                          "pattern": "^[iwearucmopvxIWEARUCMOPVX!]+$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -938,7 +1102,7 @@
           ]
         },
         "MSIRESTARTMANAGERCONTROL": {
-          "description": "Whether files in use are handled by Restart Manager. 0 (default) uses Restart Manager; Disable uses the FilesInUse dialog instead, as with close on files; DisableShutdown detects files in use with Restart Manager but never shuts programs down. Read only from the package, never from a search.",
+          "description": "Whether Restart Manager handles files in use. 0 (default) uses Restart Manager; Disable turns it off and uses the FilesInUse dialog; DisableShutdown uses the FilesInUse dialog and Restart Manager only to detect files in use, never to shut programs down. Ignored when Restart Manager is unavailable or disabled; a custom action changing it has no effect.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -954,6 +1118,12 @@
                         "Disable",
                         "DisableShutdown"
                       ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -974,6 +1144,12 @@
                           ]
                         },
                         {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
                           "$ref": "#/$defs/var"
                         }
                       ]
@@ -985,7 +1161,7 @@
           ]
         },
         "MSIRMSHUTDOWN": {
-          "description": "How Restart Manager shuts down programs that hold files: 0 (default) asks them, 1 also forces those that do not respond, 2 shuts down only if every one is registered for a restart. Ignored when Restart Manager is disabled.",
+          "description": "How Restart Manager shuts down programs that hold files: 0 shuts them down, 1 also forces those that do not respond, 2 shuts down only if every one is registered for a restart. Ignored when Restart Manager is unavailable or disabled.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1003,6 +1179,12 @@
                         "2",
                         2
                       ]
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -1023,6 +1205,12 @@
                             "2",
                             2
                           ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -1052,6 +1240,12 @@
                       ]
                     },
                     {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
+                    },
+                    {
                       "$ref": "#/$defs/var"
                     }
                   ]
@@ -1066,6 +1260,12 @@
                             "1",
                             1
                           ]
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -1090,8 +1290,13 @@
                   "anyOf": [
                     {
                       "type": "string",
-                      "minLength": 1,
                       "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -1105,8 +1310,13 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "minLength": 1,
                           "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -1136,7 +1346,7 @@
           "not": {}
         },
         "REBOOT": {
-          "description": "Force restarts after the install; Suppress drops the restart prompt at the end but keeps those of ForceReboot; ReallySuppress drops every restart, and msiexec returns 3010 when one is needed.",
+          "description": "Force asks for a restart after the install, and restarts without asking when there is no UI, so every silent install restarts the machine; Suppress drops the restart prompt at the end but keeps those of ForceReboot; ReallySuppress drops every restart, and msiexec returns 3010 when one is needed. Only the first letter is read.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1151,6 +1361,16 @@
                         "Suppress",
                         "ReallySuppress"
                       ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[FfSsRr]"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -1170,6 +1390,16 @@
                           ]
                         },
                         {
+                          "type": "string",
+                          "pattern": "^[FfSsRr]"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
+                        },
+                        {
                           "$ref": "#/$defs/var"
                         }
                       ]
@@ -1181,7 +1411,7 @@
           ]
         },
         "REBOOTPROMPT": {
-          "description": "Suppress: a needed restart happens without asking the user. It does not cause a restart.",
+          "description": "Suppress (or S): a needed restart happens without asking the user. It does not cause a restart.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1192,8 +1422,19 @@
                   "anyOf": [
                     {
                       "enum": [
-                        "Suppress"
+                        "Suppress",
+                        "S"
                       ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[Ss]"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -1207,8 +1448,19 @@
                       "anyOf": [
                         {
                           "enum": [
-                            "Suppress"
+                            "Suppress",
+                            "S"
                           ]
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[Ss]"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
@@ -1226,7 +1478,7 @@
           "not": {}
         },
         "REINSTALLMODE": {
-          "description": "Letters that say what a repair or reinstall overwrites: p, o, e, d, a, c for files, u and m for registry, s for shortcuts, v to re-cache the package. Default omus. In the package it applies to every later repair and makes ICE40 warn; set files[].version for one file instead.",
+          "description": "Letters, in any case and order, that say what a repair or reinstall overwrites: p, o, e, d, a, c for files, u and m for registry, s for shortcuts, v to re-cache the package. Default omus. In the package it applies to every later repair and makes ICE40 warn; set files[].version for one file instead.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1237,8 +1489,13 @@
                   "anyOf": [
                     {
                       "type": "string",
-                      "minLength": 1,
-                      "pattern": "^[poedacumsv]+$"
+                      "pattern": "^[poedacumsvPOEDACUMSV]+$"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": ""
                     },
                     {
                       "$ref": "#/$defs/var"
@@ -1252,8 +1509,13 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "minLength": 1,
-                          "pattern": "^[poedacumsv]+$"
+                          "pattern": "^[poedacumsvPOEDACUMSV]+$"
+                        },
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "const": ""
                         },
                         {
                           "$ref": "#/$defs/var"
