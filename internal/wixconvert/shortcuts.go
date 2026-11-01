@@ -255,7 +255,7 @@ func (c *converter) fileTargetShortcut(pending pendingShortcut, file *fileRef) {
 // isDir reports whether an ID names a directory of the file or a standard
 // folder.
 func (c *converter) isDir(id string) bool {
-	return c.dirs[id] != nil || isStandardFolder(id)
+	return c.dirs[id] != nil || c.isStandard(id)
 }
 
 // targetFile finds the packaged file a shortcut target names, as [#id] or

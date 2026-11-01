@@ -307,6 +307,10 @@ type Component struct { //nolint:govet // field order is the YAML key order
 	// point at a file they are listed under: each names a file, a folder,
 	// a program or a URL.
 	Shortcuts []*Shortcut `yaml:"shortcuts"`
+	// FileTypes are file types that this component registers for a file
+	// they name, in any component, so that a file type can have features
+	// of its own.
+	FileTypes []*FileType `yaml:"fileTypes"`
 
 	// ref marks a features[].components entry written as an id.
 	ref bool
@@ -460,15 +464,26 @@ func (c *Close) Terminates() bool {
 // FileType is a ProgId that the file it is listed under opens, with the
 // extensions that point at it and its shell verbs. The builder writes them
 // as Registry rows under HKEY_CLASSES_ROOT, in the file's component, the
-// way non-advertised ProgId, Extension and Verb elements are written.
+// way non-advertised ProgId, Extension and Verb elements are written. In a
+// component's own fileTypes list, File names the file it opens and the
+// rows go into that component.
 type FileType struct {
 	// ProgID is the programmatic identifier, such as Acme.Document.1.
 	ProgID string `yaml:"progId"`
+	// File is the id or name of the packaged file, in any component, that
+	// a file type in a component's fileTypes list opens. A file type
+	// listed under a file opens that file and has none.
+	File string `yaml:"file"`
 	// Description is the type's name in Explorer, written as it is:
 	// [PROPERTY] references are not formatted.
 	Description string `yaml:"description"`
-	// IconIndex picks an icon resource of the file for DefaultIcon; nil
-	// writes no DefaultIcon.
+	// IconFile is the id or name of a packaged file, in any component,
+	// whose icon DefaultIcon names instead of the opened file's, such as
+	// an .ico file.
+	IconFile string `yaml:"iconFile"`
+	// IconIndex picks an icon resource of the file, or of IconFile, for
+	// DefaultIcon; nil writes no DefaultIcon unless IconFile is set, which
+	// then takes the first icon.
 	IconIndex  *int                 `yaml:"iconIndex"`
 	Extensions []*FileTypeExtension `yaml:"extensions"`
 	// Verbs are the shell verbs. nil gets one open verb; an empty,
@@ -603,22 +618,29 @@ const (
 
 // Service is a Windows service installed from the component's key file.
 type Service struct { //nolint:govet // field order is the YAML key order
-	Name                             string           `yaml:"name"`
-	DisplayName                      string           `yaml:"displayName"`
-	Description                      string           `yaml:"description"`
-	Type                             string           `yaml:"type"`
-	Start                            string           `yaml:"start"`
-	DelayedAutoStart                 bool             `yaml:"delayedAutoStart"`
-	ErrorControl                     string           `yaml:"errorControl"`
-	Vital                            bool             `yaml:"vital"`
-	Account                          string           `yaml:"account"`
-	Password                         string           `yaml:"password"`
-	Arguments                        Arguments        `yaml:"arguments"`
-	Dependencies                     []string         `yaml:"dependencies"`
-	FailureActionsOnNonCrashFailures bool             `yaml:"failureActionsOnNonCrashFailures"`
-	Control                          ServiceControl   `yaml:"control"`
-	Recovery                         *ServiceRecovery `yaml:"recovery"`
-	Permissions                      *Permissions     `yaml:"permissions"`
+	Name                             string    `yaml:"name"`
+	DisplayName                      string    `yaml:"displayName"`
+	Description                      string    `yaml:"description"`
+	Type                             string    `yaml:"type"`
+	Start                            string    `yaml:"start"`
+	DelayedAutoStart                 bool      `yaml:"delayedAutoStart"`
+	ErrorControl                     string    `yaml:"errorControl"`
+	Vital                            bool      `yaml:"vital"`
+	Account                          string    `yaml:"account"`
+	Password                         string    `yaml:"password"`
+	Arguments                        Arguments `yaml:"arguments"`
+	Dependencies                     []string  `yaml:"dependencies"`
+	FailureActionsOnNonCrashFailures bool      `yaml:"failureActionsOnNonCrashFailures"`
+	// SidType is the service SID type: none, unrestricted or restricted
+	// (MsiServiceConfig ConfigType 5, SVC-10). Empty writes no row.
+	SidType string `yaml:"sidType"`
+	// PreshutdownTimeout is how long the service manager waits for the
+	// service after a preshutdown notification (MsiServiceConfig
+	// ConfigType 7, SVC-10). Nil writes no row.
+	PreshutdownTimeout *Duration        `yaml:"preshutdownTimeout"`
+	Control            ServiceControl   `yaml:"control"`
+	Recovery           *ServiceRecovery `yaml:"recovery"`
+	Permissions        *Permissions     `yaml:"permissions"`
 }
 
 // Arguments is a service command line. Each entry is a piece of it; a piece
@@ -842,6 +864,8 @@ type FirewallRule struct { //nolint:govet // field order is the YAML key order
 	Port            string     `yaml:"port"`
 	RemoteAddresses string     `yaml:"remoteAddresses"`
 	Profiles        StringList `yaml:"profiles"`
+	// IgnoreFailure lets the install go on when netsh cannot add the rule.
+	IgnoreFailure bool `yaml:"ignoreFailure,omitempty"`
 
 	// origin is the YAML path of a rule written under a feature.
 	origin string

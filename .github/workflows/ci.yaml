@@ -160,7 +160,11 @@ jobs:
       # PROP-01). The runner is thrown away after the job, so the step
       # creates a local user with a random password and allows non-admin
       # installs, which Windows Server turns off by default (DisableMsi).
-      # The TestNonAdmin tests in go test below skip without the user.
+      # The TestNonAdmin tests in go test below skip without the user. The
+      # password is hex: go test runs from Git Bash, which rewrites an
+      # environment value that starts with / into a Windows path for the
+      # programs it starts, so a base64 password failed one run in 64 with
+      # "user name or password is incorrect" and then locked the user out.
       - name: Create a standard user
         if: matrix.suite == 'native'
         shell: pwsh
@@ -168,7 +172,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $bytes = [byte[]]::new(24)
           [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-          $password = [Convert]::ToBase64String($bytes) + 'aA1!'
+          $password = [Convert]::ToHexString($bytes) + 'aA1!'
           "::add-mask::$password"
           New-LocalUser -Name msitest -Password (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires | Out-Null
           $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
@@ -371,8 +375,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MULTI_STATUS: false
           LINTER_RULES_PATH: .
-          # The Windows test harness and its raw run logs.
-          FILTER_REGEX_EXCLUDE: docs/spec/msitest/.*
+          # The Windows test harness and its raw run logs, and the convert
+          # snapshots, which are templates that are YAML only once rendered
+          # (TestConvertSnapshots renders and validates them).
+          FILTER_REGEX_EXCLUDE: (docs/spec/msitest/.*|internal/wixconvert/testdata/.*\.yaml)
           GITHUB_ACTIONS_ZIZMOR_CONFIG_FILE: ./.github/zizmor.yml
           ENABLE_GITHUB_ACTIONS_STEP_SUMMARY: true
           ENABLE_GITHUB_PULL_REQUEST_SUMMARY_COMMENT: false

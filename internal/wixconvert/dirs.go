@@ -187,9 +187,9 @@ func (c *converter) stdID(id string) string {
 // those that formatted text or an ID-valued attribute refers to.
 func (c *converter) markNeededDirs() {
 	idAttrs := map[string][]string{
-		"Shortcut":        {"WorkingDirectory"},
+		elemShortcut:      {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
-		"SetDirectory":    {"Id"},
+		elemSetDirectory:  {"Id"},
 		elemRemoveFile:    {attrDirectory},
 		elemRemoveFolder:  {attrDirectory},
 		"Property":        {"Id"},
@@ -239,9 +239,9 @@ func ownFolder(comp *comp) string {
 
 	for _, k := range comp.e.kids {
 		switch {
-		case k.is("File"):
+		case k.is(elemFile):
 			return comp.dir
-		case k.is("CreateFolder") && k.attr(attrDirectory) != "":
+		case k.is(elemCreateFolder) && k.attr(attrDirectory) != "":
 			folder = k.attr(attrDirectory)
 		}
 	}
@@ -466,4 +466,4 @@ func joinPath(start string, names []string) string {
 	return strings.Join(append([]string{start}, names...), "/")
 }
 
-func isFile(e *elem) bool { return e.is("File") || e.is("Files") }
+func isFile(e *elem) bool { return e.is(elemFile) || e.is("Files") }

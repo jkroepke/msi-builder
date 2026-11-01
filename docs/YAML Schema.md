@@ -315,6 +315,10 @@ firewall:
 The rule is added on install and removed on uninstall. `[#hello.exe]` is
 the installed path of the file `hello.exe`, the program the rule allows.
 `profiles` limits the rule to `domain`, `private` or `public` networks.
+`protocol: any` with a `port` opens the port for TCP and UDP. If the rule
+cannot be added, the install fails; `ignoreFailure: true` installs without
+the rule instead, or, for `any` with a port, possibly with only one of the
+two protocols.
 
 ### Register a file type
 
@@ -333,6 +337,29 @@ components:
 The package registers `hello.exe` as the default program for `.hello`
 files, with the file as its argument. A program the user picked under Open
 with still wins.
+
+To show another icon for the files, and to let the user choose in the
+feature tree whether the package registers the extension, list the file
+type in a component of its own that names the program with `file`:
+
+```yaml
+components:
+  - id: Hello
+    files: [{ source: hello.exe }, { source: hello-document.ico }]
+  - id: HelloAssociation
+    fileTypes:
+      - progId: Example.HelloDocument
+        file: hello.exe                     # a file of any component
+        description: Hello document
+        iconFile: hello-document.ico        # the icon from this file
+        extensions:
+          - extension: hello
+features:
+  - id: Main
+    components: [Hello]
+    features:
+      - { id: Association, title: Open .hello files with Hello, components: [HelloAssociation] }
+```
 
 ### Close the running program before an upgrade
 

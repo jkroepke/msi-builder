@@ -229,8 +229,11 @@ func (c *converter) runsLaunchConditions() bool {
 		downgrade = upgrade.str("downgrade")
 	}
 
-	return downgrade == "" || downgrade == "error"
+	return downgrade == "" || downgrade == downgradeError
 }
+
+// downgradeError is the upgrade.downgrade value that refuses a downgrade.
+const downgradeError = "error"
 
 // movedAnchorFails returns why a moved standard action cannot take a
 // placement, or "": a number must be below CostInitialize, a standard
@@ -1782,7 +1785,7 @@ func (c *converter) setter(setter *elem) (*omap, []any) {
 
 	before, after := setter.attr("Before"), setter.attr("After")
 
-	if setter.is("SetDirectory") {
+	if setter.is(elemSetDirectory) {
 		action.set("setDirectory", flowMap().set("directory", c.dirRef(setterID)).set("value", c.value(setter, "Value")))
 
 		if before == "" && after == "" {

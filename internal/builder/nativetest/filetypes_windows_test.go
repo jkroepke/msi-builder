@@ -4,11 +4,14 @@ package nativetest_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"unsafe"
 
 	"github.com/jkroepke/msi-builder/internal/builder"
 	"github.com/jkroepke/msi-builder/internal/exampletest"
@@ -37,8 +40,38 @@ components:
             extensions: [{ extension: msibtoth, openWithOnly: true }]
 `
 
+// componentFileTypesConfig gives each extension a component and an
+// optional feature of its own, with the icon from an .ico file (REG-09).
+const componentFileTypesConfig = `schema: msi-builder/v1
+product: { name: MsiBuilderFileTypeFeatures, manufacturer: msi-builder tests, version: 1.0.0, upgradeCode: 0d6f2a71-5c3b-4e9a-8f14-7b2e9c6d4a35 }
+package: { platform: x64 }
+components:
+  - id: App
+    files: [{ source: app.exe }, { source: doc.ico }]
+  - id: AssocDoc
+    fileTypes:
+      - { progId: MsiBuilderTest.FeatureDoc, file: app.exe, description: msi-builder feature document, iconFile: doc.ico, extensions: [{ extension: msibtfdoc }] }
+  - id: AssocPlain
+    fileTypes:
+      - { progId: MsiBuilderTest.FeaturePlain, file: app.exe, iconFile: doc.ico, iconIndex: 1, extensions: [{ extension: msibtfpln }] }
+features:
+  - id: Main
+    components: [App]
+    features:
+      - { id: Doc, components: [AssocDoc] }
+      - { id: Plain, default: off, components: [AssocPlain] }
+`
+
 // buildFileTypes writes the file type test package.
 func buildFileTypes(t *testing.T) string {
+	t.Helper()
+
+	return buildFileTypePackage(t, fileTypesConfig, "filetypes.msi")
+}
+
+// buildFileTypePackage writes a package from a file type test
+// configuration, with app.exe and doc.ico as its inputs.
+func buildFileTypePackage(t *testing.T, text, name string) string {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -48,7 +81,12 @@ func buildFileTypes(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	cfg, err := config.Parse([]byte(fileTypesConfig), config.Options{})
+	// An icon directory header without images is enough for the registry.
+	if err := os.WriteFile(filepath.Join(dir, "doc.ico"), []byte{0, 0, 1, 0, 0, 0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Parse([]byte(text), config.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +98,7 @@ func buildFileTypes(t *testing.T) string {
 		t.Fatalf("build: %v\n%s", err, res.Diagnostics)
 	}
 
-	path := filepath.Join(dir, "filetypes.msi")
+	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, res.Package, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -268,4 +306,137 @@ func TestMsiexecFileTypes(t *testing.T) { //nolint:paralleltest // msiexec runs 
 func TestICEFileTypes(t *testing.T) {
 	cub := iceCube(t)
 	requireCleanICE(t, buildFileTypes(t), cub)
+}
+
+// TestMsiexecComponentFileTypes installs file types that components list
+// for a file of another component, each in an optional feature, with the
+// icon from an .ico file (REG-09). Only the selected features' file types
+// are registered; adding and removing a feature later adds and removes its
+// rows alone, and the uninstall removes the rest. The command and the icon
+// name the files by folder and name, because the file is in another
+// feature (ICE69), and the shell resolves the extension's icon to the .ico.
+func TestMsiexecComponentFileTypes(t *testing.T) { //nolint:paralleltest // msiexec runs one installation at a time
+	if testing.Short() {
+		t.Skip("installing needs msiexec time and elevation")
+	}
+
+	path := buildFileTypePackage(t, componentFileTypesConfig, "filetypefeatures.msi")
+	dir := filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilderFileTypeFeatures")
+	exe, ico := filepath.Join(dir, "app.exe"), filepath.Join(dir, "doc.ico")
+	classes := `HKLM\SOFTWARE\Classes\`
+	keys := []string{".msibtfdoc", ".msibtfpln", "MsiBuilderTest.FeatureDoc", "MsiBuilderTest.FeaturePlain"}
+
+	cleanup := func() {
+		ctx := context.Background()
+		_ = exec.CommandContext(ctx, "msiexec", "/x", path, "/qn").Run()
+
+		for _, key := range keys {
+			_ = exec.CommandContext(ctx, "reg.exe", "delete", classes+key, "/f", "/reg:64").Run() //nolint:gosec // test-controlled keys
+		}
+	}
+
+	cleanup()
+	t.Cleanup(cleanup)
+
+	run := func(name string, args ...string) {
+		t.Helper()
+
+		log := filepath.Join(filepath.Dir(path), name+".log")
+		if code := msiexecCode(t, log, args...); code != 0 {
+			t.Fatalf("msiexec %v returned %d\n%s", args, code, readLog(log))
+		}
+	}
+
+	doc := map[string]string{
+		".msibtfdoc":                                   "MsiBuilderTest.FeatureDoc",
+		"MsiBuilderTest.FeatureDoc":                    "msi-builder feature document",
+		`MsiBuilderTest.FeatureDoc\DefaultIcon`:        `"` + ico + `",0`,
+		`MsiBuilderTest.FeatureDoc\shell\open\command`: `"` + exe + `" "%1"`,
+	}
+	plain := map[string]string{
+		".msibtfpln": "MsiBuilderTest.FeaturePlain",
+		`MsiBuilderTest.FeaturePlain\DefaultIcon`:        `"` + ico + `",1`,
+		`MsiBuilderTest.FeaturePlain\shell\open\command`: `"` + exe + `" "%1"`,
+	}
+
+	expect := func(when string, want map[string]string, present bool) {
+		t.Helper()
+
+		for key, value := range want {
+			got := regDefault(t, classes+key)
+			if present && !strings.EqualFold(got, value) {
+				t.Errorf("%s: %s = %q, want %q", when, key, got, value)
+			}
+
+			if !present && regHas(t, "64", classes+key, "") {
+				t.Errorf("%s: %s = %q, want no key", when, key, got)
+			}
+		}
+	}
+
+	run("install", "/i", path)
+	expect("install", doc, true)
+	expect("install", plain, false)
+
+	if got := assocDefaultIcon(t, ".msibtfdoc"); !strings.EqualFold(got, `"`+ico+`",0`) {
+		t.Errorf("AssocQueryString DEFAULTICON .msibtfdoc = %q, want the .ico", got)
+	}
+
+	run("addlocal", "/i", path, "ADDLOCAL=Plain")
+	expect("ADDLOCAL=Plain", doc, true)
+	expect("ADDLOCAL=Plain", plain, true)
+
+	run("remove", "/i", path, "REMOVE=Plain")
+	expect("REMOVE=Plain", doc, true)
+	expect("REMOVE=Plain", plain, false)
+
+	run("uninstall", "/x", path)
+	expect("uninstall", doc, false)
+	expect("uninstall", plain, false)
+}
+
+// assocDefaultIcon returns what the shell's AssocQueryString reports as the
+// DefaultIcon of an extension, or "<error ...>".
+func assocDefaultIcon(t *testing.T, ext string) string {
+	t.Helper()
+
+	const (
+		assocStrDefaultIcon = 15
+		bufLen              = 1024
+	)
+
+	proc := syscall.NewLazyDLL("shlwapi.dll").NewProc("AssocQueryStringW")
+	buf := make([]uint16, bufLen)
+	size := uint32(bufLen)
+
+	extPtr, err := syscall.UTF16PtrFromString(ext)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hr, _, _ := proc.Call(0, assocStrDefaultIcon, uintptr(unsafe.Pointer(extPtr)), 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	if hr != 0 {
+		return fmt.Sprintf("<error %#x>", hr)
+	}
+
+	return syscall.UTF16ToString(buf)
+}
+
+// TestICEComponentFileTypes runs the full ICE suite against the package
+// with file types in components and features of their own.
+//
+//nolint:paralleltest // msi.dll's external UI handler is process-wide
+func TestICEComponentFileTypes(t *testing.T) {
+	cub := iceCube(t)
+
+	// Per user, the components are below LocalAppDataFolder and keyed on
+	// their HKCU\Software\Classes values (ICE38).
+	for scope, text := range map[string]string{
+		"perMachine": componentFileTypesConfig,
+		"perUser":    strings.Replace(componentFileTypesConfig, "platform: x64 }", "platform: x64, scope: perUser }", 1),
+	} {
+		t.Run(scope, func(t *testing.T) {
+			requireCleanICE(t, buildFileTypePackage(t, text, "filetypefeatures-"+scope+".msi"), cub)
+		})
+	}
 }

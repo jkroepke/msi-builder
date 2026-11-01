@@ -175,7 +175,7 @@ msi-builder does the same by default:
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
 | `Environment` | `components[].environment` |
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
-| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
+| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`, or a component's own `fileTypes` naming the `file` when the ProgId's component has other features or a condition than the file it opens, so that an optional association stays optional; an icon from another packaged file becomes `iconFile` (an `<Icon>` or a file the source does not define becomes a note). msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
 | `ServiceControl` for another service | `components[].serviceControl` |
@@ -210,6 +210,81 @@ WiX preprocessor:
 | `<?ifdef Debug ?>` | `{{ if has "Debug" }}`; `{{ if .Debug }}` is an error when `Debug` is not set |
 | `<?ifndef Version?><?error?>` | Nothing: a variable that is not set is an error |
 | `<?include?>` | Not available; merge the file in, or generate the YAML file in your build |
+
+`msi-builder convert` writes preprocessor blocks as these template actions:
+
+```xml
+<?if $(var.Platform) = arm64 ?>
+<?define Arch = "arm64" ?>
+<?else ?>
+<?define Arch = "x64" ?>
+<?endif ?>
+<Component Id="MainExe">
+  <?ifdef Debug ?>
+  <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="debug" Type="integer" Value="1" />
+  <?endif ?>
+</Component>
+<?foreach Lang in en;de ?>
+<Component Id="Lang_$(var.Lang)"><File Source="lang\$(var.Lang).txt" /></Component>
+<?endforeach ?>
+```
+
+```text
+vars:
+  Arch: '{{ if eq .Platform "arm64" }}arm64{{ else }}x64{{ end }}'
+---
+components:
+  - id: MainExe
+    registry:
+      {{ if has "Debug" }}
+      - root: HKLM
+        key: Software\Example\Hello
+        name: debug
+        type: dword
+        value: "1"
+      {{ end }}
+  {{ range $Lang := split ";" "en;de" }}
+  - id: {{ print `Lang_` $Lang | quote }}
+    files:
+      - source: {{ print `lang/` $Lang `.txt` | quote }}
+  {{ end }}
+```
+
+Inside `{{ range }}`, the dot is the list item, so the other variables are
+read as `{{ $.NAME }}`. `=` and `!=` compare case-sensitively, `~=` ignores
+case, and `<`, `>`, `<=` and `>=` compare as whole numbers when one side is
+a number and as text otherwise (convert's reading of WiX's rules; not
+checked against WiX).
+`<?ifndef X?><?define X = ...?><?endif?>` becomes a plain default for `X`
+in the vars header, and an `<?error?>` in a block becomes `fail`, which
+stops the build with its message. A block whose branches hold anything but
+components, files, registry values and keys, environment variables, plain
+properties and component references, such as directories or custom
+actions, is converted with its first branch only and a `# TODO`. So is a
+block whose branches define the same component ID or hold a key path, an
+`<?ifdef?>` of a variable that the file defines (`has` is true for every
+variable in the vars header), and a block whose condition reads a
+variable that a block, or a define on the same line, sets again later.
+
+The vars header holds one value per variable, where WiX reads the value
+a variable has at each place. When a `<?define?>` outside the blocks sets
+a variable again, convert writes the value it has into every element and
+condition that reads it, so `--var` no longer changes them (in WiX, a
+define wins over `-d` too). A reader on the same line as a later define
+reads the variable and gets a `# TODO`, as convert cannot tell which
+comes first. Inside a
+`<?foreach?>`, the loop variable wins over a define of the same name.
+A variable that only defines outside the blocks set to a standard
+folder, such as `<?define ProgramFiles = ProgramFilesFolder ?>`, is filled
+into every attribute that is just that variable and every
+`[$(var.ProgramFiles)]`, so convert sees the folder and picks the platform
+from it; `--var` no longer changes those places. A directory ID
+whose variable a block sets to a standard folder in every branch stays a
+variable, so a folder per platform or per build still works; set
+`package.platform` for each build yourself. Service names are
+matched with the values of the defines filled in, so a `ServiceControl`
+written with a variable controls the `ServiceInstall` written without
+one.
 
 `[INSTALLFOLDER]`, `[#hello.exe]` and other names in brackets work as they
 do in WiX: Windows Installer fills them in at install time.
@@ -578,7 +653,8 @@ stays a component shortcut: a `[#file]` target becomes `file`, and a
                 Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"
                 Account="NT AUTHORITY\NetworkService" Arguments="--config &quot;[INSTALLFOLDER]hello.yaml&quot;">
   <ServiceDependency Id="Tcpip" />
-  <ServiceConfig DelayedAutoStart="yes" OnInstall="yes" OnReinstall="yes" />
+  <ServiceConfig DelayedAutoStart="yes" ServiceSid="unrestricted" PreShutdownDelay="60000"
+                 OnInstall="yes" OnReinstall="yes" />
   <util:ServiceConfig ResetPeriodInDays="1" RestartServiceDelayInSeconds="120"
                       FirstFailureActionType="restart" SecondFailureActionType="restart"
                       ThirdFailureActionType="restart" />
@@ -601,6 +677,8 @@ components:
         arguments: --config "[INSTALLFOLDER]hello.yaml"
         dependencies: [Tcpip]
         delayedAutoStart: true        # ServiceConfig DelayedAutoStart
+        sidType: unrestricted         # ServiceConfig ServiceSid
+        preshutdownTimeout: 60000ms   # ServiceConfig PreShutdownDelay (milliseconds)
         control:
           wait: false                 # ServiceControl Wait="no"
         recovery:                     # util:ServiceConfig
@@ -671,6 +749,10 @@ firewall:
   key becomes an SDDL string too.
 - `Scope="any"` is the default; `remoteAddresses` limits the rule and
   `profiles` the networks.
+- An exception without `Protocol` becomes `protocol: any`, or `protocol:
+  tcp` when it has a `Port`, which is the rule WiX installs.
+  `IgnoreFailure="yes"` becomes `ignoreFailure: true`. To open a port for
+  TCP and UDP, write `protocol: any` with the `port`.
 
 ## Properties and searches
 
