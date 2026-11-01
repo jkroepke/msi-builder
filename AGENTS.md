@@ -337,9 +337,20 @@ go test ./... -shuffle=on -race
   on the `windows-latest` runner from a probe workflow (see "CI probes"
   below), then read the job log. Replace the probe with a test that asserts
   the observed behavior before the pull request is ready for review.
-  A repair while another process holds an installed file open lost the
-  hosted runner every time (PROP-04, no job log at all), so probe Restart
-  Manager elsewhere.
+  `/norestart` becomes `REBOOT=ReallySuppress` on `/i`, but a `/f` repair
+  did not pass `REBOOT` to the server, even when given on the command line
+  (and SEC-02 saw it drop `SVC_ACCOUNT` and `FAILNOW`): a `/fa` repair with
+  `MSIRESTARTMANAGERCONTROL=Disable` that scheduled a held file's
+  replacement returned 1641 and restarted the machine (PROP-04); the four
+  hosted runners lost with no job log were probably this. `msiexecCode`,
+  `msiexecQuiet`, `nonAdminUser.msiexec` and the environment broadcast test
+  run a `/f<modes>` repair (a bare `/f` as `omus`) as `/i` with
+  `REINSTALL=ALL REINSTALLMODE=<modes> REBOOT=ReallySuppress`
+  (`repairArgs`). That form returned 3010 with `DisableShutdown` and a held
+  file; with `Disable` it is expected to return 3010 too but was not run.
+  Unlike `/f`, the rewritten form passes properties given after the
+  package to the server. Other direct msiexec calls in the tests do not
+  rewrite, so use the helpers for repairs.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with
@@ -553,12 +564,12 @@ Delete `probe.yaml` before marking the pull request ready for review: the
 never reaches `main`. GitHub only offers `workflow_dispatch` for workflows on
 the default branch, so rerun a probe with a new push or with "Re-run jobs" on
 its run. Every msiexec call of a probe passes `/norestart` and
-`REBOOT=ReallySuppress` (pull request #215 changes the test helpers
-`msiexecCode` and `msiexecQuiet` to add both). A `/f` repair passes no command-line property to
-the install server, so `/norestart` does not stop it from restarting: one
-returned 1641, restarted the machine and so lost the hosted runner and its
-job log. Run a repair as `/i <package> REINSTALL=ALL REINSTALLMODE=<modes>`
-with `REBOOT=ReallySuppress` instead.
+`REBOOT=ReallySuppress`; the test helpers add both. A `/f` repair did not
+pass `REBOOT` to the install server, so `/norestart` does not stop it from
+restarting: one returned 1641 and restarted the machine, which probably lost
+the hosted runner and its job log (PROP-04). Run a repair as
+`/i <package> REINSTALL=ALL REINSTALLMODE=<modes>` with
+`REBOOT=ReallySuppress` instead, as `repairArgs` does.
 
 Automatic releases are controlled by the repository Actions variable
 `RELEASE_ENABLED`: the `release` job in `ci.yaml` runs only when it is

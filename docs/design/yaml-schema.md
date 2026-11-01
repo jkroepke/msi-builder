@@ -1349,8 +1349,17 @@ Only files that end in `.exe` take `close`, and a folder source does not.
 Set `MSIRESTARTMANAGERCONTROL: Disable` with `close`. Restart Manager
 otherwise asks every process that holds a package file to shut down in a
 silent install, also an unrelated one that only has the file open, and
-waits for the user in a basic UI (reported by the close-apps evaluation, 2026-10-25);
-`close` covers the programs the package knows about. Not adopted from WiX:
+waits for the user in a basic UI (reported by the close-apps evaluation, 2026-10-25;
+the silent shutdown of an unrelated holder was observed in PROP-04);
+`close` covers the programs the package knows about. With `Disable`, a file
+that a program `close` does not end still holds is replaced at the next
+restart: a silent `/fa` repair then returned 1641 and restarted the machine
+although `/norestart` was given (PROP-04). `/f` did not pass `REBOOT` to
+the server, so run such a repair as `msiexec /i <package> REINSTALL=ALL
+REINSTALLMODE=a REBOOT=ReallySuppress`; with `DisableShutdown` such a
+repair returned 3010 instead (not run with `Disable`, where 3010 is
+expected too). The value is case-sensitive: `disable`
+behaved like `0`. Not adopted from WiX:
 closing a program by name wherever it runs, end-session messages
 (`WM_QUERYENDSESSION`), registering programs for a restart after the
 install, and a reboot prompt for programs that refuse to exit.
@@ -2008,8 +2017,8 @@ and their documented values, so that an editor completes and checks them. It
 refuses the properties the builder writes, whose hover text names the key to
 use instead (`ARPNOMODIFY` is `product.arp.noModify`), and the request
 properties such as `ADDLOCAL`. Any other name takes any value. The descriptions follow Microsoft's documentation and
-are not verified on Windows; MSISPEC case PROP-04 plans the check for
-`MSIRESTARTMANAGERCONTROL`.
+are not verified on Windows, except the values of
+`MSIRESTARTMANAGERCONTROL` (MSISPEC case PROP-04).
 
 **Search.** `search` fills a property from the target machine before the
 install. It is one search or a list of them; each search has exactly one of
