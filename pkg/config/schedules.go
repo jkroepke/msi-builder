@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/jkroepke/msi-builder/internal/sequence"
 )
@@ -41,7 +42,7 @@ func (v *validator) schedules(cfg *Config) {
 
 	for _, name := range slices.Sorted(maps.Keys(sequenceTables)) {
 		table := sequenceTables[name]
-		actions, paths, dups := scheduleOf(cfg, byID, name)
+		actions, paths, notes, dups := scheduleOf(cfg, byID, name)
 		v.diags = append(v.diags, dups...)
 
 		v.unscheduledAnchors(byID, name, actions, paths)
@@ -66,9 +67,25 @@ func (v *validator) schedules(cfg *Config) {
 		}
 
 		if path != "" {
-			v.errorf(path, "%s", serr.Reason)
+			v.errorf(path, "%s", explain(serr, paths, notes))
 		}
 	}
+}
+
+// explain returns the reason of a numbering error with a note on where
+// each action it names that the configuration does not place comes from.
+func explain(serr *sequence.Error, paths, notes map[string]string) string {
+	var reason strings.Builder
+
+	reason.WriteString(strings.ReplaceAll(serr.Reason, scopePageNode, strings.TrimSuffix(scopePageNode, ".")))
+
+	for _, action := range []string{serr.Action, serr.Other} {
+		if note := notes[action]; note != "" && paths[action] == "" {
+			reason.WriteString("; " + note)
+		}
+	}
+
+	return reason.String()
 }
 
 // unscheduledAnchors reports a placement anchored to a custom action that
@@ -93,7 +110,7 @@ func (v *validator) unscheduledAnchors(byID map[string]*CustomAction, name strin
 // error for each further placement of an action in the same sequence.
 //
 //nolint:cyclop // a flat filter over the placements
-func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequence.Action, map[string]string, Diagnostics) {
+func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequence.Action, map[string]string, map[string]string, Diagnostics) {
 	var actions []sequence.Action
 
 	paths := make(map[string]string)
@@ -137,14 +154,15 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 
 	actions = append(actions, movedActions(cfg, sequenceTables[name], paths)...)
 
-	// The scope page of a dual-scope wizard follows AppSearch, and
-	// FindRelatedProducts and LaunchConditions follow the page, all before
-	// costing.
-	if scopePageIn(cfg, sequenceTables[name]) {
-		actions = append(actions,
-			sequence.Action{Name: scopePageNode, After: actAppSearch},
-			sequence.Action{Name: actFindRelatedProducts, After: scopePageNode},
-			sequence.Action{Name: actLaunchConditions, After: actFindRelatedProducts})
+	// The chains the builder adds after CostFinalize and AppSearch, such
+	// as the scope page of a dual-scope wizard with FindRelatedProducts
+	// and LaunchConditions after it. A name a placement already took is
+	// reported elsewhere.
+	chained, notes := builderChains(cfg, sequenceTables[name])
+	for _, action := range chained {
+		if _, taken := paths[action.Name]; !taken {
+			actions = append(actions, action)
+		}
 	}
 
 	// The builder schedules each run action's data action right before
@@ -156,7 +174,7 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 		}
 	}
 
-	return actions, paths, dups
+	return actions, paths, notes, dups
 }
 
 // wellPlaced reports whether a placement passed placementPosition, so that

@@ -495,7 +495,14 @@ go test ./... -shuffle=on -race
   goes into `placedByBuilder`. Actions moved by `standardActions` join the
   numbering like custom actions, under their `standardActions[i]` path, and
   the builder appends them after every other action (`movedLast`) so that
-  they follow the actions that share their anchor.
+  they follow the actions that share their anchor. The builder's own chains
+  after CostFinalize and AppSearch (search results, the remembered install
+  dir, `SetARPINSTALLLOCATION`, firewall remote addresses, the scope page
+  presets) are modelled in `builderChains` (`pkg/config/chains.go`) under the
+  builder's action names, so that `at: 51` next to a search fails validate
+  with a note on where the action comes from. Add a chain there only when
+  validate can count it exactly or fewer; `TestBuilderChainsMatchValidate`
+  checks the counts against a build.
 - A null list entry decodes to a nil pointer. `nullEntries`
   (`pkg/config/nulls.go`) finds them by reflection over the YAML keys, in
   `Parse` and in `Validate`, before the defaults dereference anything, so a
