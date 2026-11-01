@@ -167,6 +167,7 @@ func (c *converter) emit() {
 	c.emitProperties()
 	c.emitLaunchConditions()
 	c.emitActions()
+	c.dialogAnchors()
 	c.emitFiles()
 	c.emitUI()
 	c.emitErrorRows()
@@ -872,7 +873,7 @@ func (c *converter) skippedProperty(propID string) bool {
 		return true
 	}
 
-	if _, ok := arpKeys[propID]; ok {
+	if _, ok := arpKeys[propID]; ok || c.skippedScopeProperty(propID) {
 		return true
 	}
 

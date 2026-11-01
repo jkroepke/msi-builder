@@ -30,13 +30,30 @@ func (c *converter) walkUI(e *elem) { //nolint:cyclop // one case per kind of UI
 			c.progressTexts = append(c.progressTexts, kid)
 		case kid.is("Dialog"):
 			c.noteDoActions(kid)
-			c.todof(nil, "", kid.line, "the hand-built dialog %s cannot be converted; ui.dialogs lays out text, password, checkbox and choice fields",
-				kid.attr("Id"))
+			c.handBuiltDialog(kid)
 		default:
 			c.noteDoActions(kid)
 			c.todof(nil, "", kid.line, "<%s> in <UI> customizes the WiX dialogs and cannot be converted", kid.qname())
 		}
 	}
+}
+
+// handBuiltDialog notes a hand-built dialog. One that picks the install
+// context is the scope page of a dual package, whose preselection
+// ui.scopePage takes (uiScopePage).
+func (c *converter) handBuiltDialog(dlg *elem) {
+	scope, ok := c.scopeDialogOf(dlg)
+	if !ok {
+		c.todof(nil, "", dlg.line, "the hand-built dialog %s cannot be converted; ui.dialogs lays out text, password, checkbox and choice fields",
+			dlg.attr("Id"))
+
+		return
+	}
+
+	c.scopeDialogs = append(c.scopeDialogs, scope)
+	c.todof(nil, "", dlg.line, "the hand-built dialog %s picks the install context with %s: the scope page of a "+
+		"perUserOrMachine or perMachineOrUser package with the wizard takes its place and ui.scopePage its preselection; "+
+		"its texts and layout are not converted (ui.strings changes the page's texts)", dlg.attr("Id"), scope.prop)
 }
 
 // noteDoActions records the DoAction control events in or below elm by
@@ -76,7 +93,7 @@ func (c *converter) uiID() string {
 
 func (c *converter) emitUI() {
 	wizard := c.out.child("ui")
-	wizard.order("enabled", "license", "chooseFeatures", "chooseDirectory", "launch", "finishText", "theme")
+	wizard.order("enabled", "license", "chooseFeatures", "chooseDirectory", "launch", "scopePage", "finishText", "theme")
 
 	line := c.uiLine
 	if c.wixUI != nil {
@@ -109,6 +126,7 @@ func (c *converter) emitUI() {
 	}
 
 	c.uiVariables(wizard)
+	c.uiScopePage(wizard)
 	c.uiNavigation(wizard, c.uiID())
 	c.uiLaunch(wizard)
 }
