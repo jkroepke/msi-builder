@@ -98,6 +98,49 @@ func TestConvertConditionalComponentGroup(t *testing.T) {
 	}
 }
 
+// A ComponentGroup in a loop, or one that references components written
+// outside its block, is not converted as a template.
+func TestConvertComponentGroupNotKept(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"loop": `<Feature Id="Main"><?foreach D in a;b ?><ComponentGroupRef Id="G_$(var.D)" /><?endforeach ?></Feature>
+  </Package>
+  <Fragment>
+    <?foreach D in a;b ?><ComponentGroup Id="G_$(var.D)" Directory="INSTALLFOLDER"><File Id="F_$(var.D)" Source="$(var.D).txt" /></ComponentGroup><?endforeach ?>
+  </Fragment>`,
+		"reference": `<Feature Id="Main"><?if $(var.Extra) = 1 ?><ComponentGroupRef Id="Extras" /><?endif ?></Feature>
+    <Component Id="App" Directory="INSTALLFOLDER"><File Source="hello.exe" /></Component>
+  </Package>
+  <Fragment>
+    <?if $(var.Extra) = 1 ?><ComponentGroup Id="Extras" Directory="INSTALLFOLDER"><ComponentRef Id="Shared" /></ComponentGroup><?endif ?>
+    <Component Id="Shared" Directory="INSTALLFOLDER"><File Source="shared.dll" /></Component>
+  </Fragment>`,
+	}
+
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			src := strings.Replace(branchHead, "</StandardDirectory>\n", "</StandardDirectory>\n    "+body+"\n</Wix>", 1)
+
+			res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !hasNote(res.Notes, "<?foreach D in a;b?> is not expanded") && !hasNote(res.Notes, "<?if $(var.Extra) = 1?> is not evaluated") {
+				t.Errorf("notes %q, want the block noted", res.Notes)
+			}
+
+			_, components, _ := strings.Cut(string(res.YAML), "\ncomponents:")
+			if name == "reference" && strings.Contains(components, "{{") {
+				t.Errorf("the group became a template:\n%s", res.YAML)
+			}
+		})
+	}
+}
+
 // A block that is not converted as a template takes the branch that a
 // build without -d variables takes: the file's defaults and, with --arch,
 // the platform. Without a value to decide it, the first branch stays.
@@ -114,6 +157,7 @@ func TestConvertChosenBranch(t *testing.T) {
 		body, arch    string
 		want, without string
 		note          string
+		vars          map[string]string
 	}{
 		"other platform": {
 			body: arch, arch: "x64", want: "native", without: "x86",
@@ -129,6 +173,26 @@ func TestConvertChosenBranch(t *testing.T) {
     <?endif ?>`,
 			arch: "arm64", want: "arm",
 			note: "<?if $(sys.BUILDARCHSHORT) = A64?> is not converted as a template: only the branch on line 5, which a build for --arch arm64 without -d variables takes, was converted",
+		},
+		"known false first branch": {
+			body: `<?if $(sys.BUILDARCH) = arm64 ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="arm" After="CostInitialize" Sequence="execute" />
+    <?elseif $(var.Flavor) = x ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="flavor" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			arch: "x64", want: "flavor", without: "arm",
+			note: "<?if $(sys.BUILDARCH) = arm64?> is not evaluated: only the branch on line 7, the first not known to be false, was converted",
+		},
+		"template block in a later branch": {
+			body: `<?define Edition = "pro" ?>
+    <?if $(var.Edition) = basic ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="basic" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="pro" After="CostInitialize" Sequence="execute" />
+    <?if $(var.Flavor) = a ?><Property Id="FLAVOR" Value="a" /><?else ?><Property Id="FLAVOR" Value="b" /><?endif ?>
+    <?endif ?>`,
+			want: "pro", without: "basic", vars: map[string]string{"Flavor": "a"},
+			note: "<?if $(var.Edition) = basic?> is not converted as a template: only the branch on line 8, which a build without -d variables takes, was converted",
 		},
 		"no platform": {
 			body: arch, want: "x86", without: "native",
@@ -165,7 +229,12 @@ func TestConvertChosenBranch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			res := convertWithVars(t, branchHead+"    "+tc.body+"\n  </Package>\n</Wix>", wixconvert.Options{Arch: tc.arch}, map[string]string{})
+			vars := tc.vars
+			if vars == nil {
+				vars = map[string]string{}
+			}
+
+			res := convertWithVars(t, branchHead+"    "+tc.body+"\n  </Package>\n</Wix>", wixconvert.Options{Arch: tc.arch}, vars)
 
 			text := string(res.YAML)
 			if tc.want != "" && !strings.Contains(text, "value: "+tc.want) {
@@ -283,5 +352,46 @@ func TestConvertBuiltCodesTiedGlobsEarly(t *testing.T) {
 	res = convertWithVars(t, src, wixconvert.Options{}, map[string]string{})
 	if hasNote(res.Notes, "WiX gave each file") {
 		t.Errorf("unexpected glob note: %v", res.Notes)
+	}
+}
+
+// With --msi, a File Id that repeats in branches that never apply together
+// keeps the built code only in the branch whose key file the package has.
+func TestConvertBuiltCodesExclusiveBranches(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="Hello" /></StandardDirectory>
+    <Feature Id="Main"><ComponentGroupRef Id="G" /></Feature>
+  </Package>
+  <Fragment>
+    <ComponentGroup Id="G" Directory="INSTALLFOLDER">
+      <?if $(var.A) = 1 ?>
+      <File Id="F" Source="hello.exe" />
+      <?else ?>
+      <File Id="F" Source="extras.txt" />
+      <?endif ?>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
+`
+
+	built := &wixconvert.BuiltPackage{
+		Name: "hello.msi",
+		Components: []wixconvert.BuiltComponent{
+			{ID: "F", Code: "{00000000-0000-4000-8000-000000000001}", Directory: "INSTALLFOLDER", KeyFile: "hello.exe"},
+		},
+		Directories: []wixconvert.BuiltDirectory{
+			{ID: "TARGETDIR", Name: "SourceDir"},
+			{ID: "ProgramFiles64Folder", Parent: "TARGETDIR", Name: "PFiles64"},
+			{ID: "INSTALLFOLDER", Parent: "ProgramFiles64Folder", Name: "Hello"},
+		},
+	}
+
+	res := convertWithVars(t, src, wixconvert.Options{Built: built}, map[string]string{"A": "1"}, map[string]string{"A": "0"})
+	if n := strings.Count(string(res.YAML), "000000000001"); n != 1 {
+		t.Errorf("the built code is pinned %d times, want once:\n%s", n, res.YAML)
 	}
 }

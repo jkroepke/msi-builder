@@ -207,6 +207,9 @@ func relOpens(elm, container *elem) []openRef {
 // planBlocks decides which blocks are converted as templates and leaves
 // out the branches of the others but the first.
 func (c *converter) planBlocks() {
+	// The branches come first: the checks below read pruned.
+	c.chooseBranches()
+
 	for i, blk := range c.doc.blocks {
 		if c.forced[i] {
 			blk.keep = false
@@ -222,7 +225,6 @@ func (c *converter) planBlocks() {
 	c.checkReferences()
 	c.checkEarlyReaders()
 	c.translateKept()
-	c.chooseBranches()
 	c.prune(c.doc.root)
 	c.markProcs()
 }
@@ -534,20 +536,22 @@ var groupParents = []string{"Fragment", elemPackage, "Product", "Module"} //noli
 // one, which is a component of its own, may sit in a branch; ok is false
 // for other elements.
 func groupAllowed(elm, parent *elem) (bool, bool) {
+	inLoop := slices.ContainsFunc(elm.pos, func(p ppPos) bool { return p.block.foreach })
+
 	switch {
 	case elm.is(elemComponentGroup):
-		return slices.Contains(groupParents, parent.name) && groupContained(elm), true
+		return !inLoop && slices.Contains(groupParents, parent.name) && groupContained(elm), true
 	case parent.is(elemComponentGroup) && (elm.is(elemFile) || elm.is(elemFiles)):
-		return implicitContained(elm), true
+		return !inLoop && implicitContained(elm), true
 	}
 
 	return false, false
 }
 
 // groupContained reports whether everything a ComponentGroup converts to
-// stays in entries of its own: components, files that are components of
-// their own, and references to other components and groups, whose
-// membership takes the template actions of the component too.
+// stays in entries of its own: components and files that are components
+// of their own. A reference would leave its components, written outside
+// the block, without a feature in builds that leave the group out.
 func groupContained(group *elem) bool {
 	return !slices.ContainsFunc(group.kids, func(kid *elem) bool {
 		switch {
@@ -559,7 +563,7 @@ func groupContained(group *elem) bool {
 			return !implicitContained(kid)
 		}
 
-		return !kid.is(refComponent) && !kid.is(refComponentGroup)
+		return true
 	})
 }
 

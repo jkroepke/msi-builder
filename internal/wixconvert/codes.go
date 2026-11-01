@@ -82,7 +82,7 @@ func (c *converter) pinCode(comp *comp, keyFile string) bool {
 // folder of its key file.
 func (c *converter) builtComponent(comp *comp, keyFile string) *BuiltComponent {
 	if id := comp.e.attr("Id"); id != "" {
-		return c.builtByID(id)
+		return c.builtByIDIn(comp, id, keyFile)
 	}
 
 	// WiX gives a component without an Id the Id of its key path, which
@@ -237,6 +237,20 @@ func (c *converter) free(row *BuiltComponent) bool {
 	return row.Code != "" && !named && !c.claimed[row.ID]
 }
 
+// builtByIDIn returns the component of the built package with the Id of
+// comp. For a component in a template block, whose Id may repeat in
+// branches that never apply together, the row must be free and have its
+// key file: it belongs to the branch the package was built with.
+func (c *converter) builtByIDIn(comp *comp, id, keyFile string) *BuiltComponent {
+	row := c.builtByID(id)
+	if row != nil && len(comp.e.opens) > 0 &&
+		(c.claimed[row.ID] || keyFile != "" && !strings.EqualFold(row.KeyFile, keyFile)) {
+		return nil
+	}
+
+	return row
+}
+
 // builtByID returns the component of the built package with an Id and a
 // code, or nil.
 func (c *converter) builtByID(id string) *BuiltComponent {
@@ -379,6 +393,16 @@ func (c *converter) removesLate() bool {
 	return upgrade != nil && lateRemoval[upgrade.str("removeOld")]
 }
 
+// leftOut is the caveat for a folder source in a template block, which the
+// build of the WiX package may have left out.
+func leftOut(comp *comp) string {
+	if len(comp.e.opens) == 0 {
+		return ""
+	}
+
+	return " (unless the build of the WiX package left this glob out: it sits in a template block)"
+}
+
 // lostCodes says what happens to the files of a folder source whose codes
 // differ from the WiX package's.
 func lostCodes(late bool) string {
@@ -408,17 +432,12 @@ func (c *converter) harvestNote(comp *comp, late bool) string {
 			"convert again next to the glob's folder, or with --msi and the package WiX built, which keeps the code of each " +
 			"file in guids" + early
 	case c.builtDir(c.dirs[comp.dir], comp.dir) == "":
-		return "convert did not find the folder of this Files glob in " + c.built.Name + ", so it kept no code for its " +
+		return "convert did not find the folder of this Files glob in " + c.built.Name + leftOut(comp) + ", so it kept no code for its " +
 			"files and " + lostCodes(late) + "; add the ComponentId WiX gave each file to guids (msi-builder inspect " +
 			"--table Component)" + early
 	}
 
-	left := ""
-	if len(comp.e.opens) > 0 {
-		left = " (unless the build of the WiX package left this glob out: it sits in a template block)"
-	}
-
-	return c.built.Name + " has no component for a file of this Files glob" + left + ", so " + lostCodes(late) +
+	return c.built.Name + " has no component for a file of this Files glob" + leftOut(comp) + ", so " + lostCodes(late) +
 		"; add the ComponentId WiX gave each file to guids (msi-builder inspect --table Component)" + early
 }
 

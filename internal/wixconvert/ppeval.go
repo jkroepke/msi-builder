@@ -25,40 +25,52 @@ type ppFrame struct {
 	// branch is the branch being read and taken the one that applies,
 	// or noBranch.
 	branch, taken int
-	// active is set when the build reads the block at all, and unknown
-	// when it cannot tell which branch applies.
-	active, unknown bool
+	// active is set when the build reads the block at all; unknown is
+	// set on a loop, whose variable takes each value in turn. guessed is
+	// set when taken depends on a value convert does not know: it is
+	// then the first branch not known to be false, which is the one
+	// convert writes.
+	active, unknown, guessed bool
 }
 
 // ppSim follows the preprocessor as a build without -d variables runs it:
-// the defines of the file and, with --arch, the platform.
+// the defines of the file and, with --arch, the platform. Where a
+// condition reads anything else, it follows the branch convert writes,
+// so that later blocks agree with it, and marks what depends on that.
 type ppSim struct {
-	values  map[string]string
-	unknown map[string]bool
+	values map[string]string
+	// unknown are the variables a loop body may set; guessed the ones a
+	// guessed branch set.
+	unknown, guessed map[string]bool
 	// defined are the variables some define of the file sets; whether a
 	// build defines any other is up to its -d variables.
 	defined map[string]bool
-	// chosen are the branches that apply, by block; a block whose branch
-	// depends on the build is missing.
-	chosen map[*ppBlock]int
+	// chosen are the branches that apply, by block, and guessedBlocks
+	// the blocks whose branch depends on a guess.
+	chosen        map[*ppBlock]int
+	guessedBlocks map[*ppBlock]bool
 	// archRead are the blocks whose condition reads the platform.
 	archRead map[*ppBlock]bool
 	arch     string
 	frames   []*ppFrame
+	// readGuess is set when the condition being evaluated read a
+	// guessed value.
+	readGuess bool
 }
 
-// chooseBranches sets the branch that a build without -d variables takes
-// on each block that is not converted as a template. A block whose
-// condition reads anything else, such as an undefined variable, keeps its
-// first branch.
+// chooseBranches sets on each block the branch that a build without -d
+// variables takes, which a block that is not converted as a template
+// converts. A branch whose condition reads anything else, such as an
+// undefined variable, is taken unless it is known to be false.
 func (c *converter) chooseBranches() {
 	if c.doc.firstBranch {
 		return
 	}
 
 	sim := &ppSim{
-		arch: c.arch, values: make(map[string]string), unknown: make(map[string]bool),
-		chosen: make(map[*ppBlock]int), archRead: make(map[*ppBlock]bool), defined: make(map[string]bool),
+		arch: c.arch, values: make(map[string]string), unknown: make(map[string]bool), guessed: make(map[string]bool),
+		chosen: make(map[*ppBlock]int), guessedBlocks: make(map[*ppBlock]bool), archRead: make(map[*ppBlock]bool),
+		defined: make(map[string]bool),
 	}
 
 	for _, proc := range c.doc.procs {
@@ -72,37 +84,35 @@ func (c *converter) chooseBranches() {
 	}
 
 	for _, blk := range c.doc.blocks {
-		if blk.keep || blk.foreach {
-			continue
-		}
-
-		if branch, ok := sim.chosen[blk]; ok {
-			blk.chosen, blk.evaluated, blk.archRead = branch, true, sim.archRead[blk]
+		if branch, ok := sim.chosen[blk]; ok && !blk.foreach {
+			blk.chosen, blk.evaluated, blk.archRead = branch, !sim.guessedBlocks[blk], sim.archRead[blk]
 		}
 	}
 }
 
-// reading reports whether the build reads the instructions here, and
-// whether it might when it cannot tell.
-func (s *ppSim) reading() (bool, bool) {
-	maybe := false
+// reading reports whether the build reads the instructions here, whether
+// it might in a loop, and whether that depends on a guess.
+func (s *ppSim) reading() (bool, bool, bool) {
+	maybe, guess := false, false
 
 	for _, frame := range s.frames {
 		switch {
 		case !frame.active:
-			return false, false
+			return false, false, false
 		case frame.unknown:
 			maybe = true
 		case frame.taken != frame.branch:
-			return false, false
+			return false, false, false
 		}
+
+		guess = guess || frame.guessed
 	}
 
-	return !maybe, maybe
+	return !maybe, maybe, guess
 }
 
 func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruction
-	reads, maybe := s.reading()
+	reads, maybe, guess := s.reading()
 
 	switch proc.target {
 	case piDefine:
@@ -114,12 +124,13 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 			return
 		}
 
-		s.set(strings.TrimSpace(name), strings.Trim(strings.TrimSpace(value), `"`), reads, maybe)
+		s.set(strings.TrimSpace(name), strings.Trim(strings.TrimSpace(value), `"`), reads, maybe, guess)
 	case "undef":
 		name := strings.TrimSpace(proc.text)
 		if reads {
 			delete(s.values, name)
 			delete(s.unknown, name)
+			s.guessed[name] = guess
 		} else if maybe {
 			s.unknown[name] = true
 		}
@@ -128,11 +139,9 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 			return
 		}
 
-		frame := &ppFrame{block: proc.block, taken: noBranch, active: reads || maybe, unknown: maybe}
-
-		if proc.block.foreach {
-			// The loop variable takes each value in turn.
-			frame.unknown = true
+		frame := &ppFrame{
+			block: proc.block, taken: noBranch, active: reads || maybe,
+			unknown: maybe || proc.block.foreach, guessed: guess,
 		}
 
 		s.frames = append(s.frames, frame)
@@ -156,6 +165,7 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 		s.frames = s.frames[:len(s.frames)-1]
 		if frame.active && !frame.unknown {
 			s.chosen[frame.block] = frame.taken
+			s.guessedBlocks[frame.block] = frame.guessed
 		}
 	}
 }
@@ -170,11 +180,14 @@ func (s *ppSim) top(blk *ppBlock) *ppFrame {
 }
 
 // test evaluates the branch that frame reads now, unless an earlier one
-// applies.
+// applies. A branch whose condition convert cannot evaluate is taken as
+// a guess.
 func (s *ppSim) test(frame *ppFrame, branch ppBranch) {
 	if frame.unknown || frame.taken != noBranch {
 		return
 	}
+
+	s.readGuess = false
 
 	var (
 		applies bool
@@ -185,27 +198,36 @@ func (s *ppSim) test(frame *ppFrame, branch ppBranch) {
 	case piElse:
 		applies = true
 	case piIfdef, piIfndef:
-		name := ppDefName(branch.inst)
-		if s.unknown[name] || !s.defined[name] {
-			err = errPPUnknown
-		}
-
-		_, applies = s.values[name]
-		applies = applies == (branch.target == piIfdef)
+		applies, err = s.definedTest(branch)
 	default:
 		applies, err = s.condition(frame.block, branch.inst)
 	}
 
+	frame.guessed = frame.guessed || s.readGuess
+
 	switch {
 	case err != nil:
-		frame.unknown = true
+		frame.taken, frame.guessed = frame.branch, true
 	case applies:
 		frame.taken = frame.branch
 	}
 }
 
+// definedTest evaluates an <?ifdef?> or <?ifndef?>.
+func (s *ppSim) definedTest(branch ppBranch) (bool, error) {
+	name := ppDefName(branch.inst)
+	s.readGuess = s.guessed[name]
+	_, defined := s.values[name]
+
+	if s.unknown[name] || !s.defined[name] {
+		return false, errPPUnknown
+	}
+
+	return defined == (branch.target == piIfdef), nil
+}
+
 // set records a define, which a build may or may not run.
-func (s *ppSim) set(name, value string, reads, maybe bool) {
+func (s *ppSim) set(name, value string, reads, maybe, guess bool) {
 	if !reads {
 		if maybe {
 			s.unknown[name] = true
@@ -213,6 +235,8 @@ func (s *ppSim) set(name, value string, reads, maybe bool) {
 
 		return
 	}
+
+	s.readGuess = false
 
 	expanded, err := s.expand(value, nil)
 	if err != nil {
@@ -222,6 +246,7 @@ func (s *ppSim) set(name, value string, reads, maybe bool) {
 	}
 
 	s.values[name] = expanded
+	s.guessed[name] = guess || s.readGuess
 	delete(s.unknown, name)
 }
 
@@ -261,6 +286,8 @@ func (s *ppSim) value(kind, name string, blk *ppBlock) (string, error) {
 		if !ok || s.unknown[name] {
 			return "", fmt.Errorf("$(var.%s): %w", name, errPPUnknown)
 		}
+
+		s.readGuess = s.readGuess || s.guessed[name]
 
 		return value, nil
 	case varSys:

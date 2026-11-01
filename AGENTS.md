@@ -170,15 +170,22 @@ versioning after 1.0.
   value of a variable a kept block defines (`literal` calls `needFixed`),
   `Convert` runs again with those blocks forced to one branch. A block
   that is not kept converts the branch a build without `-d` takes
-  (`ppeval.go`, `chooseBranches`): `ppSim` replays the instructions with
-  the file's defines and `$(sys.BUILDARCH)`/`BUILDARCHSHORT` from `--arch`, and evaluates
-  conditions as the template `ppCondition` writes would; a condition that
-  reads anything else (a variable only `-d` sets, an `<?ifdef?>` of a
-  variable no define sets, a loop variable) keeps the first branch.
+  (`ppeval.go`, `chooseBranches`, run first in `planBlocks` because the
+  checks read `pruned`): `ppSim` replays the instructions with the file's
+  defines and `$(sys.BUILDARCH)`/`BUILDARCHSHORT` from `--arch`, and
+  evaluates conditions as the template `ppCondition` writes would. A
+  condition that reads anything else (a variable only `-d` sets, an
+  `<?ifdef?>` of a variable no define sets) takes the first branch not
+  known to be false as a guess, and the simulation follows that branch's
+  defines so later blocks agree with the output; guessed blocks keep the
+  "not evaluated" note. Loop bodies are unknown.
   `ppBlock.chosen` is that branch (`noBranch` for none) and `pruned`
   drops the others. A `ComponentGroup` of contained components, `File`s
-  and `Files` stays in a kept block (`groupAllowed`); a membership's
-  actions are the reference's plus the component's, and `unionOpens`
+  and `Files`, outside loops and without references, stays in a kept
+  block (`groupAllowed`); `--msi` pins a component in a kept block by Id
+  only when the row's key file matches and is unclaimed. A
+  membership's actions are the reference's plus the component's, and
+  `unionOpens`
   drops an `if` that repeats one already there.
   Defines follow WiX order through `defineEval`: a define takes the value
   each variable has at that point, one that reads a variable no define has

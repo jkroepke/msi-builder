@@ -271,7 +271,9 @@ follows the file's own defines and defaults, and reads `$(sys.BUILDARCH)` and
 `$(sys.BUILDARCHSHORT)` (`X86`, `X64`, `A64`)
 as the platform `--arch` names. When the branch depends on anything else,
 such as a variable only `-d` sets or `$(sys.BUILDARCH)` without `--arch`,
-it is the first branch.
+it is the first branch not known to be false, and later blocks follow its
+defines. A component group in a `<?foreach?>`, or one that references
+other components, is such a block too.
 
 The vars header holds one value per variable, where WiX reads the value
 a variable has at each place. When a `<?define?>` outside the blocks sets

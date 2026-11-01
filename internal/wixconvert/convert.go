@@ -1032,7 +1032,18 @@ func (c *converter) unkeptNote(proc procInst) {
 	blk := proc.block
 
 	if !blk.evaluated {
-		c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
+		switch blk.chosen {
+		case 0:
+			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
+		case noBranch:
+			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: no branch applies with the values convert assumed for "+
+				"the blocks before it, so none was converted; convert it by hand if your build takes one", proc.target, proc.text)
+		default:
+			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only the branch on line %d, the first not known to be "+
+				"false, was converted", proc.target, proc.text, blk.branches[blk.chosen].line)
+			c.todof(nil, "", proc.line, "the <?%s %s?> branch was left out; convert it by hand if your build takes it",
+				proc.target, proc.text)
+		}
 
 		return
 	}

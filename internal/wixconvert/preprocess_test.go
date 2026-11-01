@@ -246,7 +246,7 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 		},
 		"default after a block that defines the variable": {
 			body: `<?ifdef D ?><?define X = "d" ?><?endif ?><?ifndef X ?><?define X = "def" ?><?endif ?><Property Id="Q" Value="$(var.X)" />`,
-			note: "<?ifndef X?> is not evaluated: only its first branch was converted",
+			note: "<?ifndef X?> is not evaluated: no branch applies with the values convert assumed for the blocks before it, so none was converted; convert it by hand if your build takes one",
 		},
 		"ifdef of a variable defined without a value": {
 			body: `<?define Debug ?><?ifdef Debug ?><Property Id="DBG" Value="1" /><?endif ?>`,

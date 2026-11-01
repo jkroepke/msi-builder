@@ -18,8 +18,8 @@ component, a file, registry value or key, environment variable, plain
 property, a component group of these, or a reference that puts components
 in a feature or group. Of any other block, it converts only the branch that
 a build without -d variables takes, with the file's defines and the platform
---arch names, or the first branch when that depends on a -d variable, and
-leaves a "# TODO".
+--arch names, or the first branch not known to be false when that depends
+on a -d variable, and leaves a "# TODO".
 
 A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
 gives it: convert computes it from the key file or key registry value as
