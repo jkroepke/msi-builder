@@ -282,8 +282,10 @@ type RegistrySearch struct {
 	// Bitness selects the 32- or 64-bit registry view; empty selects the
 	// package's own.
 	Bitness string `yaml:"bitness"`
-	// Type is value (default), the data with the engine's type prefix, or
-	// directory, the folder the data names when that folder exists.
+	// Type is value (default), the data with the engine's type prefix;
+	// directory, the folder the data names when that folder exists; or
+	// file, the folder that holds the file the data names when that
+	// folder exists. A file search under it checks the file (SEARCH-10).
 	Type string `yaml:"type"`
 }
 

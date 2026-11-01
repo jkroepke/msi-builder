@@ -268,10 +268,10 @@ func (v *validator) registrySearch(cfg *Config, regPath string, reg *RegistrySea
 
 	switch {
 	case reg.Type == "":
-	case folder && reg.Type != SearchDirectory:
-		v.errorf(regPath+".type", "under must find a folder: leave type out or set it to directory")
+	case folder && reg.Type == SearchValue:
+		v.errorf(regPath+".type", "under must find a folder: leave type out or set it to directory or file")
 	default:
-		v.oneOf(regPath+".type", reg.Type, SearchValue, SearchDirectory)
+		v.oneOf(regPath+".type", reg.Type, SearchValue, SearchDirectory, SearchFile)
 	}
 }
 

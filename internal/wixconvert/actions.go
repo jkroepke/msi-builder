@@ -348,12 +348,27 @@ func (c *converter) emitMoved(reanchor func(string, []any)) {
 	c.noteLaunchBeforeFind(kept)
 }
 
+// scopePageRefused returns why the wizard's scope page of a dual package
+// refuses a ui move: it orders AppSearch, the page, FindRelatedProducts and
+// LaunchConditions itself (UI-11).
+func (c *converter) scopePageRefused(placement *omap) string {
+	if placement.str("sequence") != seqUI || !c.dualScope() || c.uiID() == "" {
+		return ""
+	}
+
+	return "the wizard's scope page orders it, after AppSearch and before costing"
+}
+
 // moveRefused returns why msi-builder cannot take a placement of a moved
 // action, or silent for a move that changes nothing; why is the reason the
 // package does not run the action, if any.
 func (c *converter) moveRefused(name, why string, placement *omap, emitted map[string]bool) (bool, string) {
 	if why != "" {
 		return false, why
+	}
+
+	if reason := c.scopePageRefused(placement); reason != "" {
+		return false, reason
 	}
 
 	if c.anchoredBack(name, placement) {

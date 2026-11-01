@@ -323,8 +323,8 @@ package may run a no-impersonate action with `scope: perMachine` (CA-09).
 either for the current user or for all users (Microsoft's "dual-purpose
 package"; specification section 8.2, INST-02). Both need `installerVersion`
 5.0. The command line chooses with `MSIINSTALLPERUSER=1` (per user) or
-`MSIINSTALLPERUSER=""` (per machine); a wizard shows a scope page after
-the welcome and license pages, see `ui`.
+`MSIINSTALLPERUSER=""` (per machine); a wizard shows a scope page before
+the welcome page, see `ui`.
 
 ```yaml
 package:
@@ -417,8 +417,8 @@ action of a `run` action). Only a `perMachine` action may have
 is left out of every per-user install, also one that an administrator
 runs elevated, and a standard user's per-user install needs no elevation
 for it (CA-09). A scoped action runs in the execute sequence only: in the
-UI sequence the scope page sets `ALLUSERS` back to 2, and an administrative
-install has no context. ICE105 reads only the action's type, so in a
+UI sequence the context is only known after the scope page, and an
+administrative install has no context. ICE105 reads only the action's type, so in a
 `perUserOrMachine` package it warns about a `perMachine` action without
 impersonation although the condition keeps it out of per-user installs,
 and the builder passes that warning on; it is silent in a
@@ -2125,7 +2125,7 @@ properties:
         key: SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full
         name: Release                  # empty: the key's default value
         bitness: 64                    # 32 | 64; default: the package's
-        type: value                    # value (default) | directory
+        type: value                    # value (default) | directory | file
   DATA_DIR:
     value: C:\Data                     # used when no search finds anything
     search:
@@ -2159,12 +2159,29 @@ number of digits (SEARCH-04). Do not search a `REG_MULTI_SZ` value: the
 property starts and ends with a NUL, which is reported to break the full UI
 (specification section 8.7). `directory` returns the folder the data names
 with a trailing backslash, and nothing when it names a file or a missing
-folder (SEARCH-04).
+folder (SEARCH-04). `file` is for data that holds the path of a file, such
+as an `App Paths` entry: it returns the folder that holds that file, with a
+trailing backslash, and nothing when that folder is missing. It does not
+check the file itself: a missing file in an existing folder still returns
+the folder, data that names a folder returns its parent, and quotes around
+the path are removed (SEARCH-10). To require the file, search it by name
+`under` the registry search:
+
+```yaml
+properties:
+  OLD_APP_DIR:
+    search: { registry: { root: HKCU, key: 'Software\Microsoft\Windows\CurrentVersion\App Paths\example.exe', type: file } }
+  OLD_APP_EXE:
+    search:
+      file:
+        name: example.exe
+        under: { registry: { root: HKCU, key: 'Software\Microsoft\Windows\CurrentVersion\App Paths\example.exe', type: file } }
+```
 
 | Search | Key | Notes |
 |---|---|---|
 | `directory` | `path` | A full path (a drive, a share or a property in brackets such as `[ProgramFiles64Folder]`), or with `under` a path relative to the folder that search finds. Returns the folder with a trailing backslash, and nothing for a file or a missing folder |
-| | `under` | A search that finds a folder: `registry` (its `type` defaults to `directory` there, `value` is an error), `directory` or `component`. Up to eight searches in one chain |
+| | `under` | A search that finds a folder: `registry` (its `type` defaults to `directory` there, `file` searches the folder of the file the value names, `value` is an error), `directory` or `component`. Up to eight searches in one chain |
 | | `depth` | Default 0. How many folders may lie between the path's parent and its last folder: `C:\a\b` with depth 2 also finds `C:\a\x\y\b` |
 | `file` | `name` | The filename, without a folder. The result is the folder plus `name` as written here, in this case, not the case on disk. A name that is no valid 8.3 name is written with a generated short name (`short\|long`); the long name is the one matched and returned (SEARCH-05) |
 | | `path`, `under` | The folder to look in, as for `directory` |
@@ -2466,7 +2483,9 @@ warning, and without the upgrade section, where FindRelatedProducts runs
 only as an anchor and sets nothing, it is neither. Validate reports these cases where the configuration decides them,
 together with the cycles and collisions a move causes, counting the
 LaunchConditions the builder puts after a moved AppSearch and the
-unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
+unmoved FindRelatedProducts (25) and AppSearch (50); in the `ui` sequence
+of a dual-scope wizard it counts the scope page after AppSearch and
+FindRelatedProducts and LaunchConditions after the page. An unmoved
 LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
 100 is treated as running after it even when a long chain of search actions
 would push LaunchConditions further; one moved to exactly 100 collides with
@@ -2660,7 +2679,7 @@ searched property is an error for the same reason, and so is a choice on a
 property that another field binds too. In the full UI the group starts on
 the default and selecting another option sets the property on the server
 (UI-05, observed on Windows). `after` names the page the dialog follows:
-`WelcomeDlg`, `LicenseAgreementDlg`, `InstallScopeDlg`, `InstallDirDlg`,
+`WelcomeDlg`, `LicenseAgreementDlg`, `InstallDirDlg`,
 `CustomizeDlg` (each when the wizard has it) or an added dialog. With `enabled: false` (the
 default) no UI tables are written and msiexec shows its basic progress
 window; silent installs never depend on the UI in any mode. Without
@@ -2750,12 +2769,41 @@ can follow it with `after: InstallDirDlg`.
 
 #### Scope page
 
-A package with a dual `package.scope` gets `InstallScopeDlg` after the
-welcome and license pages, before the install folder page: "Install just
-for you" and "Install for all users of this computer", preselected with the
-context the package opened in (the scope's default, or the command line's
-`MSIINSTALLPERUSER`). Next sets `ALLUSERS=2` and `MSIINSTALLPERUSER`, and
-the ready page then shows Install with the UAC shield for all users. The
+A package with a dual `package.scope` gets `InstallScopeDlg`, shown on its
+own before the welcome page of a new installation: "Install just for you"
+and "Install for all users of this computer", preselected with the context
+the package opened in (the scope's default, or the command line's
+`MSIINSTALLPERUSER`). With `installDir.remember`, a folder remembered only
+in the other context preselects that context, so that the page starts where
+the previous version is installed. Next sets `ALLUSERS` to 1 and
+`MSIINSTALLPERUSER` to nothing for all users, and `ALLUSERS` to nothing and
+`MSIINSTALLPERUSER` to 1 for the current user, the values the engine leaves
+in the server for each context (INST-07), and continues to the welcome page;
+the page has no Back. A condition after the page, such as a launch
+condition, therefore tests `ALLUSERS=1` and `NOT ALLUSERS` as in the execute
+sequence (UI-11).
+The ready page then shows Install with the UAC shield for all users.
+
+The page runs in the UI sequence after `AppSearch` and the actions placed
+after it, and the UI sequence's `FindRelatedProducts` and
+`LaunchConditions` run after the page, all before `CostInitialize`, where
+ICE27 wants the search actions; the execute sequence keeps them at 25 and
+100. In a full-UI install only the client's `FindRelatedProducts` counts,
+and it finds only products of the context it runs in: on a page after the
+welcome page, choosing all users to update a per-machine version left both
+versions installed, and a launch condition that tests `ALLUSERS`, such as
+one that refuses a per-user install next to a per-machine one, ended the
+install before the page appeared (UI-11). `standardActions` therefore
+cannot move `AppSearch`, `FindRelatedProducts` or `LaunchConditions` in the
+`ui` sequence of a dual package with the wizard, and an action placed
+relative to the last two in `ui` runs after the page too. The page and
+the actions that set its folders take the numbers right after `AppSearch`
+and the actions placed after it, so a `ui` action at a fixed number there
+collides with them; validate counts only the page and the two actions
+after it, and the build reports the rest. A launch condition that refuses the chosen context shows its
+message right after the page; without the wizard's sequence, as in a
+silent install, the server checks the launch conditions with the context
+the command line chose. The
 client keeps the folders it resolved for the context it opened in, so Next
 also sets every public folder under Program Files or Common Files (such as
 the install folder) to its path in the chosen context, unless it holds

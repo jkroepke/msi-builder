@@ -159,7 +159,29 @@ properties:
     value: '[none]'
     hidden: true
     search: { registry: { root: HKCU, key: 'Software\Example', bitness: 32, type: directory } }
+  EXEDIR:
+    search: { registry: { root: HKLM, key: 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\hello.exe', type: file } }
+  EXEFILE:
+    search: { file: { name: hello.exe, under: { registry: { root: HKLM, key: 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\hello.exe', type: file } } } }
 `)
+
+	// type: file is RegLocator type 1, also as the parent of a file search
+	// (SEARCH-10).
+	appPaths := 0
+
+	for _, row := range rows(t, database, "RegLocator") {
+		if strings.HasSuffix(fmt.Sprint(row[2]), `App Paths\hello.exe`) {
+			appPaths++
+
+			if row[4] != 17 {
+				t.Errorf("%v: RegLocator type %v, want 17 (file, 64-bit)", row[0], row[4])
+			}
+		}
+	}
+
+	if appPaths != 2 {
+		t.Errorf("%d App Paths RegLocator rows, want 2", appPaths)
+	}
 
 	isNetfx := func(r []any) bool { return r[0] == "Search_NETFX" }
 	if got := cell(t, database, "RegLocator", "Type", isNetfx); got != 18 {
@@ -183,8 +205,8 @@ properties:
 		t.Errorf("AppSearch property %v, want NETFX_FOUND", got)
 	}
 
-	if got := len(rows(t, database, "Signature")); got != 0 {
-		t.Errorf("%d Signature rows, want an empty table", got)
+	if got := len(rows(t, database, "Signature")); got != 1 {
+		t.Errorf("%d Signature rows, want 1 (hello.exe)", got)
 	}
 
 	byAction := func(name string) func([]any) bool { return func(r []any) bool { return r[0] == name } }

@@ -60,6 +60,15 @@ versioning after 1.0.
   features (ICE69). A component with nothing but file types is keyed on
   the first value with data that `fileTypeRows` returns; the validator's
   `writesValue` must accept exactly the file types that have one.
+  A dual scope's page (`ui_scope.go`) is shown on its own after AppSearch,
+  and the UI sequence's FindRelatedProducts and LaunchConditions run after
+  it, all before CostInitialize, which ICE27 requires (`scopeFirst`,
+  `launchConditionsAction`); Next sets only the topmost public folders, and
+  CostFinalize resolves the rest:
+  in a full-UI install the server skips FindRelatedProducts because the
+  client already ran it, so the client's must see the chosen context (UI-11).
+  Its Next sets `ALLUSERS` to 1 or nothing, never 2, so conditions after it
+  read the context as the server does.
 - [`internal/msidb`](internal/msidb): the database: column types, typed rows,
   stream-name encoding, string pool and code pages, catalog, column-major table
   streams, binary streams; `MarshalTo` writes a package, `Unmarshal`/`Decode`

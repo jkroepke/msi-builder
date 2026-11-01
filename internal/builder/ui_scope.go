@@ -41,12 +41,28 @@ func (b *build) installScope(wiz *wizard) {
 
 	b.properties[propScope] = initial
 
+	// The page follows AppSearch, which runs in every such package; AppSearch
+	// fails with 2228 without a Signature table (SEARCH-03).
+	b.table("Signature")
+
 	// The engine fixes the client's context, and with it the folders, when
 	// the package opens: ALLUSERS is then 1 per machine and unset per user
 	// (INST-02). The page starts on that context, so a command-line
 	// MSIINSTALLPERUSER shows as the selected option.
 	b.uiAction("SetInstallScopeMachine", propScope, scopeMachine, "ALLUSERS=1")
 	b.uiAction("SetInstallScopeUser", propScope, scopeUser, "NOT ALLUSERS")
+
+	// A folder remembered in the other context only says where the
+	// previous install is: the page starts there, so that Next keeps the
+	// update in that context.
+	if b.cfg.InstallDir.Remember {
+		user, machine := rememberedUser(b.cfg.InstallDir.ID), rememberedMachine(b.cfg.InstallDir.ID)
+		if initial == scopeUser {
+			b.uiAction("SetInstallScopePrevious", propScope, scopeMachine, "NOT ALLUSERS AND "+machine+" AND NOT "+user)
+		} else {
+			b.uiAction("SetInstallScopePrevious", propScope, scopeUser, "ALLUSERS=1 AND "+user+" AND NOT "+machine)
+		}
+	}
 
 	page := wiz.add(&uiDialog{name: dlgInstallScope, attrs: dlgPage, first: ctlScope})
 	page.innerHeader(wiz.text("InstallScopeTitle"), wiz.text("InstallScopeText"))
@@ -58,18 +74,25 @@ func (b *build) installScope(wiz *wizard) {
 	})
 	page.control(text("ScopeHint", margin+5, 130, width, 30, wiz.text("InstallScopeHint")))
 	page.navigation()
+	// The page comes before the welcome page, so there is no way back.
+	page.find(ctlBack).attrs = ctlDisabled
 
 	wiz.radios = append(wiz.radios,
 		uiRadio{property: propScope, value: scopeUser, text: wiz.text("InstallScopeUser"), y: 0, w: width, h: radioStep},
 		uiRadio{property: propScope, value: scopeMachine, text: wiz.text("InstallScopeMachine"), y: 2 * radioStep, w: width, h: radioStep},
 	)
 
+	// Next sets the context the way the engine leaves it, ALLUSERS 1 per
+	// machine and unset per user, so that FindRelatedProducts and the
+	// launch conditions after the page see it as the server does (UI-11).
 	next := page.find(ctlNext).
-		on("[ALLUSERS]", "2", condAlways).
+		on("[ALLUSERS]", "1", condMachine).
+		on("[ALLUSERS]", "{}", "NOT "+condMachine).
 		on("[MSIINSTALLPERUSER]", "1", "NOT "+condMachine).
 		on("[MSIINSTALLPERUSER]", "{}", condMachine)
 
 	b.scopeFolders(next)
+	next.on(evEndDialog, endReturn, condAlways)
 
 	// Two Install buttons in one place: the shield one for all users.
 	ready := wiz.byName[dlgVerifyReady]
@@ -88,7 +111,59 @@ func (b *build) installScope(wiz *wizard) {
 	at := slices.Index(ready.controls, install)
 	ready.controls = slices.Insert(ready.controls, at+1, elevated)
 
-	wiz.flow = slices.Insert(wiz.flow, wiz.shown(1, 1), dlgInstallScope)
+	b.scopeFirst()
+}
+
+// scopeFirst shows the scope page on its own before the wizard, after
+// AppSearch and the actions that prepare the page, and runs
+// FindRelatedProducts and LaunchConditions of the UI sequence after it, all
+// before costing, where ICE27 wants them. In a full-UI install only the
+// client's FindRelatedProducts counts, and it finds only products of the
+// context it runs in: before the page it misses a per-machine install that
+// the page then switches to, and both versions stay installed; launch
+// conditions that test ALLUSERS see the context the package opened in
+// (UI-11).
+func (b *build) scopeFirst() {
+	b.schedule(seqInstallUI, dlgInstallScope, condNotInstalled, "", b.lastScopeAction, 0)
+
+	b.scopePage = true
+
+	// LaunchConditions is scheduled later, by launchConditionsAction.
+	for i := range b.schedules[seqInstallUI] {
+		if action := &b.schedules[seqInstallUI][i]; action.Name == actFindRelatedProducts {
+			action.Before, action.After, action.Sequence = "", dlgInstallScope, 0
+		}
+	}
+}
+
+// scopeAnchor adds FindRelatedProducts or LaunchConditions that an action
+// of the UI sequence is anchored to, but that no table needs, after the
+// scope page, where actions placed relative to them see the chosen context.
+func (b *build) scopeAnchor(table, anchor string) bool {
+	if table != seqInstallUI || !b.scopePage || anchor != actFindRelatedProducts && anchor != actLaunchConditions {
+		return false
+	}
+
+	switch {
+	case b.scheduled(table, anchor):
+	case anchor == actFindRelatedProducts && b.scheduled(table, actLaunchConditions):
+		b.schedule(table, anchor, standardCondition(anchor), actLaunchConditions, "", 0)
+	default:
+		b.schedule(table, anchor, standardCondition(anchor), "", b.afterScopePage(), 0)
+	}
+
+	return true
+}
+
+// afterScopePage returns the action that LaunchConditions follows in the
+// UI sequence of a package with the scope page: FindRelatedProducts, or
+// the page.
+func (b *build) afterScopePage() string {
+	if b.scheduled(seqInstallUI, actFindRelatedProducts) {
+		return actFindRelatedProducts
+	}
+
+	return dlgInstallScope
 }
 
 // Where a folder that follows the context lies in each context. A client
@@ -108,7 +183,9 @@ var scopeFolders = map[string]struct{ user, machine, machine32 string }{ //nolin
 // takes a set directory property as it is, so a switch would install per
 // machine into the user's profile or per user into Program Files
 // (INST-02). Next sets each such folder to its path in the chosen context
-// unless it holds another path, typed on the command line or remembered.
+// unless it holds another path, typed on the command line or remembered;
+// CostFinalize, which runs after the page, then resolves the folders below
+// it.
 func (b *build) scopeFolders(next *uiControl) {
 	for _, dir := range b.scopeDirs() {
 		top, rel := b.dirPath(dir)
@@ -127,7 +204,7 @@ func (b *build) scopeFolders(next *uiControl) {
 			b.uiAction("Set"+machine+"_Remembered", machine, "["+rememberedMachine(dir.id)+"]", rememberedMachine(dir.id))
 		}
 
-		unchanged := "(" + dir.id + " ~= " + user + " OR " + dir.id + " ~= " + machine + ")"
+		unchanged := "(NOT " + dir.id + " OR " + dir.id + " ~= " + user + " OR " + dir.id + " ~= " + machine + ")"
 		next.on("["+dir.id+"]", "["+user+"]", "NOT "+condMachine+" AND "+unchanged)
 		next.on("["+dir.id+"]", "["+machine+"]", condMachine+" AND "+unchanged)
 	}
@@ -143,8 +220,8 @@ func scopeProperty(prefix, dir string) string {
 	return prefix + dir
 }
 
-// scopeDirs returns the public directories below a folder that follows the
-// context, in key order.
+// scopeDirs returns the topmost public directories below a folder that
+// follows the context, and a remembered install dir, in key order.
 func (b *build) scopeDirs() []*dirInfo {
 	var dirs []*dirInfo
 
@@ -153,7 +230,11 @@ func (b *build) scopeDirs() []*dirInfo {
 			continue
 		}
 
-		if top, _ := b.dirPath(dir); scopeFolders[top].user != "" {
+		// A remembered install dir keeps its own setters: the restore
+		// actions after AppSearch set it in the context the package opened
+		// in.
+		remembered := dir.id == b.cfg.InstallDir.ID && b.cfg.InstallDir.Remember
+		if top, _ := b.dirPath(dir); scopeFolders[top].user != "" && (remembered || !b.publicAbove(dir)) {
 			dirs = append(dirs, dir)
 		}
 	}
@@ -161,6 +242,18 @@ func (b *build) scopeDirs() []*dirInfo {
 	slices.SortFunc(dirs, func(a, b *dirInfo) int { return strings.Compare(a.id, b.id) })
 
 	return dirs
+}
+
+// publicAbove reports whether a public directory lies between dir and its
+// standard folder: CostFinalize resolves dir below the one Next sets.
+func (b *build) publicAbove(dir *dirInfo) bool {
+	for parent := b.dirs[dir.parent]; parent != nil && !parent.standard; parent = b.dirs[parent.parent] {
+		if config.IsPublicProperty(parent.id) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // dirPath returns the standard folder above dir and the path below it,
@@ -190,10 +283,11 @@ func (b *build) dirPath(dir *dirInfo) (string, string) {
 	return dir.id, strings.Join(names, `\`) + `\`
 }
 
-// uiAction sets property to value in the UI sequence after CostFinalize,
-// where the folder properties are known and before the first page. The
-// actions run in the order they are added. A name too long for the
-// CustomAction table gets a generated one.
+// uiAction sets property to value in the UI sequence after AppSearch, which
+// finds the remembered folders, and before the scope page and costing, so
+// that CostFinalize resolves the folders Next sets. The actions run in the
+// order they are added, after the other actions placed after AppSearch. A
+// name too long for the CustomAction table gets a generated one.
 func (b *build) uiAction(name, property, value, cond string) {
 	if len(name) > config.MaxIdentifierLength {
 		name = generatedID("SetScope", name)
@@ -201,7 +295,7 @@ func (b *build) uiAction(name, property, value, cond string) {
 
 	b.addAction(&actionInfo{name: name, typ: caSetProperty, source: property, target: value})
 
-	after := actCostFinalize
+	after := actAppSearch
 	if b.lastScopeAction != "" {
 		after = b.lastScopeAction
 	}

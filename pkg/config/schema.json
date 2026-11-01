@@ -2249,7 +2249,7 @@
               },
               "after": {
                 "type": "string",
-                "description": "The wizard dialog this one follows in its flow. Install flow: WelcomeDlg, LicenseAgreementDlg, InstallScopeDlg, InstallDirDlg, CustomizeDlg or an added dialog. Remove flow: MaintenanceTypeDlg (the default) or an added remove dialog."
+                "description": "The wizard dialog this one follows in its flow. Install flow: WelcomeDlg, LicenseAgreementDlg, InstallDirDlg, CustomizeDlg or an added dialog. Remove flow: MaintenanceTypeDlg (the default) or an added remove dialog."
               },
               "flow": {
                 "enum": [
@@ -3926,14 +3926,15 @@
                 {
                   "enum": [
                     "value",
-                    "directory"
+                    "directory",
+                    "file"
                   ]
                 },
                 {
                   "$ref": "#/$defs/var"
                 }
               ],
-              "description": "value: the data with the engine's type prefix (#n for a DWORD); directory: the folder the data names, if it exists. Under another search: directory (the default there)."
+              "description": "value: the data with the engine's type prefix (#n for a DWORD); directory: the folder the data names, if it exists; file: the folder that holds the file the data names, if that folder exists (the file is not checked). Under another search: directory (the default there) or file."
             }
           },
           "required": [

@@ -48,6 +48,9 @@
     <InstallUISequence>
       <Custom Action="SetMode" After="CostFinalize" Condition="ALLUSERS=1" />
       <FindRelatedProducts After="SetAllUsersFromPrevious" />
+      <!-- The scope page orders the UI sequence's search actions, so
+           convert leaves this move out. -->
+      <AppSearch After="FindRelatedProducts" />
     </InstallUISequence>
     <InstallExecuteSequence>
       <Custom Action="SetMode" After="CostFinalize" Condition="ALLUSERS=1" />

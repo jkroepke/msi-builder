@@ -46,10 +46,22 @@ func TestStandardActionsAccepted(t *testing.T) {
 			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: FindRelatedProducts}]}\n",
 		"AppSearch before LaunchConditions without launch conditions": "upgrade: {downgrade: allow}\n" + search +
 			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: LaunchConditions}]}\n",
+		// The scope page runs FindRelatedProducts, then LaunchConditions, of
+		// the ui sequence after AppSearch and itself.
+		"ui action before the scope page's LaunchConditions": "upgrade: {downgrade: error}\nui: {enabled: true}\n" +
+			"launchConditions: [{condition: VersionNT, message: x}]\n" +
+			"customActions:\n  - {id: BeforeLC, setProperty: {name: P2, value: x}, schedule: [{sequence: ui, before: LaunchConditions}]}\n",
+		"ui action after the scope page's FindRelatedProducts": "ui: {enabled: true}\n" +
+			"customActions:\n  - {id: AtSix, setProperty: {name: P2, value: x}, schedule: [{sequence: ui, at: 26}]}\n" +
+			"  - {id: AfterFind, setProperty: {name: P3, value: x}, schedule: [{sequence: ui, after: FindRelatedProducts}]}\n",
 	} {
 		full := base
 		if strings.HasPrefix(doc, "upgrade:") {
 			full = strings.Replace(base, "upgrade: {}\n", "", 1)
+		}
+
+		if strings.Contains(name, "scope page") {
+			full = strings.Replace(full, "  platform: x64\n", "  platform: x64\n  scope: perUserOrMachine\n", 1)
 		}
 
 		if ds := validate(t, full+appComponent+doc); errorCount(ds) != 0 || strings.Contains(fmt.Sprint(ds), "runs before FindRelatedProducts") {
@@ -126,8 +138,21 @@ func TestStandardActionsRejected(t *testing.T) {
 				moveFind("{sequence: execute, after: Before}"),
 			"customActions[0].schedule[0]", "scheduling cycle",
 		},
+		"ui AppSearch move with the scope page": {
+			"ui: {enabled: true}\n" + search + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, at: 10}]}\n",
+			"standardActions[0].schedule[0].sequence", "scope page of a dual-scope wizard orders AppSearch",
+		},
+		"ui move with the scope page": {
+			"ui: {enabled: true}\n" + moveFind("{sequence: ui, at: 30}"),
+			"standardActions[0].schedule[0].sequence", "scope page of a dual-scope wizard",
+		},
 	} {
-		ds := validate(t, base+appComponent+test.doc)
+		doc := base + appComponent + test.doc
+		if strings.Contains(name, "scope page") {
+			doc = strings.Replace(doc, "  platform: x64\n", "  platform: x64\n  scope: perUserOrMachine\n", 1)
+		}
+
+		ds := validate(t, doc)
 		if !find(ds, config.SeverityError, test.path, test.msg) || errorCount(ds) != 1 {
 			t.Errorf("%s: want one error at %s with %q: %v", name, test.path, test.msg, ds)
 		}

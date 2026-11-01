@@ -250,6 +250,7 @@ func (b *build) launchConditions() error {
 // Registry locator types (RegLocator.Type).
 const (
 	regLocatorDirectory = 0
+	regLocatorFile      = 1
 	regLocatorRaw       = 2
 	regLocator64Bit     = 16
 )
@@ -417,16 +418,7 @@ func (b *build) locate(path, signature string, search *config.Search, folder boo
 	case search.Registry != nil:
 		reg := search.Registry
 
-		typ := regLocatorRaw
-		if folder || reg.Type == config.SearchDirectory {
-			typ = regLocatorDirectory
-		}
-
-		if reg.Bitness == "64" || reg.Bitness == "" && b.is64 {
-			typ |= regLocator64Bit
-		}
-
-		b.table("RegLocator").Add(signature, registryRoots[reg.Root], reg.Key, nullable(reg.Name), typ)
+		b.table("RegLocator").Add(signature, registryRoots[reg.Root], reg.Key, nullable(reg.Name), b.regLocatorType(reg, folder))
 	case search.Directory != nil:
 		dir := search.Directory
 		b.table("DrLocator").Add(signature, b.locateParent(path+".directory", signature, dir.Under), nullable(dir.Path), optionalDepth(dir.Depth))
@@ -438,6 +430,27 @@ func (b *build) locate(path, signature string, search *config.Search, folder boo
 		guid, _ := config.NormalizeGUID(search.Component.GUID)
 		b.table("CompLocator").Add(signature, guid, b.componentLocatorType(path+".component", guid, search.Component.KeyPath))
 	}
+}
+
+// regLocatorType returns the RegLocator type of a registry search; folder
+// is set under another search, where the value must name a folder. Type 1
+// without a Signature row returns the folder that holds the file the data
+// names (SEARCH-10).
+func (b *build) regLocatorType(reg *config.RegistrySearch, folder bool) int {
+	typ := regLocatorRaw
+
+	switch {
+	case reg.Type == config.SearchFile:
+		typ = regLocatorFile
+	case folder || reg.Type == config.SearchDirectory:
+		typ = regLocatorDirectory
+	}
+
+	if reg.Bitness == "64" || reg.Bitness == "" && b.is64 {
+		typ |= regLocator64Bit
+	}
+
+	return typ
 }
 
 // componentLocatorType returns the CompLocator type for a component search.

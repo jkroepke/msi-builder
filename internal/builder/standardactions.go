@@ -133,12 +133,19 @@ func notNeeded(action string) string {
 // between 50 and 100, so that the gap does not limit how many properties a
 // package can search, or when AppSearch was moved, so that the launch
 // conditions still see what it found; or where standardActions moves it.
+// With the scope page it follows the page in the UI sequence.
 func (b *build) launchConditionsAction() {
 	if !b.hasRows("LaunchCondition") {
 		return
 	}
 
 	for _, table := range []string{seqInstallExecute, seqInstallUI} {
+		if table == seqInstallUI && b.scopePage {
+			b.schedule(table, actLaunchConditions, standardCondition(actLaunchConditions), "", b.afterScopePage(), 0)
+
+			continue
+		}
+
 		_, _, searchMoved := b.cfg.StandardPlacement(table, actAppSearch)
 		_, _, launchMoved := b.cfg.StandardPlacement(table, actLaunchConditions)
 

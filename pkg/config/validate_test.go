@@ -1810,7 +1810,7 @@ components:
 			sevError, "properties.P.search.registry.root", "not one of",
 		},
 		"search type": {
-			base + appComponent + "properties: {P: {search: {registry: {root: HKLM, key: Software\\X, type: file}}}}\n",
+			base + appComponent + "properties: {P: {search: {registry: {root: HKLM, key: Software\\X, type: folder}}}}\n",
 			sevError, "properties.P.search.registry.type", "not one of",
 		},
 		"search 64 in x86": {

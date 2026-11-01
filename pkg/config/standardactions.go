@@ -198,8 +198,8 @@ func (v *validator) movedNumbers(cfg *Config, table string, numbered []sequence.
 	cost := sequence.Find(numbered, "CostInitialize")
 
 	for _, name := range movableActions {
-		_, path, moved := cfg.StandardPlacement(table, name)
-		if n := sequence.Find(numbered, name); moved && cost != 0 && n > cost {
+		place, path, moved := cfg.StandardPlacement(table, name)
+		if n := sequence.Find(numbered, name); moved && cost != 0 && n > cost && !scopePageRefuses(cfg, place) {
 			v.errorf(path, "%s at %d must run before CostInitialize (%d)", name, n, cost)
 		}
 	}
@@ -262,9 +262,33 @@ func (v *validator) standardActions(cfg *Config) {
 
 			if why := idle(cfg, moved.Action, place.Sequence); why != "" {
 				v.errorf(placePath, "%s does not run in this package (%s), so there is nothing to move", moved.Action, why)
+			} else {
+				v.scopePageMove(cfg, placePath, moved.Action, place)
 			}
 		}
 	}
+}
+
+// scopePageMove refuses a ui move of FindRelatedProducts, AppSearch or
+// LaunchConditions in a dual-scope package with the wizard: the scope page
+// runs after AppSearch, and FindRelatedProducts and LaunchConditions after
+// it, where they see the chosen context (UI-11).
+func (v *validator) scopePageMove(cfg *Config, placePath, action string, place Placement) {
+	if scopePageRefuses(cfg, place) {
+		v.errorf(placePath+".sequence", "the scope page of a dual-scope wizard orders %s of the ui sequence: "+
+			"AppSearch, the page, FindRelatedProducts, LaunchConditions; move it in the execute sequence only", action)
+	}
+}
+
+// scopePageRefuses reports whether the scope page refuses a placement of a
+// moved standard action: any ui move.
+func scopePageRefuses(cfg *Config, place Placement) bool {
+	return place.Sequence == "ui" && scopePage(cfg)
+}
+
+// scopePage reports whether the package has the wizard's scope page.
+func scopePage(cfg *Config) bool {
+	return cfg.Package.Scope.Dual() && cfg.UI.Enabled
 }
 
 // standardPlacement checks one placement of a moved standard action.

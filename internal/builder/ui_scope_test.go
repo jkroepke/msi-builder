@@ -72,8 +72,8 @@ func TestScopeProperties(t *testing.T) {
 	}
 }
 
-// TestScopePage checks the scope page of a dual package: its place in the
-// flow, the events of Next, the folders it moves and the two Install
+// TestScopePage checks the scope page of a dual package: its place before
+// the wizard, the events of Next, the folders it moves and the two Install
 // buttons of the ready page.
 func TestScopePage(t *testing.T) {
 	t.Parallel()
@@ -84,9 +84,9 @@ func TestScopePage(t *testing.T) {
 		dialog, control string
 		next            map[string]string
 	}{
-		{"WelcomeDlg", "Next", map[string]string{"1": "InstallScopeDlg"}},
-		{"InstallScopeDlg", "Next", map[string]string{"1": "InstallDirDlg"}},
-		{"InstallDirDlg", "Back", map[string]string{"1": "InstallScopeDlg"}},
+		{"WelcomeDlg", "Next", map[string]string{"1": "InstallDirDlg"}},
+		{"InstallScopeDlg", "Next", map[string]string{}},
+		{"InstallDirDlg", "Back", map[string]string{"1": "WelcomeDlg"}},
 	} {
 		if got := nextOf(t, res, want.dialog, want.control); fmt.Sprint(got) != fmt.Sprint(want.next) {
 			t.Errorf("%s %s goes to %v, want %v", want.dialog, want.control, got, want.next)
@@ -97,14 +97,15 @@ func TestScopePage(t *testing.T) {
 		t.Errorf("BuilderInstallScope = %q, want perMachine", got)
 	}
 
-	unchanged := `(INSTALLDIR ~= InstallScopeUser_INSTALLDIR OR INSTALLDIR ~= InstallScopeMachine_INSTALLDIR)`
+	unchanged := `(NOT INSTALLDIR OR INSTALLDIR ~= InstallScopeUser_INSTALLDIR OR INSTALLDIR ~= InstallScopeMachine_INSTALLDIR)`
 	want := []string{
-		"[ALLUSERS] 2 [1]",
+		`[ALLUSERS] 1 [BuilderInstallScope="perMachine"]`,
+		`[ALLUSERS] {} [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] 1 [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] {} [BuilderInstallScope="perMachine"]`,
 		`[INSTALLDIR] [InstallScopeUser_INSTALLDIR] [NOT BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
 		`[INSTALLDIR] [InstallScopeMachine_INSTALLDIR] [BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
-		"NewDialog InstallDirDlg [1]",
+		"EndDialog Return [1]",
 	}
 
 	if got := eventsOf(t, res, "InstallScopeDlg", "Next"); !slices.Equal(got, want) {
@@ -149,9 +150,9 @@ func TestScopePageOnlyForDual(t *testing.T) {
 	}
 }
 
-// TestScopePageAlias checks that a public directory named "." moves with
-// the scope to its parent's folder, without an extra backslash, so that
-// the unchanged check on Next can match it.
+// TestScopePageAlias checks that Next sets only the topmost public folder:
+// CostFinalize, which runs after the page, resolves a public directory
+// below it, such as one named ".", in the chosen context.
 func TestScopePageAlias(t *testing.T) {
 	t.Parallel()
 
@@ -171,11 +172,120 @@ ui: { enabled: true }
 	}
 
 	for action, target := range map[string]string{
-		"SetInstallScopeUser_BINDIR":    `[LocalAppDataFolder]Programs\Acme App\`,
-		"SetInstallScopeMachine_BINDIR": `[%ProgramW6432]\Acme App\`,
+		"SetInstallScopeUser_INSTALLDIR":    `[LocalAppDataFolder]Programs\Acme App\`,
+		"SetInstallScopeMachine_INSTALLDIR": `[%ProgramW6432]\Acme App\`,
+		"SetInstallScopeUser_BINDIR":        "",
+		"SetInstallScopeMachine_BINDIR":     "",
 	} {
 		if targets[action] != target {
 			t.Errorf("%s sets %q, want %q", action, targets[action], target)
+		}
+	}
+}
+
+// TestScopePageFirst checks where the scope page runs: on its own after
+// AppSearch, with FindRelatedProducts and LaunchConditions of the UI
+// sequence after it, so that both see the chosen context (UI-11), all
+// before costing, as ICE27 wants; the execute sequence keeps their numbers. A
+// folder remembered only in the other context starts the page there.
+func TestScopePageFirst(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perUserOrMachine", "x64", "installDir: { remember: true }\nui: { enabled: true }\n"+
+		"launchConditions: [{ condition: Installed OR VersionNT64, message: 64-bit only }]\n")
+
+	numbers := func(table string) map[string]int {
+		got := map[string]int{}
+
+		for _, row := range rows(t, res.Database, table) {
+			if n, ok := row[2].(int); ok {
+				got[fmt.Sprint(row[0])] = n
+			}
+		}
+
+		return got
+	}
+
+	uiSeq := numbers("InstallUISequence")
+	order := []string{"AppSearch", "SetInstallScopeUser", "InstallScopeDlg", "FindRelatedProducts", "LaunchConditions", "CostInitialize", "WelcomeDlg"}
+
+	for i := 1; i < len(order); i++ {
+		if uiSeq[order[i-1]] == 0 || uiSeq[order[i]] <= uiSeq[order[i-1]] {
+			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], uiSeq[order[i-1]], order[i], uiSeq[order[i]])
+		}
+	}
+
+	if got := cell(t, res.Database, "InstallUISequence", "Condition", func(r []any) bool { return r[0] == "InstallScopeDlg" }); got != "NOT Installed" {
+		t.Errorf("InstallScopeDlg condition %v, want NOT Installed", got)
+	}
+
+	execute := numbers("InstallExecuteSequence")
+	if execute["FindRelatedProducts"] != 25 || execute["LaunchConditions"] != 100 {
+		t.Errorf("InstallExecuteSequence: FindRelatedProducts %d, LaunchConditions %d, want 25 and 100",
+			execute["FindRelatedProducts"], execute["LaunchConditions"])
+	}
+
+	if got := eventsOf(t, res, "InstallScopeDlg", "Back"); len(got) != 0 {
+		t.Errorf("Back events %v, want none", got)
+	}
+
+	if got := cell(t, res.Database, "InstallUISequence", "Condition", func(r []any) bool { return r[0] == "SetInstallScopePrevious" }); got != "NOT ALLUSERS AND INSTALLDIR_REMEMBERED_MACHINE AND NOT INSTALLDIR_REMEMBERED_USER" {
+		t.Errorf("SetInstallScopePrevious condition %v", got)
+	}
+
+	if uiSeq["SetInstallScopePrevious"] <= uiSeq["SetInstallScopeUser"] || uiSeq["SetInstallScopePrevious"] >= uiSeq["InstallScopeDlg"] {
+		t.Errorf("SetInstallScopePrevious at %d, want between SetInstallScopeUser (%d) and the page (%d)",
+			uiSeq["SetInstallScopePrevious"], uiSeq["SetInstallScopeUser"], uiSeq["InstallScopeDlg"])
+	}
+}
+
+// An action of the UI sequence placed relative to FindRelatedProducts or
+// LaunchConditions follows the page even when the package needs neither.
+func TestScopePageAnchors(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perMachineOrUser", "x64", "upgrade: false\nui: { enabled: true }\ncustomActions:\n"+
+		"  - { id: AfterLC, setProperty: { name: BAR, value: \"1\" }, schedule: [{ sequence: ui, after: LaunchConditions }] }\n"+
+		"  - { id: AfterFind, setProperty: { name: FOO, value: \"1\" }, schedule: [{ sequence: ui, after: FindRelatedProducts }] }\n")
+
+	uiSeq := map[string]int{}
+
+	for _, row := range rows(t, res.Database, "InstallUISequence") {
+		if n, ok := row[2].(int); ok {
+			uiSeq[fmt.Sprint(row[0])] = n
+		}
+	}
+
+	order := []string{"AppSearch", "InstallScopeDlg", "FindRelatedProducts", "AfterFind", "LaunchConditions", "AfterLC", "CostInitialize"}
+
+	for i := 1; i < len(order); i++ {
+		if uiSeq[order[i-1]] == 0 || uiSeq[order[i]] <= uiSeq[order[i-1]] {
+			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], uiSeq[order[i-1]], order[i], uiSeq[order[i]])
+		}
+	}
+}
+
+// TestScopePageNestedRemembered checks that a remembered install dir below
+// another public folder keeps its setters: the restore actions set it in
+// the context the package opened in, before the page.
+func TestScopePageNestedRemembered(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perUserOrMachine", "x64", `installDir: { remember: true }
+directories:
+  - id: ProgramFiles64Folder
+    children:
+      - id: COMPANYDIR
+        name: Acme
+        configurable: true
+        children: [{ id: INSTALLDIR, name: App, configurable: true }]
+ui: { enabled: true }
+`)
+
+	events := strings.Join(eventsOf(t, res, "InstallScopeDlg", "Next"), "\n")
+	for _, want := range []string{"[COMPANYDIR] [InstallScopeUser_COMPANYDIR]", "[INSTALLDIR] [InstallScopeMachine_INSTALLDIR]"} {
+		if !strings.Contains(events, want) {
+			t.Errorf("Next events lack %s:\n%s", want, events)
 		}
 	}
 }
