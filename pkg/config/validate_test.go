@@ -835,6 +835,22 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {resetAfterDays: 30000, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.resetAfterDays", "too long",
 		},
+		"service sid type unknown": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, sidType: open}]\n    files:", 1),
+			sevError, "components[0].services[0].sidType", "not one of",
+		},
+		"preshutdown zero": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 0s}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "positive",
+		},
+		"preshutdown fraction": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 1500us}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "whole number of milliseconds",
+		},
+		"preshutdown too long": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 600h}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "at most 2147483647",
+		},
 		"recovery four steps": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {actions: [restart, restart, restart, restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.actions", "one to three",

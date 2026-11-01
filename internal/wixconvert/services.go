@@ -15,7 +15,7 @@ func (cc *compConv) service(elm *elem) { //nolint:cyclop // a flat list of indep
 	conv := cc.c
 	svc := newMap()
 	svc.order("name", "displayName", "description", "type", "start", "delayedAutoStart", "errorControl", "vital",
-		"account", "password", "arguments", "dependencies", "failureActionsOnNonCrashFailures", "control", "recovery", "permissions")
+		"account", "password", "arguments", "dependencies", "failureActionsOnNonCrashFailures", "sidType", "preshutdownTimeout", "control", "recovery", "permissions")
 	svc.head = comments(elm)
 	svc.set("name", conv.value(elm, "Name"))
 	svc.set("displayName", conv.value(elm, "DisplayName"))
@@ -85,19 +85,7 @@ func (cc *compConv) serviceChild(svc *omap, kid *elem) { //nolint:cyclop // one 
 		deps := svc.list("dependencies")
 		svc.set("dependencies", append(deps, conv.value(kid, "Id")))
 	case "ServiceConfig":
-		if kid.yes("DelayedAutoStart") {
-			svc.set("delayedAutoStart", true)
-		}
-
-		if kid.attr("FailureActionsWhen") == "failedToStopOrReturnedError" {
-			svc.set("failureActionsOnNonCrashFailures", true)
-		}
-
-		for _, a := range []string{"PreShutdownDelay", "ServiceSid", "RequiredPrivilege"} {
-			if kid.has(a) {
-				conv.todof(svc, "", kid.line, "ServiceConfig %s has no counterpart", a)
-			}
-		}
+		conv.serviceConfig(svc, kid)
 	case "util:ServiceConfig":
 		conv.recovery(svc, kid)
 	default:
@@ -109,6 +97,44 @@ func (cc *compConv) serviceChild(svc *omap, kid *elem) { //nolint:cyclop // one 
 
 		conv.todof(svc, "", kid.line, "<%s> in a ServiceInstall has no counterpart", kid.qname())
 	}
+}
+
+// serviceConfig converts the MsiServiceConfig settings of a ServiceInstall.
+func (c *converter) serviceConfig(svc *omap, elm *elem) {
+	if elm.yes("DelayedAutoStart") {
+		svc.set("delayedAutoStart", true)
+	}
+
+	if elm.attr("FailureActionsWhen") == "failedToStopOrReturnedError" {
+		svc.set("failureActionsOnNonCrashFailures", true)
+	}
+
+	switch sid := elm.attr("ServiceSid"); sid {
+	case "":
+	case valueNone, "unrestricted", "restricted":
+		svc.set("sidType", sid)
+	default:
+		c.todof(svc, "", elm.line, "ServiceConfig ServiceSid=%q has no counterpart", sid)
+	}
+
+	if delay := elm.attr("PreShutdownDelay"); delay != "" {
+		c.preshutdown(svc, elm, delay)
+	}
+
+	if elm.has("RequiredPrivilege") {
+		c.todof(svc, "", elm.line, "ServiceConfig RequiredPrivilege has no counterpart")
+	}
+}
+
+// preshutdown converts PreShutdownDelay, a count of milliseconds.
+func (c *converter) preshutdown(svc *omap, elm *elem, delay string) {
+	if ms, err := strconv.ParseInt(delay, 10, 64); err == nil && ms > 0 && ms <= math.MaxInt32 {
+		svc.set("preshutdownTimeout", delay+"ms")
+
+		return
+	}
+
+	c.todof(svc, "", elm.line, "ServiceConfig PreShutdownDelay=%q is not a number of milliseconds from 1 to %d", delay, math.MaxInt32)
 }
 
 func (c *converter) recovery(svc *omap, elm *elem) {

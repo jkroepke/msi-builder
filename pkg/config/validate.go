@@ -1696,6 +1696,12 @@ func (v *validator) service(svcPath string, svc *Service, keyFile *File, perUser
 		v.errorf(svcPath+".delayedAutoStart", "needs start: auto")
 	}
 
+	if svc.SidType != "" {
+		v.oneOf(svcPath+".sidType", svc.SidType, "none", "unrestricted", "restricted")
+	}
+
+	v.preshutdownTimeout(svcPath+".preshutdownTimeout", svc.PreshutdownTimeout)
+
 	if svc.Password != "" && !strings.Contains(svc.Password, "[") {
 		v.errorf(svcPath+".password", "use a hidden property such as [SERVICE_PASSWORD], never a literal password")
 	}
@@ -1860,6 +1866,21 @@ func (v *validator) recoveryDuration(field string, value *Duration, unit time.Du
 		v.errorf(field, "must be a whole number of %s", map[time.Duration]string{time.Millisecond: "milliseconds", time.Second: "seconds"}[unit])
 	case int64(time.Duration(*value)/unit) > math.MaxInt32:
 		v.errorf(field, "is too long for sc.exe")
+	}
+}
+
+// preshutdownTimeout checks a service's preshutdown timeout, written as
+// milliseconds into a MsiServiceConfig row. Zero is refused: the engine
+// documents an empty argument, not zero, for the default.
+func (v *validator) preshutdownTimeout(field string, value *Duration) {
+	switch {
+	case value == nil:
+	case *value <= 0:
+		v.errorf(field, "must be positive")
+	case time.Duration(*value)%time.Millisecond != 0:
+		v.errorf(field, "must be a whole number of milliseconds")
+	case int64(time.Duration(*value)/time.Millisecond) > math.MaxInt32:
+		v.errorf(field, "must be at most %d milliseconds", math.MaxInt32)
 	}
 }
 

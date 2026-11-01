@@ -2162,6 +2162,25 @@
               "failureActionsOnNonCrashFailures": {
                 "$ref": "#/$defs/bool"
               },
+              "sidType": {
+                "description": "The service SID type (MsiServiceConfig ConfigType 5).",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "none",
+                      "unrestricted",
+                      "restricted"
+                    ]
+                  },
+                  {
+                    "$ref": "#/$defs/var"
+                  }
+                ]
+              },
+              "preshutdownTimeout": {
+                "type": "string",
+                "description": "A Go duration such as 3m: how long the service manager waits for the service after a preshutdown notification (MsiServiceConfig ConfigType 7)."
+              },
               "control": {
                 "type": "object",
                 "properties": {

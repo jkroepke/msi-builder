@@ -578,7 +578,8 @@ stays a component shortcut: a `[#file]` target becomes `file`, and a
                 Type="ownProcess" Start="auto" ErrorControl="normal" Vital="yes"
                 Account="NT AUTHORITY\NetworkService" Arguments="--config &quot;[INSTALLFOLDER]hello.yaml&quot;">
   <ServiceDependency Id="Tcpip" />
-  <ServiceConfig DelayedAutoStart="yes" OnInstall="yes" OnReinstall="yes" />
+  <ServiceConfig DelayedAutoStart="yes" ServiceSid="unrestricted" PreShutdownDelay="60000"
+                 OnInstall="yes" OnReinstall="yes" />
   <util:ServiceConfig ResetPeriodInDays="1" RestartServiceDelayInSeconds="120"
                       FirstFailureActionType="restart" SecondFailureActionType="restart"
                       ThirdFailureActionType="restart" />
@@ -601,6 +602,8 @@ components:
         arguments: --config "[INSTALLFOLDER]hello.yaml"
         dependencies: [Tcpip]
         delayedAutoStart: true        # ServiceConfig DelayedAutoStart
+        sidType: unrestricted         # ServiceConfig ServiceSid
+        preshutdownTimeout: 60000ms   # ServiceConfig PreShutdownDelay (milliseconds)
         control:
           wait: false                 # ServiceControl Wait="no"
         recovery:                     # util:ServiceConfig
