@@ -317,19 +317,21 @@ type converter struct {
 	// actions, and consumed the sources they take in.
 	quietCommands map[string]commandSource
 	consumed      map[*elem]bool
-	featureGrps   map[string]*featureGroup
-	topGroupRefs  []string
-	comps         []*comp
-	notes         []Note
-	header        []string
-	dirOrder      []*dir
-	files         []*fileRef
-	pending       []pendingShortcut
-	pendingTypes  []pendingType
-	anonymous     int
-	removeLine    int
-	uiLine        int
-	v3            bool
+	// fileIDs caches sourceFileIDs.
+	fileIDs      map[string]bool
+	featureGrps  map[string]*featureGroup
+	topGroupRefs []string
+	comps        []*comp
+	notes        []Note
+	header       []string
+	dirOrder     []*dir
+	files        []*fileRef
+	pending      []pendingShortcut
+	pendingTypes []pendingType
+	anonymous    int
+	removeLine   int
+	uiLine       int
+	v3           bool
 	// bcgg makes registry key path codes those of WiX 3.
 	bcgg bool
 	// platformNamed is set when --arch names the platform: neither the

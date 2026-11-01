@@ -13,7 +13,10 @@ import (
 // and the extensions that list it under OpenWithProgids. A file type
 // writes both itself, so convert folds them into it.
 type typeRegistry struct {
-	verbs []typeVerb
+	// fileIDs are the Ids of the files of the source, which a verb must
+	// run: a file type of another file would leave the values out.
+	fileIDs map[string]bool
+	verbs   []typeVerb
 	// openWith are the extensions, without the dot.
 	openWith []string
 }
@@ -59,15 +62,41 @@ func (c *converter) progIDRegistry(comp *elem) map[*elem]*typeRegistry {
 // progIDValues collects and consumes the registry values of a component
 // that complete one ProgId.
 func (c *converter) progIDValues(comp, progID *elem) *typeRegistry {
-	regs := &typeRegistry{}
+	regs := &typeRegistry{fileIDs: c.sourceFileIDs()}
+
+	var taken []*elem
 
 	for _, value := range comp.kids {
 		if !c.consumed[value] && c.plainClassesValue(value, progID) && c.typeRegValue(value, progID.attr("Id"), regs) {
-			c.consumed[value] = true
+			taken = append(taken, value)
 		}
 	}
 
+	if len(regs.verbs) == 0 && !regs.fileIDs[strings.TrimSpace(c.literal(progID.attr("Icon")))] {
+		// The file type would go on no file; the values stay.
+		return &typeRegistry{}
+	}
+
+	for _, value := range taken {
+		c.consumed[value] = true
+	}
+
 	return regs
+}
+
+// sourceFileIDs returns the Ids of the File elements the conversion keeps.
+func (c *converter) sourceFileIDs() map[string]bool {
+	if c.fileIDs == nil {
+		c.fileIDs = make(map[string]bool)
+
+		walkElems(c.doc.root, func(elm *elem) {
+			if elm.is(elemFile) && elm.has("Id") {
+				c.fileIDs[elm.attr("Id")] = true
+			}
+		})
+	}
+
+	return c.fileIDs
 }
 
 // plainClassesValue reports whether a RegistryValue is a string value
@@ -137,7 +166,7 @@ func (regs *typeRegistry) addVerb(verb, command string) bool {
 	}
 
 	file := cmd[1] + cmd[2]
-	if slices.ContainsFunc(regs.verbs, func(v typeVerb) bool { return strings.EqualFold(v.id, verb) }) ||
+	if !regs.fileIDs[file] || slices.ContainsFunc(regs.verbs, func(v typeVerb) bool { return strings.EqualFold(v.id, verb) }) ||
 		len(regs.verbs) > 0 && regs.verbs[0].file != file {
 		return false
 	}
@@ -160,7 +189,8 @@ func applyTypeRegistry(fileType *omap, regs *typeRegistry) string {
 			out.set("arguments", verb.arguments)
 
 			if out.get("arguments") == nil {
-				out.values["arguments"] = ""
+				// No arguments, which an empty string states.
+				out.values["arguments"] = emptyText{}
 				out.addKey("arguments")
 			}
 		}

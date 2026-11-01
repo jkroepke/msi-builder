@@ -31,6 +31,8 @@ type ppFrame struct {
 	// then the first branch not known to be false, which is the one
 	// convert writes.
 	active, unknown, guessed bool
+	// arch is set when taken depends on the platform.
+	arch bool
 }
 
 // ppSim follows the preprocessor as a build without -d variables runs it:
@@ -97,6 +99,8 @@ func (c *converter) chooseBranches() {
 // depends on a guess, and skipGuess when it skips them because of one.
 type ppReading struct {
 	reads, maybe, guess, skipGuess bool
+	// arch is set when reading depends on the platform.
+	arch bool
 }
 
 // reading reports whether the build reads the instructions here.
@@ -110,10 +114,11 @@ func (s *ppSim) reading() ppReading {
 		case frame.unknown:
 			here.maybe = true
 		case frame.taken != frame.branch:
-			return ppReading{skipGuess: here.guess || frame.guessed}
+			return ppReading{skipGuess: here.guess || frame.guessed, arch: here.arch || frame.arch}
 		}
 
 		here.guess = here.guess || frame.guessed
+		here.arch = here.arch || frame.arch
 	}
 
 	here.reads = !here.maybe
@@ -123,12 +128,17 @@ func (s *ppSim) reading() ppReading {
 
 // skip records an instruction that sets a variable and that the build
 // does not run: a guess decided that, so the variable depends on it.
-func (s *ppSim) skip(name string, at ppReading) {
+func (s *ppSim) skip(name string, here ppReading) {
 	switch {
-	case at.maybe:
+	case here.maybe:
 		s.unknown[name] = true
-	case at.skipGuess:
+	case here.skipGuess:
 		s.guessed[name] = true
+	}
+
+	if here.arch {
+		// Whether the build sets it depends on the platform.
+		s.archVars[name] = true
 	}
 }
 
@@ -156,7 +166,7 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 
 		delete(s.values, name)
 		delete(s.unknown, name)
-		delete(s.archVars, name)
+		s.archVars[name] = here.arch
 		s.guessed[name] = here.guess
 	case piIf, piIfdef, piIfndef, piForeach:
 		if proc.block == nil {
@@ -165,7 +175,7 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 
 		frame := &ppFrame{
 			block: proc.block, taken: noBranch, active: here.reads || here.maybe,
-			unknown: here.maybe || proc.block.foreach, guessed: here.guess,
+			unknown: here.maybe || proc.block.foreach, guessed: here.guess, arch: here.arch,
 		}
 
 		s.frames = append(s.frames, frame)
@@ -190,6 +200,7 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 		if frame.active && !frame.unknown {
 			s.chosen[frame.block] = frame.taken
 			s.guessedBlocks[frame.block] = frame.guessed
+			s.archRead[frame.block] = frame.arch
 		}
 	}
 }
@@ -211,7 +222,7 @@ func (s *ppSim) test(frame *ppFrame, branch ppBranch) {
 		return
 	}
 
-	s.readGuess = false
+	s.readGuess, s.readArch = false, false
 
 	var (
 		applies bool
@@ -224,10 +235,11 @@ func (s *ppSim) test(frame *ppFrame, branch ppBranch) {
 	case piIfdef, piIfndef:
 		applies, err = s.definedTest(branch)
 	default:
-		applies, err = s.condition(frame.block, branch.inst)
+		applies, err = s.condition(branch.inst)
 	}
 
 	frame.guessed = frame.guessed || s.readGuess
+	frame.arch = frame.arch || s.readArch
 
 	switch {
 	case err != nil:
@@ -240,7 +252,7 @@ func (s *ppSim) test(frame *ppFrame, branch ppBranch) {
 // definedTest evaluates an <?ifdef?> or <?ifndef?>.
 func (s *ppSim) definedTest(branch ppBranch) (bool, error) {
 	name := ppDefName(branch.inst)
-	s.readGuess = s.guessed[name]
+	s.readGuess, s.readArch = s.guessed[name], s.archVars[name]
 	_, defined := s.values[name]
 
 	if s.unknown[name] || !s.defined[name] {
@@ -269,7 +281,7 @@ func (s *ppSim) set(name, value string, here ppReading) {
 
 	s.values[name] = expanded
 	s.guessed[name] = here.guess || s.readGuess
-	s.archVars[name] = s.readArch
+	s.archVars[name] = s.readArch || here.arch
 	delete(s.unknown, name)
 }
 
@@ -331,20 +343,15 @@ func (s *ppSim) value(kind, name string) (string, error) {
 
 // condition evaluates the expression of an <?if?> or <?elseif?> as the
 // template that ppCondition writes for it does.
-func (s *ppSim) condition(blk *ppBlock, text string) (bool, error) {
+func (s *ppSim) condition(text string) (bool, error) {
 	tokens, err := ppTokens(text)
 	if err != nil {
 		return false, err
 	}
 
 	eval := &ppEvaluator{sim: s, tokens: tokens}
-	s.readArch = false
 
 	result, err := eval.or()
-
-	if s.readArch {
-		s.archRead[blk] = true
-	}
 
 	if err == nil && len(eval.tokens) > 0 {
 		err = errPPSyntax
@@ -374,27 +381,38 @@ func (e *ppEvaluator) and() (bool, error) {
 // chain reads operands joined by a keyword; it reads them all, so that an
 // unknown operand makes the whole expression unknown.
 func (e *ppEvaluator) chain(keyword string, next func() (bool, error)) (bool, error) {
-	result, err := next()
-	if err != nil {
-		return false, err
-	}
+	// A known operand of the deciding value decides even when another
+	// is unknown: false for and, true for or.
+	deciding := keyword == "or"
+	decided := false
 
-	for e.peekKeyword(keyword) {
-		e.tokens = e.tokens[1:]
+	var unknown error
+
+	for first := true; first || e.peekKeyword(keyword); first = false {
+		if !first {
+			e.tokens = e.tokens[1:]
+		}
 
 		operand, err := next()
-		if err != nil {
-			return false, err
-		}
 
-		if keyword == "or" {
-			result = result || operand
-		} else {
-			result = result && operand
+		switch {
+		case errors.Is(err, errPPUnknown):
+			unknown = err
+		case err != nil:
+			return false, err
+		case operand == deciding:
+			decided = true
 		}
 	}
 
-	return result, nil
+	switch {
+	case decided:
+		return deciding, nil
+	case unknown != nil:
+		return false, unknown
+	}
+
+	return !deciding, nil
 }
 
 func (e *ppEvaluator) unary() (bool, error) {
@@ -438,10 +456,12 @@ type ppValue struct {
 	number bool
 }
 
+// comparison reads a whole comparison, also when an operand is unknown,
+// so that the operands after it are read.
 func (e *ppEvaluator) comparison() (bool, error) {
-	left, err := e.operand()
-	if err != nil {
-		return false, err
+	left, leftErr := e.operand()
+	if leftErr != nil && !errors.Is(leftErr, errPPUnknown) {
+		return false, leftErr
 	}
 
 	if len(e.tokens) == 0 || e.tokens[0].kind != ppOp {
@@ -450,15 +470,19 @@ func (e *ppEvaluator) comparison() (bool, error) {
 		}
 
 		// A variable on its own tests that it is not empty.
-		return left.text != "", nil
+		return left.text != "", leftErr
 	}
 
 	oper := e.tokens[0].text
 	e.tokens = e.tokens[1:]
 
 	right, err := e.operand()
-	if err != nil {
+
+	switch {
+	case err != nil:
 		return false, err
+	case leftErr != nil:
+		return false, leftErr
 	}
 
 	return compareValues(oper, left, right), nil

@@ -182,8 +182,11 @@ versioning after 1.0.
   `ppBlock.chosen` is that branch (`noBranch` for none) and `pruned`
   drops the others. A `ComponentGroup` of contained components, `File`s
   and `Files`, outside loops and without references, stays in a kept
-  block (`groupAllowed`); `--msi` pins a component in a kept block by Id
-  only when the row's key file matches and is unclaimed. A
+  block (`groupAllowed`); `--msi` pins a component in a kept block whose
+  Id repeats only to the row with its key file and folder, which
+  branches that never apply together share, and globs in such branches
+  share the code of a file both add (`exclusiveHarvests`). `and`/`or`
+  decide on one known operand (three-valued). A
   membership's actions are the reference's plus the component's, and
   `unionOpens`
   drops an `if` that repeats one already there.

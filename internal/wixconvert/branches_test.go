@@ -220,6 +220,26 @@ func TestConvertChosenBranch(t *testing.T) {
 			arch: "x64", want: "native", without: "x86",
 			note: "<?if $(var.Plat) = x86?> is not converted as a template: only the branch on line 8, which a build for --arch x64 without -d variables takes, was converted",
 		},
+		"known false and": {
+			body: `<?define Edition = "pro" ?>
+    <?if $(var.Edition) = basic and $(var.Signed) = 1 ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="signed" After="CostInitialize" Sequence="execute" />
+    <?elseif $(var.Edition) = pro ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="pro" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			want: "pro", without: "signed",
+			note: "<?if $(var.Edition) = basic and $(var.Signed) = 1?> is not converted as a template: only the branch on line 8, which a build without -d variables takes, was converted",
+		},
+		"platform through a branch": {
+			body: `<?if $(sys.BUILDARCH) = x64 ?><?define Wide = "yes" ?><?else ?><?define Wide = "no" ?><?endif ?>
+    <?if $(var.Wide) = yes ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="wide" After="CostInitialize" Sequence="execute" />
+    <?else ?>
+    <SetProperty Id="DEFAULTDIR" Action="SetDir" Value="narrow" After="CostInitialize" Sequence="execute" />
+    <?endif ?>`,
+			arch: "x64", want: "wide", without: "narrow",
+			note: "<?if $(var.Wide) = yes?> is not converted as a template: only the branch on line 6, which a build for --arch x64 without -d variables takes, was converted",
+		},
 		"no platform": {
 			body: arch, want: "x86", without: "native",
 			note: "<?if $(sys.BUILDARCH) = x86?> is not evaluated: only its first branch was converted",
@@ -457,5 +477,88 @@ func TestConvertBuiltCodesTemplateKeyFile(t *testing.T) {
 	res := convertWithVars(t, src, wixconvert.Options{Built: built}, map[string]string{"A": "1"}, map[string]string{"A": "0"})
 	if !strings.Contains(string(res.YAML), "000000000001") {
 		t.Errorf("the built code is not pinned:\n%s", res.YAML)
+	}
+}
+
+// A verb command without arguments keeps none, and verbs that run a file
+// the source does not define stay registry values.
+func TestConvertProgIDRegistryEdges(t *testing.T) {
+	t.Parallel()
+
+	src := branchHead + `    <Component Id="App" Directory="INSTALLFOLDER"><File Id="HelloExe" Source="hello.exe" /></Component>
+    <Component Id="Types" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKMU" Key="Software\Example\Capabilities" Name="ApplicationName" Value="Hello" Type="string" KeyPath="yes" />
+      <ProgId Id="Hello.Document" Description="Hello Document" />
+      <RegistryValue Root="HKCR" Key="Hello.Document\shell\edit\command" Value="&quot;[#HelloExe]&quot;" Type="string" />
+      <ProgId Id="Hello.Other" Description="Other Document" />
+      <RegistryValue Root="HKCR" Key="Hello.Other\shell\open\command" Value="&quot;[#Missing]&quot; &quot;%1&quot;" Type="string" />
+      <RegistryValue Root="HKCR" Key=".other\OpenWithProgids" Name="Hello.Other" Value="" Type="string" />
+    </Component>
+  </Package>
+</Wix>
+`
+
+	res := convertWithVars(t, src, wixconvert.Options{}, map[string]string{})
+	text := string(res.YAML)
+
+	for _, want := range []string{"              - id: edit\n                arguments: \"\"\n", `key: Hello.Other\shell\open\command`, `key: .other\OpenWithProgids`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("YAML lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// With --msi, Files globs in branches that never apply together both keep
+// the code of a file they both add, and a File Id repeated with the same
+// key path in such branches keeps its code in each.
+func TestConvertBuiltCodesExclusiveGlobs(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="Hello" /></StandardDirectory>
+    <Feature Id="Main"><ComponentGroupRef Id="G" /></Feature>
+  </Package>
+  <Fragment>
+    <ComponentGroup Id="G" Directory="INSTALLFOLDER">
+      <?if $(var.Pro) = 1 ?>
+      <Files Include="setA\**" />
+      <File Id="F" Source="x64\app.exe" />
+      <?else ?>
+      <Files Include="setB\**" />
+      <File Id="F" Source="x86\app.exe" />
+      <?endif ?>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
+`
+
+	built := &wixconvert.BuiltPackage{
+		Name: "hello.msi",
+		Components: []wixconvert.BuiltComponent{
+			{ID: "fls1", Code: "{00000000-0000-4000-8000-000000000001}", Directory: "INSTALLFOLDER", KeyFile: "same.txt"},
+			{ID: "F", Code: "{00000000-0000-4000-8000-000000000002}", Directory: "INSTALLFOLDER", KeyFile: "app.exe"},
+		},
+		Directories: []wixconvert.BuiltDirectory{
+			{ID: "TARGETDIR", Name: "SourceDir"},
+			{ID: "ProgramFiles64Folder", Parent: "TARGETDIR", Name: "PFiles64"},
+			{ID: "INSTALLFOLDER", Parent: "ProgramFiles64Folder", Name: "Hello"},
+		},
+	}
+
+	res := convertWithVars(t, src, wixconvert.Options{Built: built}, map[string]string{"Pro": "1"}, map[string]string{"Pro": "0"})
+	text := string(res.YAML)
+
+	if n := strings.Count(text, "same.txt: '{00000000-0000-4000-8000-000000000001}'"); n != 2 {
+		t.Errorf("same.txt pinned %d times, want 2:\n%s", n, text)
+	}
+
+	if n := strings.Count(text, "000000000002"); n != 2 {
+		t.Errorf("F pinned %d times, want 2:\n%s", n, text)
+	}
+
+	if hasNote(res.Notes, "another Files glob") || hasNote(res.Notes, "hello.msi has no matching component") {
+		t.Errorf("unexpected notes %v", res.Notes)
 	}
 }

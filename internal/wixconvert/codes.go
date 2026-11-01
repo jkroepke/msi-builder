@@ -239,12 +239,18 @@ func (c *converter) free(row *BuiltComponent) bool {
 
 // builtByIDIn returns the component of the built package with the Id of
 // comp. For a component in a template block whose Id repeats in branches
-// that never apply together, the row must be free and have its key file:
-// it belongs to the branch the package was built with.
+// that never apply together, the row must have its key file in its
+// folder: it belongs to the branch the package was built with.
 func (c *converter) builtByIDIn(comp *comp, id, keyFile string) *BuiltComponent {
 	row := c.builtByID(id)
-	if row != nil && len(comp.e.opens) > 0 && c.repeatedID(id) &&
-		(c.claimed[row.ID] || keyFile != "" && !strings.EqualFold(row.KeyFile, keyFile)) {
+	if row == nil || len(comp.e.opens) == 0 || !c.repeatedID(id) || keyFile == "" {
+		return row
+	}
+
+	// Branches that never apply together may share the row: WiX gives
+	// the same key path the same code.
+	want, anyDir := c.keyFileDir(comp)
+	if !strings.EqualFold(row.KeyFile, keyFile) || !anyDir && row.Directory != want {
 		return nil
 	}
 
@@ -531,26 +537,60 @@ func (c *converter) harvestedCodes() map[*comp]map[string]*BuiltComponent {
 			continue
 		}
 
-		src, rel, tied := c.nearestHarvest(sources, row)
+		owners, rel := c.harvestOwners(sources, row)
+
+		for _, owner := range owners {
+			if seen[owner.comp][strings.ToLower(rel)] {
+				// Windows matches names ignoring case, and so does the build.
+				continue
+			}
+
+			if found[owner.comp] == nil {
+				found[owner.comp] = make(map[string]*BuiltComponent)
+				seen[owner.comp] = make(map[string]bool)
+			}
+
+			seen[owner.comp][strings.ToLower(rel)] = true
+			found[owner.comp][rel] = row
+		}
+	}
+
+	return found
+}
+
+// harvestOwners returns the folder sources that take the code of row and
+// the file's path below their folder: the nearest one, or every one of a
+// tie in branches that never apply together, where the file has the same
+// path, so WiX gives it the same code in each. Any other tie takes none
+// and records the file on the tied sources.
+func (c *converter) harvestOwners(sources []harvest, row *BuiltComponent) ([]*harvest, string) {
+	src, rel, tied := c.nearestHarvest(sources, row)
+
+	switch {
+	case len(tied) > 0 && exclusiveHarvests(tied):
+		return tied, rel
+	case len(tied) > 0:
 		for _, other := range tied {
 			other.comp.tied = append(other.comp.tied, rel)
 		}
 
-		if src == nil || seen[src.comp][strings.ToLower(rel)] {
-			// Windows matches names ignoring case, and so does the build.
-			continue
-		}
-
-		if found[src.comp] == nil {
-			found[src.comp] = make(map[string]*BuiltComponent)
-			seen[src.comp] = make(map[string]bool)
-		}
-
-		seen[src.comp][strings.ToLower(rel)] = true
-		found[src.comp][rel] = row
+		return nil, rel
+	case src == nil:
+		return nil, rel
 	}
 
-	return found
+	return []*harvest{src}, rel
+}
+
+// exclusiveHarvests reports whether folder sources sit in branches that
+// never apply together.
+func exclusiveHarvests(sources []*harvest) bool {
+	elems := make([]*elem, len(sources))
+	for i, src := range sources {
+		elems[i] = src.comp.e
+	}
+
+	return exclusive(elems)
 }
 
 // candidate is a folder source that adds a file, with the file's path
