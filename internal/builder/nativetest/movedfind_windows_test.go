@@ -197,11 +197,11 @@ func TestMsiexecMovedFindRelatedProducts(t *testing.T) {
 				t.Errorf("app.exe after the v2 install: %v (server INSTALLDIR %q)", err, serverProperties(text)["INSTALLDIR"])
 			}
 
-			// v1 installed app.exe in Program Files: it stays there with v1
-			// and goes with it.
+			// app.exe of v2 is only in its own folder; v1's copy in Program
+			// Files stays with v1 and goes with it.
 			_, otherErr := os.Stat(other)
 			if tc.oldAfter == "none" && otherErr == nil {
-				t.Errorf("app.exe is still in %s after v1 was removed", other)
+				t.Errorf("app.exe is also in %s after the v2 install", other)
 			}
 
 			if tc.oldAfter == "machine" {
