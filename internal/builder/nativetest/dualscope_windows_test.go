@@ -21,7 +21,7 @@ const (
 
 // environmentPartsConfig is a dual package whose component adds two parts
 // to the end and two to the front of PATH, following the context
-// (ENVVAR-04), as one component does in Rancher Desktop and Python.
+// (ENVVAR-04).
 const environmentPartsConfig = `schema: msi-builder/v1
 product: { name: MsiBuilderEnvParts, manufacturer: msi-builder tests, version: 1.0.0, upgradeCode: d7714381-0ecb-45c7-8ddf-8c92b2ba4c8e }
 package: { platform: x64, scope: perUserOrMachine }
@@ -45,6 +45,19 @@ func envParts(value string) []string {
 	}
 
 	return parts
+}
+
+// entries returns the non-empty entries of a PATH value, joined by ;.
+func entries(value string) string {
+	var out []string
+
+	for part := range strings.SplitSeq(value, ";") {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+
+	return strings.Join(out, ";")
 }
 
 // TestMsiexecEnvironmentParts installs the ENVVAR-04 package per machine
@@ -95,14 +108,16 @@ func TestMsiexecEnvironmentParts(t *testing.T) { //nolint:paralleltest // msiexe
 			msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)
 
 			after := regData(t, tc.key, "Path")
-			t.Logf("ENVVAR-04 %s: PATH unchanged by install and uninstall: %v", tc.context, after == before)
+			t.Logf("ENVVAR-04 %s: PATH before %q, after the uninstall %q", tc.context, before, after)
 
 			if got := envParts(after); len(got) != 0 {
 				t.Errorf("parts %v left after the uninstall", got)
 			}
 
-			if after != before {
-				t.Errorf("PATH %q after the uninstall, want %q", after, before)
+			// The engine drops empty entries, such as a trailing
+			// separator, when it rewrites the variable (ENVVAR-04).
+			if entries(after) != entries(before) {
+				t.Errorf("PATH %q after the uninstall, want the entries of %q", after, before)
 			}
 		})
 	}
@@ -135,8 +150,9 @@ customActions:
 // TestMsiexecContextConditions installs the INST-07 package silently in
 // each way a context is chosen and records which components installed,
 // where the product registered, and the server's ALLUSERS and
-// MSIINSTALLPERUSER. The ALLUSERS conditions must follow the context; the
-// MSIINSTALLPERUSER ones and the setters are recorded, not asserted.
+// MSIINSTALLPERUSER. The ALLUSERS conditions must follow the context, and
+// without a setter the MSIINSTALLPERUSER ones too; what the setters do is
+// recorded, not asserted.
 func TestMsiexecContextConditions(t *testing.T) { //nolint:paralleltest // msiexec runs one installation at a time
 	if testing.Short() {
 		t.Skip("installing needs msiexec time and elevation")
@@ -192,6 +208,12 @@ func TestMsiexecContextConditions(t *testing.T) { //nolint:paralleltest // msiex
 			if registration != "machine" && registration != "user" || !slices.Contains(installed, want) ||
 				slices.Contains(installed, map[string]string{"AllUsers": "NotAllUsers", "NotAllUsers": "AllUsers"}[want]) {
 				t.Errorf("registered %s with components %v: the ALLUSERS conditions do not follow the context", registration, installed)
+			}
+
+			// Without a setter the MSIINSTALLPERUSER conditions follow the
+			// context too: the engine empties MSIINSTALLPERUSER per machine.
+			if !strings.Contains(tc.name, "setter") && slices.Contains(installed, "MsiPerUser") != (registration == "user") {
+				t.Errorf("registered %s with components %v: the MSIINSTALLPERUSER conditions do not follow the context", registration, installed)
 			}
 
 			msiexecQuiet(t, filepath.Join(dir, "uninstall.log"), "/x", path)

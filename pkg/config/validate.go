@@ -511,6 +511,23 @@ func (v *validator) builderProperty(name string) bool {
 	return builderProperties[name] || v.scope.Dual() && (name == "MSIINSTALLPERUSER" || name == "BuilderInstallScope")
 }
 
+// contextSetter warns about an action that sets ALLUSERS or
+// MSIINSTALLPERUSER. In the execute sequence of a silent install, setting
+// ALLUSERS=1 registered the product per machine with the per-user folders
+// and MSIINSTALLPERUSER already resolved, and setting MSIINSTALLPERUSER=1
+// changed no context but made conditions on it hold per machine (INST-07).
+// A setter in the UI sequence was not tested.
+func (v *validator) contextSetter(actionPath, name string) {
+	if name != "ALLUSERS" && name != "MSIINSTALLPERUSER" {
+		return
+	}
+
+	v.warnf(actionPath+".setProperty.name", "setting %s in a sequence does not move the install to another context: "+
+		"set ALLUSERS=1 in the execute sequence registered the product per machine in the per-user folders (INST-07); "+
+		"use scope perUserOrMachine or perMachineOrUser, whose scope page and command line pick the context, and "+
+		"components[].scope", name)
+}
+
 // installPerUser warns about MSIINSTALLPERUSER outside a dual package: it
 // has no effect unless ALLUSERS is 2 (spec section 8.2), and a per-user
 // install was seen deleting it, which skips a component conditioned on it
@@ -2211,6 +2228,8 @@ func (v *validator) actionKind(cfg *Config, actionPath string, action *CustomAct
 		if inScript {
 			v.errorf(actionPath+".execute", "setProperty cannot be deferred; deferred actions read CustomActionData")
 		}
+
+		v.contextSetter(actionPath, action.SetProperty.Name)
 	case action.SetDirectory != nil:
 		if known.dirs[action.SetDirectory.Directory] == nil {
 			v.errorf(actionPath+".setDirectory.directory", "directory %q is not defined", action.SetDirectory.Directory)

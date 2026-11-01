@@ -665,6 +665,12 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    environment: [{name: FOO, action: remove}, {name: FOO, value: b, action: remove}]\n    files:", 1),
 			sevError, "components[0].environment[1]", "only append and prepend",
 		},
+		// INST-07.
+		"context setter": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent +
+				"customActions: [{id: Flip, setProperty: {name: ALLUSERS, value: '1'}, schedule: [{sequence: execute, after: ValidateProductID}]}]\n",
+			sevWarning, "customActions[0].setProperty.name", "INST-07",
+		},
 		// INST-08.
 		"dual scope firewall without scope": {
 			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent + "firewall: [{name: a, component: App, program: x}]\n",

@@ -121,7 +121,10 @@ versioning after 1.0.
   the same include/exclude matcher as the build; among the globs whose source
   folder holds a file on disk (`Options.Exists`), when any does, it goes to
   the one whose folder is nearest; a tie leaves it unpinned with a todo note (UPG-12, which installs a real
-  WiX 5 package on CI). The fixtures are our own sample app: never copy
+  WiX 5 package on CI). A package that chooses its install context with
+  context conditions or `ALLUSERS`/`MSIINSTALLPERUSER` setters becomes a
+  dual scope (`context.go`), because execute-sequence setters leave the
+  install inconsistent (INST-07). The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
