@@ -25,8 +25,6 @@ const (
 	elemServiceControl    = "ServiceControl"
 	elemServiceDependency = "ServiceDependency"
 	elemCreateFolder      = "CreateFolder"
-	elemRemoveFile        = "RemoveFile"
-	elemRemoveFolder      = "RemoveFolder"
 )
 
 // Preprocessor instructions.

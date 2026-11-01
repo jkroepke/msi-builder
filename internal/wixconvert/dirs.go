@@ -329,7 +329,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		nodes[folder] = entry
 
 		if folder.parent == nil || folder.parent.std {
-			rootID := "TARGETDIR"
+			rootID := folderTargetDir
 			if folder.parent != nil {
 				rootID = c.stdID(folder.parent.id)
 			}
@@ -379,7 +379,7 @@ const folderProgramFiles = "ProgramFilesFolder"
 
 func (c *converter) defaultInstallParent(id string) bool {
 	switch id {
-	case "ProgramFiles6432Folder":
+	case folderProgramFiles6432:
 		return true
 	case "ProgramFiles64Folder":
 		return c.platform != platformX86
@@ -426,7 +426,7 @@ func (c *converter) dirValue(id string, tree map[*dir]bool) string {
 		names = append(dirNames(cur.name), names...)
 	}
 
-	return joinPath("TARGETDIR", names)
+	return joinPath(folderTargetDir, names)
 }
 
 // relative returns a path below the install dir, with "./" when its first

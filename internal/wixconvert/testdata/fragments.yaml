@@ -5,6 +5,7 @@
 # TODO(line 51): the extension attributes util:Extra on <Component> have no counterpart
 # TODO(line 65): advertised shortcuts are never supported; this one is a plain shortcut
 # TODO(line 65): the shortcut "Hello Help" has no Target: advertised shortcuts are never supported; point it at a file
+# convert computed the guids of 3 components whose code WiX generates from their key paths, as wix build for any -arch does; with --msi and the package WiX built, it takes them from that package instead.
 vars:
   Greeting: '{{ if eq .Edition "full" }}Hello{{ else }}{{ if eq .Lang "de" }}Hallo{{ else }}Hi{{ end }}{{ end }}'
 ---
@@ -32,6 +33,7 @@ features:
 components:
   - id: PluginA
     directory: plugins
+    guid: '{D48FF547-63B3-58AE-B3B4-F330595AC83F}'
     files:
       - source: dist/plugins/a.dll
         id: plugin_a.dll
@@ -45,10 +47,12 @@ components:
         id: hello.exe
       {{ end }}
   - id: Notes
+    guid: '{D47DEA9A-7ABE-5382-B15B-E3E742C0C42F}'
     files:
       - source: dist/notes.txt
         id: notes.txt
   - id: SampleFile
+    guid: '{9CF49275-DE48-5675-9885-03371FA06926}'
     files:
       - source: dist/sample.txt
         id: sample.txt

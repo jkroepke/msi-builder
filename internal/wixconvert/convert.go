@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"slices"
 	"strings"
@@ -62,8 +63,19 @@ type Options struct {
 	// Files globs into one folder match keeps its code in the glob whose
 	// source folder holds it.
 	Exists func(rel string) bool
+	// FS is the folder of the source file, or nil. Without a built
+	// package, convert lists the files of a Files glob in it to compute
+	// the codes WiX gives them.
+	FS fs.FS
 	// Source names the input in the header comment, such as app.wxs.
 	Source string
+	// Arch is the platform WiX built the package for (wix build -arch):
+	// x86, x64 or arm64; package.platform follows it. Empty leaves the
+	// codes that depend on it to a todo.
+	Arch string
+	// BCGG is set when WiX 6 or later built the package with -bcgg, which
+	// computes the codes of registry key paths as WiX 3 did.
+	BCGG bool
 }
 
 // Convert reads a .wxs file and returns the msi.yaml that describes the
@@ -108,10 +120,19 @@ func convertOnce(data []byte, opts Options, forced map[int]bool) (*converter, []
 		return nil, nil, fmt.Errorf("the root element is <%s>, not <Wix>", doc.root.qname())
 	}
 
+	switch opts.Arch {
+	case "", platformX86, platformX64, platformArm64:
+	default:
+		return nil, nil, fmt.Errorf("unknown platform %q; use x86, x64 or arm64", opts.Arch)
+	}
+
 	conv := newConverter(doc)
 	conv.built = opts.Built
 	conv.exists = opts.Exists
 	conv.forced = forced
+	conv.fsys = opts.FS
+	conv.arch = opts.Arch
+	conv.bcgg = opts.BCGG
 
 	if err := conv.index(); err != nil {
 		return nil, nil, err
@@ -148,6 +169,10 @@ type converter struct {
 	built    *BuiltPackage
 	claimed  map[string]bool // the built components a component took
 	exists   func(rel string) bool
+	// fsys is the folder of the source file, or nil.
+	fsys fs.FS
+	// arch is the platform --arch names, or "".
+	arch string
 	// builtDirIndex holds the folders of the built package by ID.
 	builtDirIndex map[string]*BuiltDirectory
 	advertised    []int // the lines of advertised shortcuts
@@ -235,6 +260,12 @@ type converter struct {
 	removeLine    int
 	uiLine        int
 	v3            bool
+	// bcgg makes registry key path codes those of WiX 3.
+	bcgg bool
+	// platformNamed is set when --arch names the platform: neither the
+	// folders a source uses nor a WiX 3 Package Platform tells which -arch
+	// WiX built with.
+	platformNamed bool
 	// floorSeen is set once a hand-made major upgrade became
 	// upgrade.minVersion.
 	floorSeen bool
@@ -248,8 +279,11 @@ type dir struct {
 	parentID string
 	id       string
 	name     string
-	line     int
-	std      bool
+	// wixName is the Name as the source wrote it, before the defines are
+	// filled in, and seed its ComponentGuidGenerationSeed.
+	wixName, seed string
+	line          int
+	std           bool
 	// sub marks a folder that a component's Subdirectory made.
 	sub bool
 	// generated is set when WiX gives the folder an ID of its own: one
@@ -267,18 +301,28 @@ type comp struct {
 	folder *omap
 	id     string
 	dir    string
+	// wixDir is the folder WiX puts the component in, before ownFolder
+	// moves a component without files.
+	wixDir string
 	// tied are the files of a folder source that another one with the same
 	// folder adds too, so that neither keeps their code.
 	tied []string
 	// droppedValues are the HKCU key path values of a shortcut component
 	// that msi-builder replaces with its own.
 	droppedValues []string
+	computedFiles int
 	inFeature     bool
 	dropIfEmpty   bool
 	// generated is set when WiX generates the component's Guid, pinned
 	// when the built package gave it one.
 	generated bool
 	pinned    bool
+	// computed is set when convert computed the code WiX gives the
+	// component, or the codes of a folder source's files (computedFiles).
+	computed bool
+	// needArch is set when the code depends on the platform WiX built for,
+	// which is unknown.
+	needArch bool
 }
 
 type group struct {
@@ -409,7 +453,12 @@ func (c *converter) index() error {
 	c.linkDirs()
 	c.resolveFeatures()
 	c.chooseInstallDir()
-	c.choosePlatform()
+
+	if c.arch != "" {
+		c.platform, c.platformNamed = c.arch, true
+	} else {
+		c.choosePlatform()
+	}
 
 	return nil
 }
@@ -503,6 +552,15 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 			inner := scope{dir: sc.dir, files: sc.files, group: conv.group(elm.attr("Id"))}
 			if folder := elm.attr(attrDirectory); folder != "" {
 				inner.dir, inner.files = folder, fileSource{}
+			}
+
+			// WiX 4 puts the group's components in a Subdirectory of its
+			// folder too.
+			if sub := conv.expand(elm, elm.attr("Subdirectory")); sub != "" {
+				inner.dir = conv.subdir(inner.dir, sub, elm.attr("Subdirectory"), elm.line)
+				for _, part := range strings.FieldsFunc(sub, func(r rune) bool { return r == '\\' || r == '/' }) {
+					inner.files = inner.files.below(part)
+				}
 			}
 
 			conv.walk(elm, inner)
@@ -627,9 +685,12 @@ func (c *converter) addDir(elm *elem, parentID string, standard bool) *dir {
 		return d
 	}
 
-	folder := &dir{id: dirID, name: c.expand(elm, elm.attr("Name")), parentID: parentID, line: elm.line, generated: elm.attr("Id") == ""}
+	folder := &dir{
+		id: dirID, name: c.expand(elm, elm.attr("Name")), parentID: parentID, line: elm.line, generated: elm.attr("Id") == "",
+		wixName: elm.attr("Name"), seed: elm.attr("ComponentGuidGenerationSeed"),
+	}
 
-	if dirID == "TARGETDIR" || standard || isStandardFolder(dirID) {
+	if dirID == folderTargetDir || standard || isStandardFolder(dirID) {
 		folder.std, folder.name, folder.parentID = true, "", ""
 	}
 
@@ -704,17 +765,27 @@ func markedKey(elm *elem) *elem {
 
 // subdir adds the folders of a Subdirectory path, such as bin\\x64, below a
 // directory and returns the ID of the last one.
-func (c *converter) subdir(parentID, path string, line int) string {
+func (c *converter) subdir(parentID, path, wixPath string, line int) string {
 	if c.dirs[parentID] == nil && isStandardFolder(parentID) {
 		folder := &dir{id: parentID, std: true, line: line}
 		c.dirs[parentID] = folder
 		c.dirOrder = append(c.dirOrder, folder)
 	}
 
-	for _, name := range strings.FieldsFunc(path, func(r rune) bool { return r == '\\' || r == '/' }) {
+	split := func(r rune) bool { return r == '\\' || r == '/' }
+	names, wixNames := strings.FieldsFunc(path, split), strings.FieldsFunc(wixPath, split)
+
+	for i, name := range names {
+		// A define that holds a separator makes the counts differ; the
+		// path then stays unresolved.
+		wixName := "$(" + wixPath + ")"
+		if len(wixNames) == len(names) {
+			wixName = wixNames[i]
+		}
+
 		dirID := parentID + "_" + idPart(name)
 		if _, ok := c.dirs[dirID]; !ok {
-			folder := &dir{id: dirID, name: name, parentID: parentID, line: line, sub: true, generated: true}
+			folder := &dir{id: dirID, name: name, wixName: wixName, parentID: parentID, line: line, sub: true, generated: true}
 			c.dirs[dirID] = folder
 			c.dirOrder = append(c.dirOrder, folder)
 		}
@@ -787,11 +858,13 @@ func (c *converter) addComp(elm *elem, within scope) {
 	}
 
 	if sub := c.expand(elm, elm.attr("Subdirectory")); sub != "" {
-		comp.dir = c.subdir(comp.dir, sub, elm.line)
+		comp.dir = c.subdir(comp.dir, sub, elm.attr("Subdirectory"), elm.line)
 		for _, part := range strings.FieldsFunc(sub, func(r rune) bool { return r == '\\' || r == '/' }) {
 			comp.files = comp.files.below(part)
 		}
 	}
+
+	comp.wixDir = comp.dir
 
 	c.comps = append(c.comps, comp)
 	if comp.id != "" {

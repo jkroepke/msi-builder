@@ -224,7 +224,7 @@ func (c *converter) noteDirRefs(s string) {
 }
 
 func isStandardFolder(id string) bool {
-	return config.IsStandardFolder(id) || id == "ProgramFiles6432Folder" ||
+	return config.IsStandardFolder(id) || id == folderProgramFiles6432 ||
 		id == "CommonFiles6432Folder" || id == "System6432Folder"
 }
 

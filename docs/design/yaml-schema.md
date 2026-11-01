@@ -1769,8 +1769,8 @@ the folder is the YAML file's folder or one above it.
   component code of its own: with a late `removeOld`, the first upgrade from
   that tool's package deletes every file whose code changed (UPG-11), and a
   kept code keeps the file (UPG-12, a WiX `Files` glob upgraded by the
-  converted package). `msi-builder convert --msi` fills it from the old
-  package. The other files keep their `auto` GUID, so files added later
+  converted package). `msi-builder convert` fills it with the codes WiX
+  computes for a `Files` glob, or with `--msi` from the old package. The other files keep their `auto` GUID, so files added later
   need no entry. A path the folder does not add, because the file is gone
   or a pattern leaves it out, is a warning, since a file may well leave in
   a later version; a path with `\`, a leading `/` or a `.` or `..` folder,

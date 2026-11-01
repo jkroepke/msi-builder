@@ -2,6 +2,7 @@
 # Converted from preprocessor.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
 # WiX variables became template variables; pass them with --var NAME=value: Edition, Platform.
+# convert computed the guids of 2 components whose code WiX generates from their key paths, as wix build for any -arch does; with --msi and the package WiX built, it takes them from that package instead.
 vars:
   Version: 1.0.0
   Folder: '{{ if eq .Platform "arm64" }}ProgramFiles64Folder{{ else if eq (lower .Platform) (lower "X64") }}ProgramFiles64Folder{{ else }}ProgramFilesFolder{{ end }}'
@@ -36,11 +37,13 @@ features:
       {{ end }}
 components:
   - id: MainExe
+    guid: '{78693E13-BDFA-5DDB-ACF6-13E143D638A9}'
     files:
       - source: {{ print `dist/` .Arch `/hello.exe` | quote }}
         id: hello.exe
   {{ if and (not (eq .Edition "lite")) (ne .Arch "x86") }}
   - id: Plugins
+    guid: '{D568A905-36BD-5BA0-A397-E7D75F9A5CBC}'
     files:
       - source: {{ print `dist/` .Arch `/plugins.dll` | quote }}
         id: plugins.dll
