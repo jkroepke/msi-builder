@@ -268,6 +268,9 @@ go test ./... -shuffle=on -race
   on the `windows-latest` runner: push the branch and start CI with
   `workflow_dispatch` on it, then read the job log. Replace the probe with a
   test that asserts the observed behavior before the pull request merges.
+  A repair while another process holds an installed file open lost the
+  hosted runner every time (PROP-04, no job log at all), so probe Restart
+  Manager elsewhere.
   The runner does not let the Windows Firewall service stop (access denied),
   so firewall behavior with the service stopped cannot be probed there.
   To probe table rows the builder does not write yet, build a package with

@@ -1850,8 +1850,8 @@ and their documented values, so that an editor completes and checks them. It
 refuses the properties the builder writes, whose hover text names the key to
 use instead (`ARPNOMODIFY` is `product.arp.noModify`), and the request
 properties such as `ADDLOCAL`. Any other name takes any value. The descriptions follow Microsoft's documentation and
-are not verified on Windows unless MSISPEC names a case (PROP-04 for
-`MSIRESTARTMANAGERCONTROL`).
+are not verified on Windows; MSISPEC case PROP-04 plans the check for
+`MSIRESTARTMANAGERCONTROL`.
 
 **Search.** `search` fills a property from the target machine before the
 install. It is one search or a list of them; each search has exactly one of
