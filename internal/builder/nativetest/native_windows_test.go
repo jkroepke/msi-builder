@@ -356,11 +356,14 @@ func testService(t *testing.T) []byte {
 // failure. It skips the test when the process is not elevated. A reboot
 // request (3010) fails the test: the examples stop their own services, so
 // a file that is still in use when RemoveFiles runs is a packaging bug.
+// quietArgs keeps a repair from restarting the machine.
 func msiexecQuiet(t *testing.T, log string, args ...string) {
 	t.Helper()
 
+	args = quietArgs(log, args...)
+
 	//nolint:gosec // the arguments are test-controlled paths
-	out, err := exec.CommandContext(t.Context(), "msiexec", append(args, "/qn", "/l*v", log)...).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "msiexec", args...).CombinedOutput()
 	if err == nil {
 		return
 	}

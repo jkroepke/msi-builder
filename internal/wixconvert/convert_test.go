@@ -3018,3 +3018,363 @@ func TestConvertServiceConfig(t *testing.T) {
 		}
 	}
 }
+
+// TestConvertMovedStandardActions takes the places that the sequences give
+// AppSearch, LaunchConditions and FindRelatedProducts into standardActions,
+// and leaves a note for a condition and for an administrative sequence.
+func TestConvertMovedStandardActions(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="RUNTIME">
+      <RegistrySearch Id="Runtime" Root="HKLM" Key="Software\Example\Runtime" Name="Version" Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR RUNTIME" Message="Needs the runtime." />
+    <InstallExecuteSequence>
+      <AppSearch Sequence="1" />
+      <LaunchConditions After="AppSearch" />
+      <FindRelatedProducts Before="LaunchConditions" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <AppSearch />
+    </InstallUISequence>
+    <AdminUISequence>
+      <LaunchConditions Sequence="5" />
+    </AdminUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"standardActions:\n  - action: FindRelatedProducts\n    schedule:\n      - {sequence: execute, before: LaunchConditions}\n" +
+			"  - action: AppSearch\n    schedule:\n      - {sequence: execute, at: 1}\n" +
+			"  - action: LaunchConditions\n    schedule:\n      - {sequence: execute, after: AppSearch}\n",
+		"the standard action FindRelatedProducts in execute runs only when NOT Installed; msi-builder schedules the standard actions without conditions",
+		"rescheduling the standard action LaunchConditions in AdminUISequence has no counterpart",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "sequence: ui") {
+		t.Errorf("an AppSearch without a place was moved:\n%s", out)
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted file does not validate: %v\n%s", err, out)
+	}
+}
+
+// TestConvertMovesThatDoNothing leaves out a move to the default number and
+// a move of an action the converted package does not run, and notes a
+// FindRelatedProducts placed after LaunchConditions.
+func TestConvertMovesThatDoNothing(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <InstallExecuteSequence>
+      <AppSearch Sequence="1" />
+      <LaunchConditions Sequence="100" />
+      <FindRelatedProducts Sequence="200" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"the sequence moves the standard action AppSearch in execute, which msi-builder cannot take (it has no property searches); convert left the move out",
+		"LaunchConditions runs before FindRelatedProducts here",
+		"      - {sequence: execute, at: 200}\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "action: AppSearch") || strings.Contains(out, "action: LaunchConditions") {
+		t.Errorf("a move that does nothing was kept:\n%s", out)
+	}
+}
+
+// TestConvertMovesMsiBuilderRefuses leaves out moves to places the build
+// refuses, keeps a LaunchConditions move that the downgrade check needs,
+// and notes launch conditions moved before FindRelatedProducts.
+func TestConvertMovesMsiBuilderRefuses(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <InstallExecuteSequence>
+      <FindRelatedProducts After="CostFinalize" />
+      <LaunchConditions Sequence="20" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <FindRelatedProducts Before="WelcomeDlg" />
+    </InstallUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"the sequence moves the standard action FindRelatedProducts in execute, which msi-builder cannot take (it would run after CostFinalize, not before CostInitialize)",
+		"the sequence moves the standard action FindRelatedProducts in ui, which msi-builder cannot take (WelcomeDlg is not a converted custom action)",
+		"standardActions:\n  - action: LaunchConditions\n    schedule:\n",
+		"LaunchConditions runs before FindRelatedProducts here",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "action: FindRelatedProducts") {
+		t.Errorf("a refused move was kept:\n%s", out)
+	}
+}
+
+// AppSearch next to an unmoved LaunchConditions: before it is the default
+// order and is dropped silently, after it is a cycle in msi-builder.
+func TestConvertAppSearchNextToLaunchConditions(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    <Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <AppSearch Before="LaunchConditions" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <AppSearch After="LaunchConditions" />
+    </InstallUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	want := "the sequence moves the standard action AppSearch in ui, which msi-builder cannot take (LaunchConditions follows a moved AppSearch)"
+
+	if !strings.Contains(out, want) {
+		t.Errorf("the YAML lacks %q:\n%s", want, out)
+	}
+
+	if strings.Contains(out, "standardActions") || strings.Contains(out, "AppSearch in execute") {
+		t.Errorf("a move next to LaunchConditions was kept or noted:\n%s", out)
+	}
+}
+
+// A number of another movable action that keeps its place collides with it,
+// and an AppSearch move next to a dropped LaunchConditions move is dropped
+// as next to an unmoved one.
+func TestConvertMoveCollisions(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    <InstallExecuteSequence>
+      <FindRelatedProducts Sequence="50" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <AppSearch After="LaunchConditions" />
+      <LaunchConditions Sequence="900" />
+    </InstallUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"FindRelatedProducts in execute, which msi-builder cannot take (the number 50 is that of AppSearch)",
+		"AppSearch in ui, which msi-builder cannot take (LaunchConditions follows a moved AppSearch)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "action: ") {
+		t.Errorf("a refused move was kept:\n%s", out)
+	}
+}
+
+// A move convert drops does not count as moved: FindRelatedProducts at 100
+// collides with the LaunchConditions that stays after an AppSearch whose
+// move to its default place was dropped.
+func TestConvertCollisionAfterDroppedMove(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    <InstallExecuteSequence>
+      <AppSearch Before="LaunchConditions" />
+      <FindRelatedProducts Sequence="100" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	want := "FindRelatedProducts in execute, which msi-builder cannot take (the number 100 is that of LaunchConditions)"
+
+	if !strings.Contains(out, want) {
+		t.Errorf("the YAML lacks %q:\n%s", want, out)
+	}
+
+	if strings.Contains(out, "action: ") {
+		t.Errorf("a refused move was kept:\n%s", out)
+	}
+}
+
+// Placements on left-out setters are re-anchored before convert decides
+// which moves it keeps, and of two moves anchored to each other only the
+// later action's is kept.
+func TestConvertMovesDecidedAfterReanchor(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		sequence, want, unwanted string
+	}{
+		"re-anchored": {
+			`<SetProperty Id="WixPerMachineFolder" Value="[ProgramFiles64Folder]Hello" After="FindRelatedProducts" Sequence="execute" />
+    <InstallExecuteSequence>
+      <AppSearch After="SetWixPerMachineFolder" />
+      <FindRelatedProducts Sequence="50" />
+    </InstallExecuteSequence>`,
+			"  - action: FindRelatedProducts\n    schedule:\n      - {sequence: execute, at: 50}\n" +
+				"  - action: AppSearch\n    schedule:\n      - {sequence: execute, after: FindRelatedProducts}\n",
+			"msi-builder cannot take",
+		},
+		"anchored to each other": {
+			`<Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <AppSearch Before="LaunchConditions" />
+      <LaunchConditions After="AppSearch" />
+    </InstallExecuteSequence>`,
+			"standardActions:\n  - action: LaunchConditions\n    schedule:\n      - {sequence: execute, after: AppSearch}\n",
+			"action: AppSearch",
+		},
+		"anchored in a loop": {
+			`<Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <FindRelatedProducts Before="LaunchConditions" />
+      <AppSearch After="FindRelatedProducts" />
+      <LaunchConditions After="AppSearch" />
+    </InstallExecuteSequence>`,
+			"standardActions:\n  - action: AppSearch\n    schedule:\n      - {sequence: execute, after: FindRelatedProducts}\n" +
+				"  - action: LaunchConditions\n    schedule:\n      - {sequence: execute, after: AppSearch}\n",
+			"action: FindRelatedProducts",
+		},
+		"anchored in a loop through the LaunchConditions after a moved AppSearch": {
+			`<Launch Condition="VersionNT" Message="x" />
+    <InstallExecuteSequence>
+      <FindRelatedProducts Before="LaunchConditions" />
+      <AppSearch After="FindRelatedProducts" />
+    </InstallExecuteSequence>`,
+			"standardActions:\n  - action: AppSearch\n    schedule:\n      - {sequence: execute, after: FindRelatedProducts}\n",
+			"action: FindRelatedProducts",
+		},
+	} {
+		src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="PREV">
+      <RegistrySearch Id="Prev" Root="HKLM" Key="Software\Example\Hello" Name="Dir" Type="raw" />
+    </Property>
+    ` + test.sequence + `
+  </Package>
+</Wix>`
+
+		res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		out := string(res.YAML)
+		if !strings.Contains(out, test.want) || strings.Contains(out, test.unwanted) {
+			t.Errorf("%s: want %q without %q:\n%s", name, test.want, test.unwanted, out)
+		}
+	}
+}

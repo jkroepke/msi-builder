@@ -41,10 +41,13 @@ func (v *validator) schedules(cfg *Config) {
 
 		v.unscheduledAnchors(byID, name, actions, paths)
 
-		_, err := sequence.Number(withAnchors(actions, table))
+		numbered, err := sequence.Number(withAnchors(actions, table))
 
 		var serr *sequence.Error
 		if !errors.As(err, &serr) {
+			v.movedNumbers(cfg, table, numbered)
+			v.launchBeforeFind(cfg, table, numbered)
+
 			continue
 		}
 
@@ -76,7 +79,8 @@ func (v *validator) unscheduledAnchors(byID map[string]*CustomAction, name strin
 }
 
 // scheduleOf returns the actions of one sequence, the YAML path of the
-// placement behind each custom action, as described at schedules, and an
+// placement behind each custom action and moved standard action, as
+// described at schedules, and an
 // error for each further placement of an action in the same sequence.
 //
 //nolint:cyclop // a flat filter over the placements
@@ -122,6 +126,8 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 		}
 	}
 
+	actions = append(actions, movedActions(cfg, sequenceTables[name], paths)...)
+
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.
 	for _, id := range runs {
@@ -148,6 +154,99 @@ func wellPlaced(place Placement) bool {
 	termination := place.Sequence == "ui" || place.Sequence == sequenceAdminUI
 
 	return count == 1 && place.At >= minSequenceNumber && place.At <= maxSequenceNumber && (place.At >= 0 || termination)
+}
+
+// movesIn reports whether standardActions moves an action in a table.
+func movesIn(cfg *Config, table string) bool {
+	for _, name := range movableActions {
+		if _, _, ok := cfg.StandardPlacement(table, name); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// movedActions returns the actions standardActions adds to the numbering of
+// a table and records their paths: each moved standard action at its
+// placement, next to a move the unmoved FindRelatedProducts and AppSearch
+// at the numbers the builder gives them, and the LaunchConditions the
+// builder puts after a moved AppSearch.
+func movedActions(cfg *Config, table string, paths map[string]string) []sequence.Action {
+	var extra []sequence.Action
+
+	// A moved standard action takes its placement instead of its default
+	// number.
+	for _, moved := range cfg.StandardActions {
+		if place, path, ok := cfg.StandardPlacement(table, moved.Action); ok && wellMoved(cfg, moved.Action, place) && paths[moved.Action] == "" {
+			paths[moved.Action] = path
+			extra = append(extra, sequence.Action{Name: moved.Action, Before: place.Before, After: place.After, Sequence: place.At})
+		}
+	}
+
+	// Next to a move, the unmoved actions it can meet keep the numbers the
+	// builder gives them.
+	extra = append(extra, unmovedSiblings(cfg, table, paths)...)
+
+	// The builder puts LaunchConditions after a moved AppSearch, unless it
+	// is moved itself.
+	if _, _, searchMoved := cfg.StandardPlacement(table, actAppSearch); searchMoved && paths[actAppSearch] != "" &&
+		paths[actLaunchConditions] == "" && hasLaunchConditions(cfg) {
+		paths[actLaunchConditions] = paths[actAppSearch]
+		extra = append(extra, sequence.Action{Name: actLaunchConditions, After: actAppSearch})
+	}
+
+	return extra
+}
+
+// unmovedSiblings returns, next to a move in a table, the unmoved
+// FindRelatedProducts and AppSearch the package runs at their default
+// numbers.
+func unmovedSiblings(cfg *Config, table string, paths map[string]string) []sequence.Action {
+	if !movesIn(cfg, table) {
+		return nil
+	}
+
+	var siblings []sequence.Action
+
+	for _, sibling := range []struct {
+		action string
+		runs   bool
+	}{{actFindRelatedProducts, upgrades(cfg)}, {actAppSearch, searches(cfg)}} {
+		action := sibling.action
+		if _, _, moved := cfg.StandardPlacement(table, action); sibling.runs && !moved && paths[action] == "" {
+			std, _ := sequence.LookupStandard(action)
+			siblings = append(siblings, sequence.Action{Name: action, Sequence: std.Number(table)})
+		}
+	}
+
+	return siblings
+}
+
+// wellMoved reports whether a moved standard action's placement passed
+// standardPlacement, so that its errors are not reported twice.
+func wellMoved(cfg *Config, action string, place Placement) bool {
+	if !slices.Contains(movableActions, action) || !wellPlaced(place) || idle(cfg, action, place.Sequence) != "" {
+		return false
+	}
+
+	if slices.Contains([]string{place.Before, place.After}, actLaunchConditions) && searchBesideLaunch(cfg, action, place.Sequence) {
+		return false
+	}
+
+	return place.At >= 0 && place.At < costInitialize() && earlyAnchors(action, place)
+}
+
+// earlyAnchors reports whether a moved action's anchor is not the action
+// itself and, for a standard action, runs before CostInitialize.
+func earlyAnchors(action string, place Placement) bool {
+	for i, anchor := range []string{place.Before, place.After} {
+		if anchor == action || standardActions[anchor] && !earlyAnchor(anchor, place.Sequence, i == 0) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // withAnchors adds the standard actions every product gets and those the

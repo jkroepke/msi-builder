@@ -39,8 +39,15 @@
     <CustomAction Id="SetupUser" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --user" Execute="deferred" />
     <!-- Scheduled in the UI sequence too, so it keeps its conditions. -->
     <CustomAction Id="SetMode" Property="HELLOMACHINE" Value="1" />
+    <!-- Look for older versions in the context of the previous install:
+         FindRelatedProducts only finds products in the current one. -->
+    <Property Id="PREVMACHINE" Secure="yes">
+      <RegistrySearch Id="PrevMachine" Root="HKLM" Key="Software\Example\Hello" Name="Machine" Type="raw" />
+    </Property>
+    <SetProperty Id="ALLUSERS" Action="SetAllUsersFromPrevious" Value="1" After="AppSearch" Sequence="both" Condition="PREVMACHINE" />
     <InstallUISequence>
       <Custom Action="SetMode" After="CostFinalize" Condition="ALLUSERS=1" />
+      <FindRelatedProducts After="SetAllUsersFromPrevious" />
     </InstallUISequence>
     <InstallExecuteSequence>
       <Custom Action="SetMode" After="CostFinalize" Condition="ALLUSERS=1" />
@@ -51,6 +58,7 @@
       <Custom Action="OverridePerMachineFolder" After="WixSetDefaultPerMachineFolder" />
       <Custom Action="OverrideAgain" After="OverridePerMachineFolder" />
       <RemoveExistingProducts After="InstallValidate" Condition="NOT UPGRADINGPRODUCTCODE" />
+      <FindRelatedProducts After="SetAllUsersFromPrevious" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

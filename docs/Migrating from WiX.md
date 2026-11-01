@@ -189,7 +189,7 @@ msi-builder does the same by default:
 | `ProductSearch UpgradeCode` | an `upgrade.related` row with `onlyDetect: true` that sets the property |
 | `Launch` (v3 `Condition` under `Product`) | `launchConditions` |
 | `CustomAction`, `SetProperty`, `Custom` | `customActions` |
-| `InstallExecuteSequence`, `InstallUISequence` | `customActions[].schedule` |
+| `InstallExecuteSequence`, `InstallUISequence` | `customActions[].schedule`; a moved `FindRelatedProducts`, `AppSearch` or `LaunchConditions` becomes `standardActions` |
 | `ScheduleReboot` | `scheduleReboot` |
 | `ProgressText` for a custom action | `customActions[].progress` |
 | `WixUI`, `WixVariable` `WixUILicenseRtf`, `WixUIBannerBmp`, `WixUIDialogBmp` | `ui` |
@@ -916,6 +916,56 @@ when both are given:
 | `WIX_UPGRADE_DETECTED` | `upgrade` |
 | `REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE` | `uninstall` |
 | `Installed AND NOT REMOVE~="ALL"` | `maintenance` (repair and change) |
+
+A `FindRelatedProducts`, `AppSearch` or `LaunchConditions` element with
+`Before`, `After` or `Sequence` in `InstallExecuteSequence` or
+`InstallUISequence` becomes a `standardActions` entry. Packages that pick
+the install context from a previous install move `FindRelatedProducts`
+behind the action that sets `ALLUSERS`, because it only finds products in
+the context it runs in (section 8.10 of the specification). In a
+`Scope="perUserOrMachine"` package, convert drops the `ALLUSERS` setter
+itself, with a note, and keeps the move, now behind AppSearch: setting
+`ALLUSERS` after the package opened registers it per machine but keeps the
+per-user folders (UPG-15, INST-07), so the scope page or `ALLUSERS=1` on
+the command line choose the context instead. A package that keeps the setter
+also needs one for INSTALLDIR (`docs/design/yaml-schema.md`, "Moving standard actions"):
+
+```xml
+<SetProperty Id="ALLUSERS" Action="SetAllUsersFromPrevious" Value="1" After="AppSearch" Sequence="both" Condition="PREVMACHINE" />
+<InstallExecuteSequence>
+  <FindRelatedProducts After="SetAllUsersFromPrevious" />
+</InstallExecuteSequence>
+<InstallUISequence>
+  <FindRelatedProducts After="SetAllUsersFromPrevious" />
+</InstallUISequence>
+```
+
+```yaml
+# TODO(line 1): the action SetAllUsersFromPrevious, which sets ALLUSERS, was left out: ...
+standardActions:
+  - action: FindRelatedProducts
+    schedule:
+      - { sequence: ui, after: AppSearch }
+      - { sequence: execute, after: AppSearch }
+```
+
+Other standard actions keep their place, and a condition on a standard
+action has no counterpart; convert notes both. A place at the default
+number is dropped, and so is AppSearch before an unmoved LaunchConditions
+in a package with launch conditions, which is the default order there. Of
+moves anchored to one another in a loop that states one order (AppSearch
+before LaunchConditions, LaunchConditions after AppSearch), convert drops
+the first action's. With a note, convert also drops the move of
+AppSearch without searches, of LaunchConditions without launch conditions or
+a downgrade check, and a move to a place msi-builder refuses (at or after
+CostInitialize, next to a dialog, AppSearch after an unmoved
+LaunchConditions in such a package, which msi-builder puts after a moved
+AppSearch, or the
+number of another of the three actions that keeps its place, such as
+FindRelatedProducts at 50). A move that puts LaunchConditions
+before FindRelatedProducts (FindRelatedProducts at Microsoft's 200, for
+example) gets a note, because the downgrade check then sees no newer
+version and the build refuses it.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where

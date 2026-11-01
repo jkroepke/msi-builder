@@ -1373,7 +1373,7 @@ Manager does not tell an unrelated process that only has a package file
 open (an editor, a log reader, a virus scanner, a monitoring agent) from
 the program itself; in the close-apps evaluation on 2026-10-25 a silent
 upgrade and uninstall shut down an unrelated PowerShell that held the
-program's file. msi-builder accepts that risk: shutting down what holds a
+program's file, and PROP-04 observed the same. msi-builder accepts that risk: shutting down what holds a
 file is what lets an upgrade replace it without a reboot. A package that
 cannot accept it turns Restart Manager off with a property, which needs
 no key of its own:
@@ -1390,6 +1390,15 @@ line of a repair left Restart Manager on, presumably dropped like the
 repair's other public properties (CLOSE-04, inferred), so the package
 itself sets it. The `windows_exporter` example turns it off, because its service
 and `close` already stop everything it installs.
+
+The value is case-sensitive: `disable` behaved like `0` (PROP-04). With
+`Disable`, a file that a program `close` does not end still holds is
+replaced at the next restart: a silent `/fa` repair then returned 1641 and
+restarted the machine although `/norestart` was given (PROP-04). `/f` did
+not pass `REBOOT` to the server, so run such a repair as
+`msiexec /i <package> REINSTALL=ALL REINSTALLMODE=a REBOOT=ReallySuppress`;
+with `DisableShutdown` such a repair returned 3010 instead (not run with
+`Disable`, where 3010 is expected too).
 
 `restartResources` on a component adds what the package does not
 install to the Restart Manager session, so that what holds or runs it is
@@ -2083,8 +2092,8 @@ and their documented values, so that an editor completes and checks them. It
 refuses the properties the builder writes, whose hover text names the key to
 use instead (`ARPNOMODIFY` is `product.arp.noModify`), and the request
 properties such as `ADDLOCAL`. Any other name takes any value. The descriptions follow Microsoft's documentation and
-are not verified on Windows; MSISPEC case PROP-04 plans the check for
-`MSIRESTARTMANAGERCONTROL`.
+are not verified on Windows, except the values of
+`MSIRESTARTMANAGERCONTROL` (MSISPEC case PROP-04).
 
 **Search.** `search` fills a property from the target machine before the
 install. It is one search or a list of them; each search has exactly one of
@@ -2380,6 +2389,80 @@ were not tested.
 
 Standard actions are added automatically for the tables a package uses. An
 action used only as an anchor is added at its default number.
+
+**Moving standard actions.** `standardActions` moves one of the three
+standard actions that run before costing, `FindRelatedProducts`,
+`AppSearch` and `LaunchConditions`, in the `execute` and `ui` sequences:
+
+```yaml
+customActions:
+  - id: SetAllUsersFromPrevious
+    setProperty: { name: ALLUSERS, value: "1" }
+    schedule:
+      - { sequence: execute, after: AppSearch, condition: PREVMACHINE }
+      - { sequence: ui, after: AppSearch, condition: PREVMACHINE }
+  - id: SetInstallDirFromPrevious
+    setProperty: { name: INSTALLDIR, value: '[%ProgramW6432]\Example\' }
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+      - { sequence: ui, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+
+standardActions:
+  - action: FindRelatedProducts
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious }
+      - { sequence: ui, after: SetAllUsersFromPrevious }
+```
+
+FindRelatedProducts only finds products installed in the context it runs
+in, and after the `ui` sequence ran it the `execute` sequence skips it. A
+dual-scope package that picks the context from a previous install (here a
+search of a value only the per-machine install writes) therefore moves it
+behind the action that sets `ALLUSERS`; at its default number (25, before
+AppSearch) it misses a previous install in the other context, so that both
+versions stay installed (UPG-15). Setting `ALLUSERS` this late does not
+move the folders, which were resolved for the per-user context when the
+package opened: without the INSTALLDIR setter the package is registered
+per machine with its files in `[LocalAppDataFolder]Programs` (UPG-15,
+INST-07), and validate warns about the `ALLUSERS` setter. The second setter
+puts the files of this x64 package in Program Files (an x86 package needs
+the 32-bit folder, not tested); it also replaces an INSTALLDIR given on the
+command line or remembered from the previous install whenever the search
+finds one. Other per-user folders, such as the Start menu, are expected to
+stay (not tested). The scope page and `ALLUSERS=1` on the command line choose the
+context before the folders are resolved and are the better way where the
+installer can use them.
+
+Each placement has exactly one of `before`, `after` or `at` (a number below
+CostInitialize, 800) and no `condition` or `when`: the action keeps its own
+condition (specification section 16, "Decisions not adopted"). A moved
+action runs after the other actions that share its anchor, so `after:
+AppSearch` follows the actions that apply the search results. When AppSearch
+moves and LaunchConditions does not, LaunchConditions follows AppSearch and
+those actions. The build fails when a move leaves the action at or after
+CostInitialize, when the package does not run the action (FindRelatedProducts
+needs `upgrade`, AppSearch a property search, LaunchConditions a launch
+condition), and when LaunchConditions ends up before FindRelatedProducts
+while `upgrade.downgrade` is `error`, whose launch condition tests what
+FindRelatedProducts sets; with other launch conditions that order is a
+warning, and without the upgrade section, where FindRelatedProducts runs
+only as an anchor and sets nothing, it is neither. Validate reports these cases where the configuration decides them,
+together with the cycles and collisions a move causes, counting the
+LaunchConditions the builder puts after a moved AppSearch and the
+unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
+LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
+100 is treated as running after it even when a long chain of search actions
+would push LaunchConditions further; one moved to exactly 100 collides with
+it, which validate reports when the package runs no AppSearch and leaves to
+the build otherwise. In a package with launch conditions (its own or the downgrade check),
+AppSearch cannot be placed next to an unmoved LaunchConditions, which
+follows it. The other standard actions keep their
+numbers.
+
+A remembered install folder (`installDir.remember`) is restored right after
+AppSearch, before an action placed `after: AppSearch` sets `ALLUSERS`, so a
+dual-scope package that switches to per-machine this way does not restore
+the remembered per-machine folder.
 
 **Restart.** `scheduleReboot` asks for a restart at the end of the
 installation, after Windows features, drivers or system files changed that

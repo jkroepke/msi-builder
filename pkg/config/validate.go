@@ -87,6 +87,7 @@ func Validate(cfg *Config) Diagnostics {
 	checker.properties(cfg)
 	checker.launchConditions(cfg)
 	checker.customActions(cfg, known)
+	checker.standardActions(cfg)
 	checker.schedules(cfg)
 	checker.scheduleReboot(cfg)
 	checker.streams(cfg)
@@ -507,7 +508,8 @@ func (v *validator) builderProperty(name string) bool {
 // ALLUSERS=1 registered the product per machine with the per-user folders
 // and MSIINSTALLPERUSER already resolved, and setting MSIINSTALLPERUSER=1
 // changed no context but made conditions on it hold per machine (INST-07).
-// A setter in the UI sequence was not tested. Other scopes were not
+// A setter in both sequences under /qr also registered the product per
+// machine with the per-user INSTALLDIR (UPG-15). Other scopes were not
 // tested with such setters, so they get no warning.
 func (v *validator) contextSetter(actionPath, name string) {
 	if !v.scope.Dual() || name != "ALLUSERS" && name != propInstallPerUser {
@@ -515,8 +517,9 @@ func (v *validator) contextSetter(actionPath, name string) {
 	}
 
 	v.warnf(actionPath+".setProperty.name", "an action that sets %s leaves the install inconsistent: in a dual "+
-		"package, ALLUSERS=1 set in the execute sequence registered the product per machine but kept the per-user "+
-		"folders and MSIINSTALLPERUSER, and MSIINSTALLPERUSER=1 kept the context but made conditions on it hold "+
+		"package, ALLUSERS=1 set by an action registered the product per machine but kept the per-user "+
+		"folders (and, set in the execute sequence, MSIINSTALLPERUSER), and MSIINSTALLPERUSER=1 kept the "+
+		"context but made conditions on it hold "+
 		"(INST-07); use scope perUserOrMachine or perMachineOrUser, whose scope page and command line pick the "+
 		"context, and components[].scope", name)
 }
