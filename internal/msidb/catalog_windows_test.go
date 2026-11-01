@@ -46,7 +46,9 @@ func msiRecord(rec uint32) []string {
 		buf := make([]uint16, bufSize)
 		size := uint32(bufSize)
 		_, _, _ = pMsiRecordGetStringW.Call(uintptr(rec), uintptr(i+1), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
-		out[i] = syscall.UTF16ToString(buf[:size])
+		// On ERROR_MORE_DATA size is the length needed; the buffer holds
+		// a cut, NUL-terminated value, which the test values never need.
+		out[i] = syscall.UTF16ToString(buf[:min(int(size), bufSize-1)])
 	}
 
 	return out
@@ -223,6 +225,10 @@ func TestNativeMalformedCatalog(t *testing.T) { //nolint:paralleltest // msi.dll
 
 			if !slices.EqualFunc(got, allRows, slices.Equal) {
 				t.Errorf("reader rows %q, msi.dll %q", got, allRows)
+			}
+
+			if (tc.edits == nil) != (len(database.Problems) == 0) {
+				t.Errorf("reader problems %q", database.Problems)
 			}
 
 			t.Logf("msi.dll keys %q; reader problems %q", keys, database.Problems)

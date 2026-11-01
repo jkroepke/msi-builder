@@ -2,6 +2,7 @@ package msidb //nolint:testpackage // the tests patch the encoded catalog
 
 import (
 	"encoding/binary"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -135,13 +136,15 @@ func TestUnmarshalReportsMalformedCatalog(t *testing.T) {
 		edits map[int]catalogEdit
 		name  string
 		want  string
+		keys  int
 	}{
-		{name: "duplicate key name", base: catalogBase, edits: map[int]catalogEdit{2: {name: "K"}}, want: "column K defined twice"},
-		{name: "duplicate non-key name", base: catalogBase, edits: map[int]catalogEdit{3: {name: "V"}}, want: "column V defined twice"},
+		{name: "duplicate key name", base: catalogBase, edits: map[int]catalogEdit{2: {name: "K"}}, want: "column K defined twice", keys: 1},
+		{name: "duplicate non-key name", base: catalogBase, edits: map[int]catalogEdit{3: {name: "V"}}, want: "column V defined twice", keys: 1},
 		{name: "no primary key", base: catalogBase, edits: map[int]catalogEdit{1: {key: -1}}, want: "table T has no primary key"},
-		{name: "key after a non-key column", base: catalogBase, edits: map[int]catalogEdit{3: {key: 1}}, want: "key column N must come before the other columns"},
-		{name: "binary key", base: withBinary, edits: map[int]catalogEdit{2: {key: 1}}, want: "binary column D cannot be a key"},
-		{name: "two binary columns", base: withBinary, edits: map[int]catalogEdit{3: {typ: 0x1900}}, want: "table T has 2 binary columns"},
+		{name: "key after a non-key column", base: catalogBase, edits: map[int]catalogEdit{3: {key: 1}}, want: "key column N must come before the other columns", keys: 1},
+		{name: "only key last", base: catalogBase, edits: map[int]catalogEdit{1: {key: -1}, 3: {key: 1}}, want: "key column N must come before the other columns"},
+		{name: "binary key", base: withBinary, edits: map[int]catalogEdit{2: {key: 1}}, want: "binary column D cannot be a key", keys: 2},
+		{name: "two binary columns", base: withBinary, edits: map[int]catalogEdit{3: {typ: 0x1900}}, want: "table T has 2 binary columns", keys: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -157,12 +160,55 @@ func TestUnmarshalReportsMalformedCatalog(t *testing.T) {
 				t.Errorf("problems %q, want one containing %q", database.Problems, tc.want)
 			}
 
-			t.Logf("problems: %q", database.Problems)
+			// msi.dll counts the key columns before the first non-key one
+			// (MSIDB-21), and the rows read as written.
+			tbl := database.Table("T")
+			if tbl.Keys() != tc.keys {
+				t.Errorf("Keys %d, want %d", tbl.Keys(), tc.keys)
+			}
+
+			if want := tc.base().Rows; fmt.Sprint(tbl.Rows) != fmt.Sprint(want) {
+				t.Errorf("rows %v, want %v", tbl.Rows, want)
+			}
 
 			if _, err := database.Marshal(Options{}); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("Marshal: %v, want an error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// A binary stream is named by the row's key, so the reader cannot find the
+// streams of a table without one. It reports that once and leaves the streams
+// as extra streams instead of naming every row's stream "T".
+func TestUnmarshalKeylessBinary(t *testing.T) {
+	t.Parallel()
+
+	tbl := &Table{Name: "T", Columns: []Column{Col("K", "s16", true), Col("D", "V0", false)}}
+	tbl.Add("a", []byte("first"))
+	tbl.Add("b", []byte("second"))
+
+	database, err := Unmarshal(patchedCatalog(t, tbl, map[int]catalogEdit{1: {key: -1}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"table T has no primary key", "table T: the binary cells of column D are not read, the table has no primary key"}
+	if !slices.Equal(database.Problems, want) {
+		t.Errorf("problems %q, want %q", database.Problems, want)
+	}
+
+	if rows := database.Table("T").Rows; rows[0][1] != nil || rows[1][1] != nil {
+		t.Errorf("rows %v", rows)
+	}
+
+	names := make([]string, 0, len(database.Streams))
+	for _, stream := range database.Streams {
+		names = append(names, stream.Name)
+	}
+
+	if !slices.Contains(names, "T.a") || !slices.Contains(names, "T.b") {
+		t.Errorf("streams %q, want T.a and T.b kept", names)
 	}
 }
 

@@ -627,8 +627,48 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 	}
 
 	// Binary cells and the stored-key order.
+	readBinaryCells(tbl, rows, stored, keys, binaryStream, database)
+
+	// A table without a key has no key order; checkSchema reported it.
+	for rowIdx := 1; keys > 0 && rowIdx < count; rowIdx++ {
+		cmp := 0
+
+		for k := 0; k < keys && cmp == 0; k++ {
+			switch {
+			case stored[rowIdx-1][k] < stored[rowIdx][k]:
+				cmp = -1
+			case stored[rowIdx-1][k] > stored[rowIdx][k]:
+				cmp = 1
+			}
+		}
+
+		if cmp > 0 {
+			addProblem(database, fmt.Sprintf("table %s: rows %d and %d are not in key order", tbl.Name, rowIdx-1, rowIdx))
+		} else if cmp == 0 {
+			addProblem(database, fmt.Sprintf("table %s: rows %d and %d share a primary key", tbl.Name, rowIdx-1, rowIdx))
+		}
+	}
+
+	tbl.Rows = rows
+
+	return nil
+}
+
+// readBinaryCells loads the stream of every non-NULL binary cell, which is
+// named by the row's key.
+func readBinaryCells(tbl *Table, rows [][]any, stored [][]uint32, keys int, binaryStream func(string) ([]byte, error), database *Database) {
 	for colIdx, col := range tbl.Columns {
 		if col.Type.Kind != KindBinary {
+			continue
+		}
+
+		// A binary stream is named by the key, so a table without one
+		// cannot name its rows' streams; checkSchema reported the table.
+		if keys == 0 {
+			if slices.ContainsFunc(stored, func(cells []uint32) bool { return cells[colIdx] != 0 }) {
+				addProblem(database, fmt.Sprintf("table %s: the binary cells of column %s are not read, the table has no primary key", tbl.Name, col.Name))
+			}
+
 			continue
 		}
 
@@ -657,28 +697,4 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 			rows[rowIdx][colIdx] = append([]byte(nil), data...)
 		}
 	}
-
-	// A table without a key has no key order; checkSchema reported it.
-	for rowIdx := 1; keys > 0 && rowIdx < count; rowIdx++ {
-		cmp := 0
-
-		for k := 0; k < keys && cmp == 0; k++ {
-			switch {
-			case stored[rowIdx-1][k] < stored[rowIdx][k]:
-				cmp = -1
-			case stored[rowIdx-1][k] > stored[rowIdx][k]:
-				cmp = 1
-			}
-		}
-
-		if cmp > 0 {
-			addProblem(database, fmt.Sprintf("table %s: rows %d and %d are not in key order", tbl.Name, rowIdx-1, rowIdx))
-		} else if cmp == 0 {
-			addProblem(database, fmt.Sprintf("table %s: rows %d and %d share a primary key", tbl.Name, rowIdx-1, rowIdx))
-		}
-	}
-
-	tbl.Rows = rows
-
-	return nil
 }
