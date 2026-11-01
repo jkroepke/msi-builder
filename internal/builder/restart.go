@@ -13,7 +13,8 @@ import (
 // 17.11): an immediate action before InstallValidate that joins the
 // engine's Restart Manager session, whose key the engine clears in
 // InstallValidate, and registers each entry, so that the engine's
-// files-in-use handling shuts down what holds or runs it. It runs after
+// files-in-use handling is expected to shut down what holds or runs it
+// (CLOSE-04). It runs after
 // BuilderCloseSchedule, so programs that close by themselves are gone
 // before it registers running programs.
 func (b *build) restartResources() error {

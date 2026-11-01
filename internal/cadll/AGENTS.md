@@ -231,7 +231,7 @@ the root `AGENTS.md` first.
   call `RmGetList`, `RmShutdown` or `RmRestart`: the engine owns the
   session. A program is registered as `RM_UNIQUE_PROCESS` (PID and
   `GetProcessTimes` creation time) for each process `findRunning` matches
-  by path, so the same matching as `close`; `findRunning` takes the log
+  by path (one pass, at most `CLOSE_MAX`; a full pass is logged), so the same matching as `close`; `findRunning` takes the log
   template so its lines name the right feature.
 - Never take code from another installer toolkit's custom action library;
   the Windows Installer custom action contract is documented by Microsoft

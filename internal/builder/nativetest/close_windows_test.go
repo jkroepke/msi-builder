@@ -18,8 +18,8 @@ import (
 
 // closeConfig installs the close helper three times: gui.exe and cli.exe
 // are closed with the defaults (WM_CLOSE, 5 s, then terminate), keep.exe
-// only gets WM_CLOSE. Restart Manager is off, as the design doc recommends
-// with close: it would shut the programs down itself in a silent install.
+// only gets WM_CLOSE. Restart Manager is off, so that CLOSE-01 tests close
+// alone; CLOSE-03 (closeRMConfig) is the variant with it on.
 // The packages are stored uncompressed, like the service tests, to keep
 // -race builds fast.
 const closeConfig = `schema: msi-builder/v1

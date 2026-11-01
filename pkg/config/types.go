@@ -284,7 +284,8 @@ type Component struct { //nolint:govet // field order is the YAML key order
 	// RestartResources adds files, programs and services the package does
 	// not install to the engine's Restart Manager session when the
 	// component is installed, repaired or removed, so that what holds or
-	// runs them is shut down like a program holding a package file.
+	// runs them is meant to be shut down like a program holding a package
+	// file (CLOSE-04 checks it).
 	RestartResources []*RestartResource `yaml:"restartResources"`
 	EventLog         []*EventSource     `yaml:"eventLog"`
 	Environment      []*Environment     `yaml:"environment"`

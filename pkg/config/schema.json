@@ -2295,7 +2295,7 @@
         },
         "restartResources": {
           "type": "array",
-          "description": "Files, programs and services the package does not install, added to the installer's Restart Manager session when the component is installed, repaired or removed, so that what holds or runs them is shut down like a program that holds a package file. Each entry sets exactly one key; values may hold [PROPERTY] references.",
+          "description": "Files, programs and services the package does not install, added to the installer's Restart Manager session when the component is installed, repaired or removed, so that what holds or runs them is meant to be shut down like a program that holds a package file. Each entry sets exactly one key; values may hold [PROPERTY] references.",
           "items": {
             "type": "object",
             "properties": {
