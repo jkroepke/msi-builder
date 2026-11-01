@@ -259,10 +259,11 @@ func (v *validator) standardActions(cfg *Config) {
 			sequences[place.Sequence] = true
 
 			v.standardPlacement(cfg, placePath, moved.Action, place)
-			v.scopePageMove(cfg, placePath, moved.Action, place)
 
 			if why := idle(cfg, moved.Action, place.Sequence); why != "" {
 				v.errorf(placePath, "%s does not run in this package (%s), so there is nothing to move", moved.Action, why)
+			} else {
+				v.scopePageMove(cfg, placePath, moved.Action, place)
 			}
 		}
 	}

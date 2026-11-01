@@ -16,8 +16,10 @@ import (
 // numbers.
 var placedByBuilder = set("RemoveExistingProducts", "LaunchConditions", "ScheduleReboot") //nolint:gochecknoglobals // lookup table
 
-// dlgInstallScope is the scope page of a dual-scope wizard.
-const dlgInstallScope = "InstallScopeDlg"
+// scopePageNode stands for the scope page of a dual-scope wizard in the
+// numbering. The dot keeps it apart from user placements anchored to
+// InstallScopeDlg, which validate refuses and leaves out.
+const scopePageNode = "InstallScopeDlg."
 
 // schedules numbers each sequence as far as the configuration decides it, so
 // that validate reports the cycles, overlapping chains and numbers out of
@@ -139,8 +141,8 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 	// FindRelatedProducts and LaunchConditions follow the page.
 	if scopePageIn(cfg, sequenceTables[name]) {
 		actions = append(actions,
-			sequence.Action{Name: dlgInstallScope, After: "CostFinalize"},
-			sequence.Action{Name: actFindRelatedProducts, After: dlgInstallScope},
+			sequence.Action{Name: scopePageNode, After: "CostFinalize"},
+			sequence.Action{Name: actFindRelatedProducts, After: scopePageNode},
 			sequence.Action{Name: actLaunchConditions, After: actFindRelatedProducts})
 	}
 
