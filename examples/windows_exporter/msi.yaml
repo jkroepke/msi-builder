@@ -123,8 +123,10 @@ properties:
   REMOTE_ADDR: {}
   SERVICE_ACCOUNT: {}
   SERVICE_PASSWORD: { hidden: true }
-  # The Restart Manager would shut down every process holding a package
-  # file; ServiceControl and close already stop this installation.
+  # Turns Restart Manager off (msi-builder leaves it on by default): in a
+  # silent install it shuts down every process holding a package file, also
+  # monitoring tools that only have the exporter open. ServiceControl and
+  # close already stop this installation.
   MSIRESTARTMANAGERCONTROL: Disable
 
 customActions:

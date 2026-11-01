@@ -33,11 +33,12 @@ components:
   - files: [{ source: keep.exe, close: { timeout: 2s, terminate: false } }]
 `
 
-// closeHelperSource is a program with three modes: "window <marker>" opens
+// closeHelperSource is a program with four modes: "window <marker>" opens
 // a hidden top-level window, writes <marker>.ready, and on WM_CLOSE writes
 // <marker> and exits with 0; "visible <marker>" does the same with a
 // visible window and also opens a hidden one, which writes <marker>.hidden
-// when it gets WM_CLOSE; "console" sleeps without a window.
+// when it gets WM_CLOSE; "hold <marker> <file>" is "window <marker>" with
+// <file> held open; "console" sleeps without a window.
 const closeHelperSource = `//go:build windows
 
 package main
@@ -83,7 +84,19 @@ var (
 	getModuleHandle  = syscall.NewLazyDLL("kernel32.dll").NewProc("GetModuleHandleW")
 )
 
+// held keeps the file of "hold" open while the window runs.
+var held *os.File
+
 func main() {
+	if len(os.Args) > 3 && os.Args[1] == "hold" {
+		f, err := os.Open(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+		held = f
+		window(os.Args[2], false)
+		return
+	}
 	if len(os.Args) > 2 && (os.Args[1] == "window" || os.Args[1] == "visible") {
 		window(os.Args[2], os.Args[1] == "visible")
 		return

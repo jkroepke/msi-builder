@@ -15,7 +15,8 @@ import (
 
 // TestBinaries checks every committed DLL against SHA256SUMS and inspects
 // its PE headers: the machine of its platform, the exported entry point and
-// no import beyond kernel32, advapi32, msi and user32.
+// no import beyond kernel32, advapi32, msi, authz, ntdll, user32 and
+// rstrtmgr.
 func TestBinaries(t *testing.T) {
 	t.Parallel()
 
@@ -75,13 +76,13 @@ func TestBinaries(t *testing.T) {
 
 			slices.Sort(libs)
 
-			if want := []string{"advapi32.dll", "authz.dll", "kernel32.dll", "msi.dll", "ntdll.dll", "user32.dll"}; !slices.Equal(libs, want) {
+			if want := []string{"advapi32.dll", "authz.dll", "kernel32.dll", "msi.dll", "ntdll.dll", "rstrtmgr.dll", "user32.dll"}; !slices.Equal(libs, want) {
 				t.Errorf("imports %v, want %v", libs, want)
 			}
 
 			for _, entry := range []string{
 				cadll.Entry, cadll.GrantEntryPoint, cadll.CloseEntryPoint, cadll.CloseSchedule,
-				cadll.RemoveFoldersExec,
+				cadll.RemoveFoldersExec, cadll.RestartRegister,
 			} {
 				if !bytes.Contains(data, []byte(entry+"\x00")) {
 					t.Errorf("export %s not found", entry)
@@ -100,7 +101,7 @@ func TestBinaries(t *testing.T) {
 			// in the C source, which a rename of the Go constants misses.
 			for _, want := range []string{cadll.Entry + ": [1]", cadll.GrantEntryPoint + ": [1]", cadll.DataProperty,
 				cadll.CloseEntryPoint + ": [1]", cadll.CloseProperty,
-				cadll.RemoveFolders + ": [1]",
+				cadll.RemoveFolders + ": [1]", "BuilderRestart: [1]", cadll.RestartProperty,
 			} {
 				if !bytes.Contains(data, utf16z(want)) {
 					t.Errorf("UTF-16 string %q not found", want)
@@ -123,6 +124,14 @@ func TestData(t *testing.T) {
 
 	if got, want := cadll.Data("", "cmd"), "|cmd"; got != want {
 		t.Errorf("Data = %q, want %q", got, want)
+	}
+}
+
+func TestRestartEntry(t *testing.T) {
+	t.Parallel()
+
+	if got, want := cadll.RestartEntry("$C=2", cadll.RestartFile, "[A]b.dll"), "$C=2\x1ff\x1f[A]b.dll"; got != want {
+		t.Errorf("RestartEntry = %q, want %q", got, want)
 	}
 }
 

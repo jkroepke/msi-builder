@@ -249,6 +249,7 @@ var componentChildren = map[string]func(cc *compConv, e *elem){ //nolint:gocheck
 	"ServiceInstall":        (*compConv).service,
 	"ServiceControl":        func(cc *compConv, e *elem) { cc.controls = append(cc.controls, e) },
 	elemCloseApp:            func(cc *compConv, e *elem) { cc.c.closeApps = append(cc.c.closeApps, e) },
+	elemRestartResource:     (*compConv).restartResource,
 	"CreateFolder":          (*compConv).createFolder,
 	"RemoveFile":            (*compConv).removeFile,
 	"RemoveFolder":          (*compConv).removeFile,

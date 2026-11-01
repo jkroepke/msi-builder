@@ -281,8 +281,13 @@ type Component struct { //nolint:govet // field order is the YAML key order
 	// ServiceControl stops, starts or deletes services that the package
 	// does not install, when the component is installed or removed.
 	ServiceControl []*ControlledService `yaml:"serviceControl"`
-	EventLog       []*EventSource       `yaml:"eventLog"`
-	Environment    []*Environment       `yaml:"environment"`
+	// RestartResources adds files, programs and services the package does
+	// not install to the engine's Restart Manager session when the
+	// component is installed, repaired or removed, so that what holds or
+	// runs them is shut down like a program holding a package file.
+	RestartResources []*RestartResource `yaml:"restartResources"`
+	EventLog         []*EventSource     `yaml:"eventLog"`
+	Environment      []*Environment     `yaml:"environment"`
 	// Purge deletes the component's directory with everything in it when
 	// the product is uninstalled, but not on a major upgrade (FILE-03).
 	Purge        *Purge `yaml:"purge"`
@@ -679,6 +684,15 @@ type ControlledService struct { //nolint:govet // field order is the YAML key or
 	DeleteOnUninstall bool   `yaml:"deleteOnUninstall,omitempty"`
 	// Wait waits for each event to complete; nil means true.
 	Wait *bool `yaml:"wait"`
+}
+
+// RestartResource is one entry of components[].restartResources: exactly
+// one of a file path, a program path (its running processes) or a service
+// name, each a formatted string.
+type RestartResource struct {
+	File    string `yaml:"file"`
+	Program string `yaml:"program"`
+	Service string `yaml:"service"`
 }
 
 // anyEvent reports whether the entry selects at least one event.

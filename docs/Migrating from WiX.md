@@ -177,6 +177,7 @@ msi-builder does the same by default:
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
 | `ProgId`, `Extension`, `Verb` | `files[].fileTypes`; an icon from another file than the one the type opens becomes a note to add the DefaultIcon registry value. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
+| `util:RestartResource` in a component | `components[].restartResources`: `Path` becomes `file`, `ServiceName` `service`. `ProcessName` has no counterpart, because `program` takes the program's full path; one outside a component becomes a note |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
 | `ServiceControl` for another service | `components[].serviceControl` |
 | `util:EventSource` | `components[].eventLog` |

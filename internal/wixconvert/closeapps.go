@@ -11,8 +11,7 @@ const elemCloseApp = "util:CloseApplication"
 
 // closeNote lists what files[].close does differently from
 // util:CloseApplication.
-const closeNote = "WiX matches the running program by its file name, close by its installed path; set the property " +
-	"MSIRESTARTMANAGERCONTROL to Disable, so that the Restart Manager does not close the program as well"
+const closeNote = "WiX matches the running program by its file name, close by its installed path"
 
 // emitCloseApps converts util:CloseApplication elements that close a
 // program the package installs into files[].close of its file, in the

@@ -4,15 +4,16 @@
 # WiX variables became template variables; pass them with --var NAME=value: Version.
 # TODO(line 7): <?include common.wxi?>: convert the included file and merge it in by hand
 # TODO(line 48): the hand-built dialog PortDlg cannot be converted; ui.dialogs lays out text, password, checkbox and choice fields
-# TODO(line 166): <util:CloseApplication> for hello.exe only detects the running program (Property HELLORUNNING), which has no counterpart; files[].close on the program's file closes it instead
-# TODO(line 183): rescheduling the standard action RemoveExistingProducts in InstallExecuteSequence has no counterpart
+# TODO(line 169): <util:RestartResource> outside a component registers its resource on every install; add it to restartResources of the component it belongs to, which registers it when that component is installed, repaired or removed
+# TODO(line 171): <util:CloseApplication> for hello.exe only detects the running program (Property HELLORUNNING), which has no counterpart; files[].close on the program's file closes it instead
+# TODO(line 188): rescheduling the standard action RemoveExistingProducts in InstallExecuteSequence has no counterpart
 # TODO(line 51): a second progress text for InstallFiles is ignored
-# TODO(line 173): the custom action Greet is a script; script custom actions are never supported, use a run action
-# TODO(line 174): the custom action ConfigureIIS calls the WiX extension Wix4IIsCA_X64!ConfigureIIs, which has no counterpart
+# TODO(line 178): the custom action Greet is a script; script custom actions are never supported, use a run action
+# TODO(line 179): the custom action ConfigureIIS calls the WiX extension Wix4IIsCA_X64!ConfigureIIs, which has no counterpart
 # TODO(line 50): the progress text of InstallFiles cannot be converted: msi-builder writes progress texts only for its customActions
 # TODO(line 52): the progress text of LaunchHello is dropped: the action was not converted to a customActions entry of its own
-# TODO(line 185): drop Wix4BroadcastEnvironmentChange_X64: Windows Installer announces environment changes itself
-# TODO(line 186): Wix4BroadcastSettingChange_X64 has no counterpart; if the package writes a setting that Windows reads only on WM_SETTINGCHANGE, send it from a run action
+# TODO(line 190): drop Wix4BroadcastEnvironmentChange_X64: Windows Installer announces environment changes itself
+# TODO(line 191): Wix4BroadcastSettingChange_X64 has no counterpart; if the package writes a setting that Windows reads only on WM_SETTINGCHANGE, send it from a run action
 vars:
   Port: "8080"
   ShortName: Hello
@@ -90,7 +91,8 @@ components:
   - id: manual.pdf
     files:
       - source: docs/manual.pdf
-  # TODO(line 125): <util:XmlFile> is not supported: ship the complete file, or edit it with a run action (no rollback)
+  # TODO(line 102): <util:RestartResource> ProcessName hello-tray.exe matches every program of that name; restartResources program takes its full path so that copies elsewhere are left alone; Restart Manager already shuts down programs that run from a file of the package
+  # TODO(line 129): <util:XmlFile> is not supported: ship the complete file, or edit it with a run action (no rollback)
   - id: HelloExe
     guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a10
     files:
@@ -112,7 +114,7 @@ components:
               - id: open
                 text: Open with Hello
                 arguments: '"%1"'
-          # TODO(line 107): <MIME> in an Extension has no counterpart
+          # TODO(line 111): <MIME> in an Extension has no counterpart
           - progId: Example.HelloVault
             description: Hello vault
             iconIndex: 2
@@ -120,7 +122,7 @@ components:
               - extension: hellovault
                 contentType: application/x-hello-vault
             verbs: []
-        # TODO(line 164): close of bin/hello.exe in INSTALLFOLDER came from <util:CloseApplication>: WiX matches the running program by its file name, close by its installed path; set the property MSIRESTARTMANAGERCONTROL to Disable, so that the Restart Manager does not close the program as well
+        # TODO(line 168): close of bin/hello.exe in INSTALLFOLDER came from <util:CloseApplication>: WiX matches the running program by its file name, close by its installed path
         close: {terminate: false}
     registry:
       - root: HKLM
@@ -185,6 +187,10 @@ components:
         value: '[INSTALLFOLDER]'
         action: append
         scope: machine
+    restartResources:
+      # Programs that keep the shared state file open.
+      - file: '[CommonAppDataFolder]Example\Hello\state.db'
+      - service: HelloHelper
   - id: hello.yaml
     directory: config
     files:
@@ -192,7 +198,7 @@ components:
         id: hello.yaml
     permanent: true
     neverOverwrite: true
-  # TODO(line 132): the install half of util:RemoveFolderEx On="both" on INSTALLFOLDER was not converted: removeFolders removes a folder of the package on uninstall only, since a repair would lose the files the installer keeps there
+  # TODO(line 136): the install half of util:RemoveFolderEx On="both" on INSTALLFOLDER was not converted: removeFolders removes a folder of the package on uninstall only, since a repair would lose the files the installer keeps there
   - id: Logs
     directory: LogsDir
     guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a12
@@ -200,7 +206,7 @@ components:
       - name: '*.log'
     removeFolders:
       - property: INSTALLFOLDER
-    # TODO(line 134): <Permission> replaces the object's permissions; write them as an SDDL string in folderPermissions.sddl and add (A;OICI;FA;;;SY): Windows Installer also gives SYSTEM full access to an object it locks
+    # TODO(line 138): <Permission> replaces the object's permissions; write them as an SDDL string in folderPermissions.sddl and add (A;OICI;FA;;;SY): Windows Installer also gives SYSTEM full access to an object it locks
     createFolder: true
   - id: Data
     directory: DataDir
@@ -220,7 +226,7 @@ components:
           rights: ["0x120116"]
   # The RemoveFolder and HKCU key path of this shortcut component were left out:
   # msi-builder writes both for every shortcut.
-  # TODO(line 147): msi-builder writes its own HKCU key path for this shortcut component; with the late removeOld the WiX value HKCU\Software\Example\Hello\installed stays behind after the upgrade and the uninstall, so remove it with removeRegistry in another component
+  # TODO(line 151): msi-builder writes its own HKCU key path for this shortcut component; with the late removeOld the WiX value HKCU\Software\Example\Hello\installed stays behind after the upgrade and the uninstall, so remove it with removeRegistry in another component
   - id: StartMenu
     directory: ProgramMenuFolder/Example
     guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a14

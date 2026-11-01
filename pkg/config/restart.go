@@ -1,0 +1,78 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+)
+
+// maxRestartValue caps a restartResources value: one line of the
+// BuilderRestartResources property, formatted by the custom action.
+const maxRestartValue = 1024
+
+// restartService is the restartResources key of a service.
+const restartService = "service"
+
+// componentRestartResources checks the files, programs and services a
+// component registers with the Restart Manager session (spec 17.11).
+func (v *validator) componentRestartResources(cfg *Config, compPath string, comp *Component, perUser bool) {
+	seen := make(map[string]bool)
+
+	for j, res := range comp.RestartResources {
+		resPath := fmt.Sprintf("%s.restartResources[%d]", compPath, j)
+
+		key, value, ok := res.kind()
+		if !ok {
+			v.errorf(resPath, "set exactly one of file, program and service")
+
+			continue
+		}
+
+		field := resPath + "." + key
+		v.restartValue(field, key, value, perUser)
+
+		dup := key + "\x00" + strings.ToLower(value)
+		if seen[dup] {
+			v.errorf(field, "this component already registers %s", value)
+		}
+
+		seen[dup] = true
+	}
+
+	if len(comp.RestartResources) == 0 {
+		return
+	}
+
+	if prop := cfg.Properties["MSIRESTARTMANAGERCONTROL"]; prop != nil && strings.EqualFold(prop.Value, "Disable") {
+		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is Disable, so the installer starts no Restart "+
+			"Manager session and nothing is registered")
+	}
+}
+
+// kind returns the key and the value of the one kind an entry sets, and
+// false when it sets none or more than one.
+func (r *RestartResource) kind() (string, string, bool) {
+	key, value, count := "", "", 0
+
+	for _, kv := range [][2]string{{"file", r.File}, {"program", r.Program}, {restartService, r.Service}} {
+		if kv[1] != "" {
+			key, value = kv[0], kv[1]
+			count++
+		}
+	}
+
+	return key, value, count == 1
+}
+
+// restartValue checks the value of one restartResources entry.
+func (v *validator) restartValue(field, key, value string, perUser bool) {
+	switch {
+	case strings.ContainsAny(value, "\r\n\x1f"):
+		v.errorf(field, "must not contain a line break or U+001F")
+	case len(value) > maxRestartValue:
+		v.errorf(field, "is %d characters, at most %d", len(value), maxRestartValue)
+	case key == restartService && len(value) > maxServiceName:
+		v.errorf(field, "is %d characters, a service name holds %d", len(value), maxServiceName)
+	case key == restartService && perUser:
+		v.errorf(field, "%s cannot shut down services, which needs elevation", v.perUserPackage())
+	}
+}

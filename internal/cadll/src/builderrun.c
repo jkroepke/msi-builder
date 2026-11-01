@@ -3560,11 +3560,11 @@ static int sameFile(const WCHAR *image, const WCHAR *path, const FILE_ID_INFO_ *
 // only those with the file's name, since a process started by the short
 // name carries that one; each is opened for its image path alone first, so
 // that only a match is opened with access.
-static DWORD findRunning(MSIHANDLE install, const WCHAR *path, DWORD access, closeTarget *targets, WCHAR *image)
+static DWORD findRunning(MSIHANDLE install, const WCHAR *tmpl, const WCHAR *path, DWORD access, closeTarget *targets, WCHAR *image)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE) {
-        logft(install, tmplClose, msgSnapshot, 0, GetLastError());
+        logft(install, tmpl, msgSnapshot, 0, GetLastError());
         return 0;
     }
     const WCHAR *name = baseName(path);
@@ -3585,7 +3585,7 @@ static DWORD findRunning(MSIHANDLE install, const WCHAR *path, DWORD access, clo
             // that exited in between: the deferred action ends the first.
             // Only a process with the file's name is worth a line.
             if (wieqi(entry.szExeFile, name)) {
-                logft(install, tmplClose, msgCannotOpen, entry.szExeFile, GetLastError());
+                logft(install, tmpl, msgCannotOpen, entry.szExeFile, GetLastError());
             }
             continue;
         }
@@ -3599,7 +3599,7 @@ static DWORD findRunning(MSIHANDLE install, const WCHAR *path, DWORD access, clo
         DWORD err = GetLastError();
         CloseHandle(query);
         if (!process) {
-            logft(install, tmplClose, msgCannotOpen, image, err);
+            logft(install, tmpl, msgCannotOpen, image, err);
             continue;
         }
         targets[n].process = process;
@@ -3612,7 +3612,7 @@ static DWORD findRunning(MSIHANDLE install, const WCHAR *path, DWORD access, clo
     return n;
 }
 
-static void logPid(MSIHANDLE install, const WCHAR *what, DWORD pid, const WCHAR *path, DWORD code)
+static void logPidT(MSIHANDLE install, const WCHAR *tmpl, const WCHAR *what, DWORD pid, const WCHAR *path, DWORD code)
 {
     static const WCHAR open[] = u" (", close[] = u")";
     WCHAR *s = HeapAlloc(GetProcessHeap(), 0, (wlen(path) + 32) * sizeof(WCHAR));
@@ -3623,9 +3623,14 @@ static void logPid(MSIHANDLE install, const WCHAR *what, DWORD pid, const WCHAR 
         wappend(s, &pos, open);
         wappend(s, &pos, path);
         wappend(s, &pos, close);
-        logft(install, tmplClose, s, what, code);
+        logft(install, tmpl, s, what, code);
         HeapFree(GetProcessHeap(), 0, s);
     }
+}
+
+static void logPid(MSIHANDLE install, const WCHAR *what, DWORD pid, const WCHAR *path, DWORD code)
+{
+    logPidT(install, tmplClose, what, pid, path, code);
 }
 
 typedef struct {
@@ -3676,7 +3681,7 @@ static BOOL WINAPI postClose(HWND window, INTPTR param)
 // It returns 0 after a cancel.
 static int closeEntry(MSIHANDLE install, const WCHAR *path, DWORD timeout, closeTarget *targets, WCHAR *image)
 {
-    DWORD n = findRunning(install, path, 0, targets, image);
+    DWORD n = findRunning(install, tmplClose, path, 0, targets, image);
     if (!n) {
         logft(install, tmplClose, path, msgNoneRunning, 0);
         return 1;
@@ -3780,7 +3785,7 @@ __declspec(dllexport) UINT WINAPI BuilderCloseSchedule(MSIHANDLE install)
 // *ended counts those it ended or found gone.
 static DWORD endRunning(MSIHANDLE install, const WCHAR *path, closeTarget *targets, WCHAR *image, DWORD *ended)
 {
-    DWORD n = findRunning(install, path, PROCESS_TERMINATE, targets, image);
+    DWORD n = findRunning(install, tmplClose, path, PROCESS_TERMINATE, targets, image);
     *ended = 0;
     for (DWORD i = 0; i < n; i++) {
         HANDLE process = targets[i].process;
@@ -3827,6 +3832,166 @@ __declspec(dllexport) UINT WINAPI BuilderClose(MSIHANDLE install)
     HeapFree(heap, 0, targets);
     HeapFree(heap, 0, image);
     HeapFree(heap, 0, data);
+    return ERROR_SUCCESS;
+}
+
+// Registering resources with the engine's Restart Manager session
+// (spec 17.11). BuilderRestartRegister, an immediate action before
+// InstallValidate, reads the property BuilderRestartResources that the
+// builder writes, one entry per line:
+//
+//     <condition> US <kind> US <value>
+//
+// (US is U+001F; kind is f for a file, p for a program, s for a service).
+// For every entry whose condition is true it formats the value and
+// registers it with the session whose key the engine leaves in
+// MsiRestartManagerSessionKey until InstallValidate: a file by its path, a
+// service by its name, and a program as every running process whose image
+// is that file (matched like close: by path, else by volume and file ID),
+// identified by its process ID and start time. Restart Manager then lists
+// what holds them in the engine's files-in-use handling, which shuts them
+// down in a silent install. Without a session (MSIRESTARTMANAGERCONTROL
+// is Disable, or the engine started none) the action only logs. It never
+// fails the install. Log lines read `BuilderRestart: ...`.
+
+static const WCHAR tmplRestart[] = u"BuilderRestart: [1]";
+static const WCHAR propRestartResources[] = u"BuilderRestartResources";
+static const WCHAR propRestartKey[] = u"MsiRestartManagerSessionKey";
+static const WCHAR msgRestartData[] = u"malformed restart data";
+static const WCHAR msgNoSession[] = u"no Restart Manager session; nothing registered";
+static const WCHAR msgJoinFailed[] = u"cannot join the Restart Manager session";
+static const WCHAR msgRegistered[] = u"registered";
+static const WCHAR msgRegisterFailed[] = u"cannot register";
+static const WCHAR msgRestartFile[] = u"file ";
+static const WCHAR msgRestartService[] = u"service ";
+static const WCHAR msgRestartProgram[] = u"program ";
+
+// FILETIME and RM_UNIQUE_PROCESS as restartmanager.h lays them out: the
+// process ID and the start time, 12 bytes on every platform.
+typedef struct {
+    DWORD low;
+    DWORD high;
+} FILETIME_;
+
+typedef struct {
+    DWORD pid;
+    FILETIME_ start;
+} RM_UNIQUE_PROCESS_;
+
+_Static_assert(sizeof(RM_UNIQUE_PROCESS_) == 12, "RM_UNIQUE_PROCESS layout");
+
+// kernel32.dll
+BOOL WINAPI GetProcessTimes(HANDLE, FILETIME_ *, FILETIME_ *, FILETIME_ *, FILETIME_ *);
+
+// rstrtmgr.dll
+DWORD WINAPI RmJoinSession(DWORD *, const WCHAR *);
+DWORD WINAPI RmRegisterResources(DWORD, UINT, const WCHAR **, UINT, RM_UNIQUE_PROCESS_ *, UINT, const WCHAR **);
+DWORD WINAPI RmEndSession(DWORD);
+
+// logRestart writes "<kind><value>: <what> (error <code>)".
+static void logRestart(MSIHANDLE install, const WCHAR *kind, const WCHAR *value, const WCHAR *what, DWORD code)
+{
+    WCHAR *s = HeapAlloc(GetProcessHeap(), 0, (wlen(kind) + wlen(value) + 1) * sizeof(WCHAR));
+    if (s) {
+        SIZE_T pos = 0;
+        wappend(s, &pos, kind);
+        wappend(s, &pos, value);
+        logft(install, tmplRestart, s, what, code);
+        HeapFree(GetProcessHeap(), 0, s);
+    }
+}
+
+// registerProgram registers the running copies of the program at path.
+static void registerProgram(MSIHANDLE install, DWORD session, const WCHAR *path, closeTarget *targets, WCHAR *image)
+{
+    DWORD n = findRunning(install, tmplRestart, path, 0, targets, image);
+    if (!n) {
+        logRestart(install, msgRestartProgram, path, msgNoneRunning, 0);
+        return;
+    }
+    for (DWORD i = 0; i < n; i++) {
+        RM_UNIQUE_PROCESS_ proc;
+        FILETIME_ exitTime, kernel, user;
+        proc.pid = targets[i].pid;
+        DWORD err = 0;
+        if (!GetProcessTimes(targets[i].process, &proc.start, &exitTime, &kernel, &user)) {
+            err = GetLastError();
+        } else {
+            err = RmRegisterResources(session, 0, 0, 1, &proc, 0, 0);
+        }
+        logPidT(install, tmplRestart, err ? msgRegisterFailed : msgRegistered, targets[i].pid, path, err);
+        CloseHandle(targets[i].process);
+    }
+}
+
+// restartLine handles one line of BuilderRestartResources. It returns 0
+// for malformed data and 1 otherwise.
+static int restartLine(MSIHANDLE install, DWORD session, WCHAR *line, closeTarget *targets, WCHAR *image)
+{
+    WCHAR *kind = field(line, 0x1F);
+    WCHAR *tmpl = kind ? field(kind, 0x1F) : 0;
+    if (!tmpl || (kind[0] != 'f' && kind[0] != 'p' && kind[0] != 's') || kind[1]) {
+        logft(install, tmplRestart, msgRestartData, 0, 0);
+        return 0;
+    }
+    if (*line) {
+        int cond = MsiEvaluateConditionW(install, line);
+        if (cond == 0) {
+            return 1;
+        }
+        if (cond != MSICONDITION_TRUE && cond != MSICONDITION_NONE) {
+            logft(install, tmplRestart, msgCondition, line, 0);
+            return 1;
+        }
+    }
+    WCHAR *value = format(install, tmpl);
+    if (!value || !*value || hasControl(value, 0)) {
+        logft(install, tmplRestart, msgFormat, tmpl, 0);
+    } else if (kind[0] == 'p') {
+        registerProgram(install, session, value, targets, image);
+    } else {
+        const WCHAR *one[1] = {value};
+        int file = kind[0] == 'f';
+        DWORD err = file ? RmRegisterResources(session, 1, one, 0, 0, 0, 0) : RmRegisterResources(session, 0, 0, 0, 0, 1, one);
+        logRestart(install, file ? msgRestartFile : msgRestartService, value, err ? msgRegisterFailed : msgRegistered, err);
+    }
+    HeapFree(GetProcessHeap(), 0, value);
+    return 1;
+}
+
+__declspec(dllexport) UINT WINAPI BuilderRestartRegister(MSIHANDLE install)
+{
+    HANDLE heap = GetProcessHeap();
+    WCHAR *key = property(install, propRestartKey);
+    if (!key || !*key) {
+        logft(install, tmplRestart, msgNoSession, 0, 0);
+        HeapFree(heap, 0, key);
+        return ERROR_SUCCESS;
+    }
+    DWORD session = 0;
+    DWORD err = RmJoinSession(&session, key);
+    HeapFree(heap, 0, key);
+    if (err) {
+        logft(install, tmplRestart, msgJoinFailed, 0, err);
+        return ERROR_SUCCESS;
+    }
+    WCHAR *list = property(install, propRestartResources);
+    WCHAR *image = HeapAlloc(heap, 0, IMAGE_PATH * sizeof(WCHAR));
+    closeTarget *targets = HeapAlloc(heap, 0, CLOSE_MAX * sizeof(closeTarget));
+    if (!image || !targets) {
+        logft(install, tmplRestart, msgNoMemory, 0, 0);
+    }
+    for (WCHAR *line = list; image && targets && line && *line;) {
+        WCHAR *next = field(line, '\n');
+        if (!restartLine(install, session, line, targets, image)) {
+            break;
+        }
+        line = next;
+    }
+    RmEndSession(session);
+    HeapFree(heap, 0, targets);
+    HeapFree(heap, 0, image);
+    HeapFree(heap, 0, list);
     return ERROR_SUCCESS;
 }
 

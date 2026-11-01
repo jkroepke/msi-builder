@@ -758,6 +758,7 @@ components:
     removeFiles: []                  # RemoveFile rows, see "File removal" below
     services: []
     serviceControl: []               # services the package does not install
+    restartResources: []             # files, programs, services for Restart Manager, see below
     eventLog: []
     environment: []
     createFolder: false
@@ -1223,14 +1224,69 @@ What gets ended, and when:
 
 Only files that end in `.exe` take `close`, and a folder source does not.
 
-Set `MSIRESTARTMANAGERCONTROL: Disable` with `close`. Restart Manager
-otherwise asks every process that holds a package file to shut down in a
-silent install, also an unrelated one that only has the file open, and
-waits for the user in a basic UI (reported by the close-apps evaluation, 2026-10-25);
-`close` covers the programs the package knows about. Not adopted from WiX:
-closing a program by name wherever it runs, end-session messages
-(`WM_QUERYENDSESSION`), registering programs for a restart after the
-install, and a reboot prompt for programs that refuse to exit.
+Restart Manager stays on with `close`, as it is in every package unless
+the package turns it off: msi-builder never sets
+`MSIRESTARTMANAGERCONTROL`, and the installer's default uses Restart
+Manager. `close` runs first, so a program that quits on `WM_CLOSE` is gone
+before the installer looks for files in use (CLOSE-03); what still holds a
+package file then is shut down by Restart Manager in a silent install,
+also a program with `terminate: false` and an unrelated process that only
+has the file open (an accepted risk, see "Restart Manager" below). Not
+adopted from WiX: closing a program by name wherever it runs, end-session
+messages (`WM_QUERYENDSESSION`), registering programs for a restart after
+the install, and a reboot prompt for programs that refuse to exit.
+
+**Restart Manager.** Windows Installer asks Restart Manager which
+processes hold the files an install replaces or removes, and shuts them
+down: a silent install (`/qn`) does it without asking, the wizard asks on
+its `MsiRMFilesInUse` page, and a basic UI (`/qb`) waits for an answer on
+msiexec's own dialog (the close-apps evaluation saw it hold the
+installation for about ten minutes). msi-builder leaves this on. Restart
+Manager does not tell an unrelated process that only has a package file
+open (an editor, a log reader, a virus scanner, a monitoring agent) from
+the program itself; in the close-apps evaluation on 2026-10-25 a silent
+upgrade and uninstall shut down an unrelated PowerShell that held the
+program's file. msi-builder accepts that risk: shutting down what holds a
+file is what lets an upgrade replace it without a reboot. A package that
+cannot accept it turns Restart Manager off with a property, which needs
+no key of its own:
+
+```yaml
+properties:
+  MSIRESTARTMANAGERCONTROL: Disable   # FilesInUse handling instead of Restart Manager
+```
+
+`DisableShutdown` keeps Restart Manager for finding the processes but
+shuts nothing down. The property only works from the `Property` table or
+a transform; `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
+line turned it off too (CLOSE-04). The `windows_exporter` example turns it
+off, because its service and `close` already stop everything it installs.
+
+`restartResources` on a component adds what the package does not
+install to the Restart Manager session, so that what holds or runs it is
+shut down like a program that holds a package file:
+
+```yaml
+components:
+  - files: [{ source: app.exe }]
+    restartResources:
+      - file: '[CommonAppDataFolder]Sample\state.db'   # processes holding it open
+      - program: '[SystemFolder]sample-helper.exe'      # its running processes
+      - service: SampleHelper                           # stopped by its name
+```
+
+Each entry sets exactly one of `file`, `program` and `service`, a
+formatted string. They are registered when the component is installed,
+repaired or removed, by an immediate action on the embedded DLL before
+`InstallValidate` (after `close`'s first action), which joins the
+installer's session (specification section 17.11). `program` matches the
+running processes by their image path like `close`, so a copy of the
+program in another folder is left alone (CLOSE-04). Restart Manager
+shuts down what it finds the same way as for the package's own files; it
+restarts only programs that registered for a restart, and none in the
+close-apps evaluation. A service of a per-user package is an error, an
+entry listed twice in one component too, and `MSIRESTARTMANAGERCONTROL:
+Disable` makes the entries do nothing (a warning).
 
 **Component shortcuts.** A component can list `shortcuts` of its own, for
 shortcuts that do not point at a file listed with them. Each names exactly
@@ -1734,7 +1790,7 @@ components:
 
 The folder must be the component's only file. Settings that name one file
 or one component cannot be copied to many: `guid` (other than `auto`),
-`keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `eventLog`,
+`keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `restartResources`, `eventLog`,
 `environment`, `purge`, `createFolder` and `folderPermissions` on the
 component, and `name`, `id`, `version`, `language` and `shortcuts` on the
 file, are errors. Put them on a component of their own and exclude its file
@@ -1827,7 +1883,7 @@ properties:
   LISTEN_PORT: "9182"                  # short form: value only
   ENABLED_COLLECTORS: {}               # declared, no default value
   SERVICE_PASSWORD: { hidden: true }
-  MSIRESTARTMANAGERCONTROL: Disable
+  MSIRESTARTMANAGERCONTROL: Disable  # turns Restart Manager off, see 4.6
   myPrivate: { value: x }
 ```
 

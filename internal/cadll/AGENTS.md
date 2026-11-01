@@ -1,6 +1,7 @@
 # internal/cadll
 
-The custom action DLL of `run` actions, permission grants and `close`. Read
+The custom action DLL of `run` actions, permission grants, `close` and
+`restartResources`. Read
 the root `AGENTS.md` first.
 
 - `src/builderrun.c` is the whole DLL: freestanding C11, no C runtime, no SDK
@@ -82,7 +83,7 @@ the root `AGENTS.md` first.
   layouts the DLL declares itself are pinned by `_Static_assert`s on their
   documented sizes for 32- and 64-bit builds.
 - `cadll_test.go` checks the checksums, the PE machine, the export and that
-  the imports are only kernel32, advapi32, msi, user32, authz (the deferred folder removal's administrator check) and ntdll (NtCreateFile, NtSetInformationFile, RtlNtStatusToDosError). `testdata/probe` is the
+  the imports are only kernel32, advapi32, msi, user32, authz (the deferred folder removal's administrator check), ntdll (NtCreateFile, NtSetInformationFile, RtlNtStatusToDosError) and rstrtmgr (`restartResources`). `testdata/probe` is the
   CA-03 package that `internal/builder/nativetest` installs on Windows
   (`TestMsiexecRunActions`), natively on the x64 and arm64 runners. The x64
   package under emulation on arm64 passed once (CA-03) and is not rerun.
@@ -221,6 +222,17 @@ the root `AGENTS.md` first.
   mapping to `HKCU\Software\msi-builder\RemoveFoldersLeft\<token>`
   before the record goes, and `keepStale` does the same for a stale
   record before a new removal replaces it. Nothing deletes that key.
+- `restartResources` (spec 17.11) is the export `BuilderRestartRegister`,
+  an immediate action as the user after `BuilderCloseSchedule` and before
+  InstallValidate. It reads `MsiRestartManagerSessionKey` (empty: no
+  session, it only logs), joins with `RmJoinSession`, registers each line
+  of `BuilderRestartResources` (`<condition> US <f|p|s> US <value>`) with
+  `RmRegisterResources` and ends its handle with `RmEndSession`. Never
+  call `RmGetList`, `RmShutdown` or `RmRestart`: the engine owns the
+  session. A program is registered as `RM_UNIQUE_PROCESS` (PID and
+  `GetProcessTimes` creation time) for each process `findRunning` matches
+  by path, so the same matching as `close`; `findRunning` takes the log
+  template so its lines name the right feature.
 - Never take code from another installer toolkit's custom action library;
   the Windows Installer custom action contract is documented by Microsoft
   and the spec (section 9.4).
