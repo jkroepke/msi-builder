@@ -868,6 +868,27 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {resetAfterDays: 30000, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.resetAfterDays", "too long",
 		},
+		"service sid type unknown": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, sidType: open}]\n    files:", 1),
+			sevError, "components[0].services[0].sidType", "not one of",
+		},
+		"preshutdown zero": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 0s}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "positive",
+		},
+		"preshutdown fraction": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 1500us}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "whole number of milliseconds",
+		},
+		"preshutdown too long": {
+			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, preshutdownTimeout: 600h}]\n    files:", 1),
+			sevError, "components[0].services[0].preshutdownTimeout", "at most 2147483647",
+		},
+		"restricted next to an unrestricted shared service": {
+			base + strings.Replace(appComponent, "    files:",
+				"    services: [{name: svc, type: shareProcess, sidType: restricted}, {name: other, type: shareProcess}]\n    files:", 1),
+			sevWarning, "components[0].services[0].sidType", "every service of that process",
+		},
 		"recovery four steps": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {actions: [restart, restart, restart, restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.actions", "one to three",
@@ -2192,5 +2213,34 @@ func TestInstallDirBesideTargetDirTree(t *testing.T) {
 
 	if !find(validate(t, doc), config.SeverityWarning, "installDir", "next to APPDIR") {
 		t.Error("no warning about APPDIR")
+	}
+}
+
+// TestSharedSidTypesQuiet checks that the shared-process SID warning stays
+// quiet when every shareProcess service of the component is restricted,
+// for a restricted ownProcess service, and across components, which run
+// other executables.
+func TestSharedSidTypesQuiet(t *testing.T) {
+	t.Parallel()
+
+	for name, services := range map[string]string{
+		"all restricted": "    services: [{name: svc, type: shareProcess, sidType: restricted}, " +
+			"{name: other, type: shareProcess, sidType: restricted}]\n",
+		"own process": "    services: [{name: svc, sidType: restricted}, {name: other, type: shareProcess}]\n",
+	} {
+		doc := base + strings.Replace(appComponent, "    files:", services+"    files:", 1)
+		for _, d := range validate(t, doc) {
+			if strings.HasSuffix(d.Path, ".sidType") {
+				t.Errorf("%s: %s: %s", name, d.Path, d.Message)
+			}
+		}
+	}
+
+	doc := base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, type: shareProcess, sidType: restricted}]\n    files:", 1) +
+		"  - id: Other\n    directory: INSTALLDIR\n    files: [{source: other.exe}]\n    services: [{name: other, type: shareProcess}]\n"
+	for _, d := range validate(t, doc) {
+		if strings.HasSuffix(d.Path, ".sidType") {
+			t.Errorf("across components: %s: %s", d.Path, d.Message)
+		}
 	}
 }

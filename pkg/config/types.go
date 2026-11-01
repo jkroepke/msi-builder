@@ -617,22 +617,29 @@ const (
 
 // Service is a Windows service installed from the component's key file.
 type Service struct { //nolint:govet // field order is the YAML key order
-	Name                             string           `yaml:"name"`
-	DisplayName                      string           `yaml:"displayName"`
-	Description                      string           `yaml:"description"`
-	Type                             string           `yaml:"type"`
-	Start                            string           `yaml:"start"`
-	DelayedAutoStart                 bool             `yaml:"delayedAutoStart"`
-	ErrorControl                     string           `yaml:"errorControl"`
-	Vital                            bool             `yaml:"vital"`
-	Account                          string           `yaml:"account"`
-	Password                         string           `yaml:"password"`
-	Arguments                        Arguments        `yaml:"arguments"`
-	Dependencies                     []string         `yaml:"dependencies"`
-	FailureActionsOnNonCrashFailures bool             `yaml:"failureActionsOnNonCrashFailures"`
-	Control                          ServiceControl   `yaml:"control"`
-	Recovery                         *ServiceRecovery `yaml:"recovery"`
-	Permissions                      *Permissions     `yaml:"permissions"`
+	Name                             string    `yaml:"name"`
+	DisplayName                      string    `yaml:"displayName"`
+	Description                      string    `yaml:"description"`
+	Type                             string    `yaml:"type"`
+	Start                            string    `yaml:"start"`
+	DelayedAutoStart                 bool      `yaml:"delayedAutoStart"`
+	ErrorControl                     string    `yaml:"errorControl"`
+	Vital                            bool      `yaml:"vital"`
+	Account                          string    `yaml:"account"`
+	Password                         string    `yaml:"password"`
+	Arguments                        Arguments `yaml:"arguments"`
+	Dependencies                     []string  `yaml:"dependencies"`
+	FailureActionsOnNonCrashFailures bool      `yaml:"failureActionsOnNonCrashFailures"`
+	// SidType is the service SID type: none, unrestricted or restricted
+	// (MsiServiceConfig ConfigType 5, SVC-10). Empty writes no row.
+	SidType string `yaml:"sidType"`
+	// PreshutdownTimeout is how long the service manager waits for the
+	// service after a preshutdown notification (MsiServiceConfig
+	// ConfigType 7, SVC-10). Nil writes no row.
+	PreshutdownTimeout *Duration        `yaml:"preshutdownTimeout"`
+	Control            ServiceControl   `yaml:"control"`
+	Recovery           *ServiceRecovery `yaml:"recovery"`
+	Permissions        *Permissions     `yaml:"permissions"`
 }
 
 // Arguments is a service command line. Each entry is a piece of it; a piece

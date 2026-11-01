@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
 # Converted from implicit.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
+# convert computed the guids of 3 components whose code WiX generates from their key paths, as wix build for any -arch does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 product:
   name: Hello
@@ -28,6 +29,7 @@ components:
   # A Subdirectory is not the install folder.
   - id: Spy
     directory: spy
+    guid: '{8AB47247-ED44-5409-810A-C6759884172E}'
     files:
       - source: dist/spy.dll
   # A Subdirectory below a standard folder that no element declares.
@@ -62,6 +64,7 @@ components:
           - id: open
             arguments: '"%1"'
   - id: hello.exe
+    guid: '{78693E13-BDFA-5DDB-ACF6-13E143D638A9}'
     files:
       - source: dist/hello.exe
         id: hello.exe
@@ -74,5 +77,6 @@ components:
     files:
       - source: dist/LICENSE.txt
   - id: readme.txt
+    guid: '{7BB5105A-DE93-5841-9AD1-7B9AAC98F6BC}'
     files:
       - source: dist/readme.txt

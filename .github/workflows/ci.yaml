@@ -143,7 +143,9 @@ jobs:
 
       # TestMsiexecHarvestedComponentCodes (UPG-12) upgrades a package that
       # WiX built from a Files glob by the package msi-builder builds from the
-      # converted source. WiX runs as a black box; Files needs WiX 5.
+      # converted source, and TestMsiexecComputedComponentCodes (UPG-14)
+      # compares the codes convert computes with those of WiX packages. WiX
+      # runs as a black box; Files needs WiX 5.
       - name: Install WiX
         if: matrix.suite == 'native'
         shell: pwsh
@@ -158,7 +160,11 @@ jobs:
       # PROP-01). The runner is thrown away after the job, so the step
       # creates a local user with a random password and allows non-admin
       # installs, which Windows Server turns off by default (DisableMsi).
-      # The TestNonAdmin tests in go test below skip without the user.
+      # The TestNonAdmin tests in go test below skip without the user. The
+      # password is hex: go test runs from Git Bash, which rewrites an
+      # environment value that starts with / into a Windows path for the
+      # programs it starts, so a base64 password failed one run in 64 with
+      # "user name or password is incorrect" and then locked the user out.
       - name: Create a standard user
         if: matrix.suite == 'native'
         shell: pwsh
@@ -166,7 +172,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $bytes = [byte[]]::new(24)
           [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-          $password = [Convert]::ToBase64String($bytes) + 'aA1!'
+          $password = [Convert]::ToHexString($bytes) + 'aA1!'
           "::add-mask::$password"
           New-LocalUser -Name msitest -Password (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires | Out-Null
           $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
@@ -179,12 +185,18 @@ jobs:
       # but nativetest under -race. The builder code the native tests run is
       # checked for races here; only internal/ice's Windows code, which the
       # native tests call one at a time, runs without -race.
+      #
+      # Linux measures coverage in a second run without -race: -race forces
+      # atomic counters, which every parallel test of a package updates
+      # across all of ./..., and the two together made internal/builder more
+      # than six times as slow as the race run alone (72 s to 464 s).
       - name: go test
         if: matrix.suite == 'unit'
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            go test ./... -short -timeout 25m -shuffle=on -race -covermode=atomic -coverprofile=coverage.out -coverpkg=./...
+            go test ./... -short -timeout 25m -shuffle=on -race
+            go test ./... -short -timeout 25m -shuffle=on -covermode=set -coverprofile=coverage.out -coverpkg=./...
           else
             mapfile -t pkgs < <(go list ./... | grep -v '/internal/builder/nativetest$')
             go test "${pkgs[@]}" -timeout 25m -shuffle=on -race

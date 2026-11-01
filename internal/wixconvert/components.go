@@ -152,13 +152,28 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 	}
 
 	// A folder source takes no guid; pinHarvested gives its files theirs.
-	if comp.generated && comp.folder == nil && c.built != nil {
-		c.pinCode(comp, builtKeyFile(elm, content.keyFile))
+	if comp.generated {
+		c.keepCode(comp, builtKeyFile(elm, content.keyFile))
 	}
 
 	content.finish()
 
 	return out
+}
+
+// keepCode gives a component whose Guid WiX generates the code WiX gave
+// it: from the built package, else computed from the source.
+func (c *converter) keepCode(comp *comp, keyFile string) {
+	switch {
+	case c.built != nil && comp.folder == nil:
+		c.pinCode(comp, keyFile)
+	case c.built != nil:
+		// pinHarvested gives the files of a folder source their codes.
+	case comp.folder != nil:
+		c.computeHarvested(comp)
+	default:
+		c.computeCode(comp)
+	}
 }
 
 // builtKeyFile returns the key file a component has in the built package:
@@ -173,19 +188,26 @@ func builtKeyFile(elm *elem, keyFile string) string {
 
 // Bitness values.
 const (
-	platformX64 = "x64"
-	platformX86 = "x86"
-	always32    = "always32"
-	always64    = "always64"
+	platformX64   = "x64"
+	platformX86   = "x86"
+	platformArm64 = "arm64"
+	always32      = "always32"
+	always64      = "always64"
 )
 
 // Names that several elements share.
 const (
-	attrDirectory  = "Directory"
-	attrProperty   = "Property"
-	elemPermission = "Permission"
-	elemCondition  = "Condition"
-	rightsFull     = "full"
+	attrDirectory    = "Directory"
+	attrProperty     = "Property"
+	elemPermission   = "Permission"
+	elemRemoveFile   = "RemoveFile"
+	elemRemoveFolder = "RemoveFolder"
+	// folderTargetDir is the root folder, folderProgramFiles6432 the
+	// Program Files folder of the platform WiX builds for.
+	folderTargetDir        = "TARGETDIR"
+	folderProgramFiles6432 = "ProgramFiles6432Folder"
+	elemCondition          = "Condition"
+	rightsFull             = "full"
 )
 
 // WiX standard wizards and their variables.
@@ -250,8 +272,8 @@ var componentChildren = map[string]func(cc *compConv, e *elem){ //nolint:gocheck
 	"ServiceControl":        func(cc *compConv, e *elem) { cc.controls = append(cc.controls, e) },
 	elemCloseApp:            func(cc *compConv, e *elem) { cc.c.closeApps = append(cc.c.closeApps, e) },
 	"CreateFolder":          (*compConv).createFolder,
-	"RemoveFile":            (*compConv).removeFile,
-	"RemoveFolder":          (*compConv).removeFile,
+	elemRemoveFile:          (*compConv).removeFile,
+	elemRemoveFolder:        (*compConv).removeFile,
 	"util:RemoveFolderEx":   (*compConv).purge,
 	elemShortcut:            (*compConv).shortcut,
 	"util:InternetShortcut": (*compConv).shortcut,
