@@ -368,30 +368,44 @@ func (c *converter) moveRefused(name, why string, placement *omap, emitted map[s
 	return false, c.movedAnchorFails(placement, emitted)
 }
 
-// anchoredBack reports whether a placement is anchored to another moved
-// action whose kept move in the same sequence is anchored back to it, such
-// as AppSearch before LaunchConditions and LaunchConditions after AppSearch:
-// both state the same order, which the move of the later action keeps
-// alone, as taking both is a cycle.
+// anchoredBack reports whether a placement starts a loop of moves anchored
+// to one another in its sequence, such as AppSearch before LaunchConditions
+// and LaunchConditions after AppSearch, and its action comes first in the
+// loop. Such moves state one order, which msi-builder would see as a
+// cycle; dropping the move of the first action keeps the order.
 func (c *converter) anchoredBack(name string, placement *omap) bool {
-	seq := placement.str("sequence")
 	order := []string{actFindRelatedProducts, actAppSearch, actLaunchConditions}
+	seq := placement.str("sequence")
+	seen := map[string]bool{name: true}
+	current := placement
 
-	for _, key := range []string{keyBefore, keyAfter} {
-		anchor := placement.str(key)
-		if !movableActions[anchor] || slices.Index(order, anchor) < slices.Index(order, name) || !c.movesIn(anchor, seq) {
-			continue
+	for {
+		anchor := current.str(keyBefore) + current.str(keyAfter)
+		if anchor == name {
+			return true
 		}
 
-		for _, entry := range c.moved[anchor] {
-			other, ok := entry.(*omap)
-			if ok && other.str("sequence") == seq && (other.str(keyBefore) == name || other.str(keyAfter) == name) {
-				return true
-			}
+		if !movableActions[anchor] || seen[anchor] || slices.Index(order, anchor) < slices.Index(order, name) || !c.movesIn(anchor, seq) {
+			return false
+		}
+
+		seen[anchor] = true
+
+		if current = c.movedPlacement(anchor, seq); current == nil {
+			return false
+		}
+	}
+}
+
+// movedPlacement returns the move of an action in a sequence, or nil.
+func (c *converter) movedPlacement(name, seq string) *omap {
+	for _, entry := range c.moved[name] {
+		if placement, ok := entry.(*omap); ok && placement.str("sequence") == seq {
+			return placement
 		}
 	}
 
-	return false
+	return nil
 }
 
 // searchNextToLaunch checks an AppSearch move next to LaunchConditions,

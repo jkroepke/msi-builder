@@ -828,9 +828,9 @@ Other standard actions keep their place, and a condition on a standard
 action has no counterpart; convert notes both. A place at the default
 number is dropped, and so is AppSearch before an unmoved LaunchConditions
 in a package with launch conditions, which is the default order there. Of
-two moves anchored to each other that state the same order (AppSearch
-before LaunchConditions, LaunchConditions after AppSearch), convert keeps
-the later action's. With a note, convert also drops the move of
+moves anchored to one another in a loop that states one order (AppSearch
+before LaunchConditions, LaunchConditions after AppSearch), convert drops
+the first action's. With a note, convert also drops the move of
 AppSearch without searches, of LaunchConditions without launch conditions or
 a downgrade check, and a move to a place msi-builder refuses (at or after
 CostInitialize, next to a dialog, AppSearch after an unmoved
