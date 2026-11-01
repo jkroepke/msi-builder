@@ -78,8 +78,12 @@ func (b *build) installScope(wiz *wizard) {
 		uiRadio{property: propScope, value: scopeMachine, text: wiz.text("InstallScopeMachine"), y: 2 * radioStep, w: width, h: radioStep},
 	)
 
+	// Next sets the context the way the engine leaves it, ALLUSERS 1 per
+	// machine and unset per user, so that FindRelatedProducts and the
+	// launch conditions after the page see it as the server does (UI-11).
 	next := page.find(ctlNext).
-		on("[ALLUSERS]", "2", condAlways).
+		on("[ALLUSERS]", "1", condMachine).
+		on("[ALLUSERS]", "{}", "NOT "+condMachine).
 		on("[MSIINSTALLPERUSER]", "1", "NOT "+condMachine).
 		on("[MSIINSTALLPERUSER]", "{}", condMachine)
 

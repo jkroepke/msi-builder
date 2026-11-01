@@ -259,18 +259,22 @@ func (v *validator) standardActions(cfg *Config) {
 			sequences[place.Sequence] = true
 
 			v.standardPlacement(cfg, placePath, moved.Action, place)
-
-			// The scope page runs FindRelatedProducts and LaunchConditions
-			// of the UI sequence after the context is chosen (UI-11).
-			if place.Sequence == "ui" && cfg.Package.Scope.Dual() && cfg.UI.Enabled && moved.Action != "AppSearch" {
-				v.errorf(placePath+".sequence", "the scope page of a dual-scope wizard runs %s of the ui sequence after it, "+
-					"where it sees the chosen context; move it in the execute sequence only", moved.Action)
-			}
+			v.scopePageMove(cfg, placePath, moved.Action, place)
 
 			if why := idle(cfg, moved.Action, place.Sequence); why != "" {
 				v.errorf(placePath, "%s does not run in this package (%s), so there is nothing to move", moved.Action, why)
 			}
 		}
+	}
+}
+
+// scopePageMove refuses a ui move of FindRelatedProducts or
+// LaunchConditions in a dual-scope package with the wizard: the scope page
+// runs them after the context is chosen (UI-11).
+func (v *validator) scopePageMove(cfg *Config, placePath, action string, place Placement) {
+	if place.Sequence == "ui" && cfg.Package.Scope.Dual() && cfg.UI.Enabled && action != "AppSearch" {
+		v.errorf(placePath+".sequence", "the scope page of a dual-scope wizard runs %s of the ui sequence after it, "+
+			"where it sees the chosen context; move it in the execute sequence only", action)
 	}
 }
 

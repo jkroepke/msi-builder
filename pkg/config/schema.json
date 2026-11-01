@@ -2249,7 +2249,7 @@
               },
               "after": {
                 "type": "string",
-                "description": "The wizard dialog this one follows in its flow. Install flow: WelcomeDlg, LicenseAgreementDlg, InstallScopeDlg, InstallDirDlg, CustomizeDlg or an added dialog. Remove flow: MaintenanceTypeDlg (the default) or an added remove dialog."
+                "description": "The wizard dialog this one follows in its flow. Install flow: WelcomeDlg, LicenseAgreementDlg, InstallDirDlg, CustomizeDlg or an added dialog. Remove flow: MaintenanceTypeDlg (the default) or an added remove dialog."
               },
               "flow": {
                 "enum": [

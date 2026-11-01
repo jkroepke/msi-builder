@@ -170,7 +170,7 @@ properties:
 	appPaths := 0
 
 	for _, row := range rows(t, database, "RegLocator") {
-		if key, _ := row[2].(string); strings.HasSuffix(key, `App Paths\hello.exe`) {
+		if strings.HasSuffix(fmt.Sprint(row[2]), `App Paths\hello.exe`) {
 			appPaths++
 
 			if row[4] != 17 {

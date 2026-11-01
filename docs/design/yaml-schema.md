@@ -323,8 +323,8 @@ package may run a no-impersonate action with `scope: perMachine` (CA-09).
 either for the current user or for all users (Microsoft's "dual-purpose
 package"; specification section 8.2, INST-02). Both need `installerVersion`
 5.0. The command line chooses with `MSIINSTALLPERUSER=1` (per user) or
-`MSIINSTALLPERUSER=""` (per machine); a wizard shows a scope page after
-the welcome and license pages, see `ui`.
+`MSIINSTALLPERUSER=""` (per machine); a wizard shows a scope page before
+the welcome page, see `ui`.
 
 ```yaml
 package:
@@ -2585,7 +2585,7 @@ searched property is an error for the same reason, and so is a choice on a
 property that another field binds too. In the full UI the group starts on
 the default and selecting another option sets the property on the server
 (UI-05, observed on Windows). `after` names the page the dialog follows:
-`WelcomeDlg`, `LicenseAgreementDlg`, `InstallScopeDlg`, `InstallDirDlg`,
+`WelcomeDlg`, `LicenseAgreementDlg`, `InstallDirDlg`,
 `CustomizeDlg` (each when the wizard has it) or an added dialog. With `enabled: false` (the
 default) no UI tables are written and msiexec shows its basic progress
 window; silent installs never depend on the UI in any mode. Without
@@ -2675,12 +2675,30 @@ can follow it with `after: InstallDirDlg`.
 
 #### Scope page
 
-A package with a dual `package.scope` gets `InstallScopeDlg` after the
-welcome and license pages, before the install folder page: "Install just
-for you" and "Install for all users of this computer", preselected with the
-context the package opened in (the scope's default, or the command line's
-`MSIINSTALLPERUSER`). Next sets `ALLUSERS=2` and `MSIINSTALLPERUSER`, and
-the ready page then shows Install with the UAC shield for all users. The
+A package with a dual `package.scope` gets `InstallScopeDlg`, shown on its
+own before the welcome page of a new installation: "Install just for you"
+and "Install for all users of this computer", preselected with the context
+the package opened in (the scope's default, or the command line's
+`MSIINSTALLPERUSER`). With `installDir.remember`, a folder remembered only
+in the other context preselects that context, so that the page starts where
+the previous version is installed. Next sets `ALLUSERS=2` and
+`MSIINSTALLPERUSER` and continues to the welcome page; the page has no Back.
+The ready page then shows Install with the UAC shield for all users.
+
+The page runs in the UI sequence after `CostFinalize`, and the UI
+sequence's `FindRelatedProducts` and `LaunchConditions` run after it,
+before `MigrateFeatureStates`; the execute sequence keeps them at 25 and
+100. In a full-UI install only the client's `FindRelatedProducts` counts,
+and it finds only products of the context it runs in: on a page after the
+welcome page, choosing all users to update a per-machine version left both
+versions installed, and a launch condition that tests `ALLUSERS`, such as
+one that refuses a per-user install next to a per-machine one, ended the
+install before the page appeared (UI-11). `standardActions` therefore
+cannot move `FindRelatedProducts` or `LaunchConditions` in the `ui`
+sequence of a dual package with the wizard, and an action placed relative
+to them in `ui` runs after the page too. The server evaluates the launch
+conditions again with the chosen context, so a launch condition that
+refuses the chosen context shows its message after Install. The
 client keeps the folders it resolved for the context it opened in, so Next
 also sets every public folder under Program Files or Common Files (such as
 the install folder) to its path in the chosen context, unless it holds

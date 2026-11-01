@@ -978,7 +978,7 @@ undo themselves on uninstall and roll back on a failed install.
 | `WixUI_Minimal` | `ui.enabled: true` with `ui.license` |
 | `WixUI_InstallDir` | `ui.enabled: true` with `chooseDirectory: true` |
 | `WixUI_FeatureTree`, `WixUI_Mondo` | `ui.enabled: true` with `chooseFeatures: true` |
-| `WixUI_Advanced` | `package.scope: perUserOrMachine` or `perMachineOrUser`, which adds a scope page, with `chooseDirectory: true` and `chooseFeatures: true` |
+| `WixUI_Advanced` | `package.scope: perUserOrMachine` or `perMachineOrUser`, which adds a scope page, with `chooseDirectory: true` and `chooseFeatures: true`. msi-builder shows the scope page before the welcome page and runs the UI sequence's `FindRelatedProducts` and `LaunchConditions` after it. A WiX 5 `WixUI_Advanced` package runs both at 25 and 100, before its scope dialog, which the welcome page's Advanced button opens; there a full-UI update that switches to the context of the installed version is expected to leave both versions installed, since only the client's `FindRelatedProducts` counts (UI-11; the WiX tables were read, the WiX update was not run). A package's own scope dialog scheduled before `FindRelatedProducts`, as some ports have, becomes this page |
 | `WixUILicenseRtf` | `ui.license` (`.rtf` or text) |
 | `WixUIBannerBmp`, `WixUIDialogBmp` | `ui.theme.banner`, `ui.theme.dialog` (BMP, PNG or JPEG, same sizes) |
 | `WIXUI_EXITDIALOGOPTIONALCHECKBOX` with `WixShellExec` | `ui.launch.file` |

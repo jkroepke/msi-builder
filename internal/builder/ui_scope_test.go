@@ -99,7 +99,8 @@ func TestScopePage(t *testing.T) {
 
 	unchanged := `(INSTALLDIR ~= InstallScopeUser_INSTALLDIR OR INSTALLDIR ~= InstallScopeMachine_INSTALLDIR)`
 	want := []string{
-		"[ALLUSERS] 2 [1]",
+		`[ALLUSERS] 1 [BuilderInstallScope="perMachine"]`,
+		`[ALLUSERS] {} [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] 1 [NOT BuilderInstallScope="perMachine"]`,
 		`[MSIINSTALLPERUSER] {} [BuilderInstallScope="perMachine"]`,
 		`[INSTALLDIR] [InstallScopeUser_INSTALLDIR] [NOT BuilderInstallScope="perMachine" AND ` + unchanged + `]`,
@@ -193,20 +194,22 @@ func TestScopePageFirst(t *testing.T) {
 
 	numbers := func(table string) map[string]int {
 		got := map[string]int{}
+
 		for _, row := range rows(t, res.Database, table) {
-			n, _ := row[2].(int)
-			got[fmt.Sprint(row[0])] = n
+			if n, ok := row[2].(int); ok {
+				got[fmt.Sprint(row[0])] = n
+			}
 		}
 
 		return got
 	}
 
-	ui := numbers("InstallUISequence")
+	uiSeq := numbers("InstallUISequence")
 	order := []string{"CostFinalize", "InstallScopeDlg", "FindRelatedProducts", "LaunchConditions", "MigrateFeatureStates", "WelcomeDlg"}
 
 	for i := 1; i < len(order); i++ {
-		if ui[order[i-1]] == 0 || ui[order[i]] <= ui[order[i-1]] {
-			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], ui[order[i-1]], order[i], ui[order[i]])
+		if uiSeq[order[i-1]] == 0 || uiSeq[order[i]] <= uiSeq[order[i-1]] {
+			t.Errorf("InstallUISequence: %s at %d, %s at %d, want the first before the second", order[i-1], uiSeq[order[i-1]], order[i], uiSeq[order[i]])
 		}
 	}
 
@@ -228,8 +231,8 @@ func TestScopePageFirst(t *testing.T) {
 		t.Errorf("SetInstallScopePrevious condition %v", got)
 	}
 
-	if ui["SetInstallScopePrevious"] <= ui["SetInstallScopeUser"] || ui["SetInstallScopePrevious"] >= ui["InstallScopeDlg"] {
+	if uiSeq["SetInstallScopePrevious"] <= uiSeq["SetInstallScopeUser"] || uiSeq["SetInstallScopePrevious"] >= uiSeq["InstallScopeDlg"] {
 		t.Errorf("SetInstallScopePrevious at %d, want between SetInstallScopeUser (%d) and the page (%d)",
-			ui["SetInstallScopePrevious"], ui["SetInstallScopeUser"], ui["InstallScopeDlg"])
+			uiSeq["SetInstallScopePrevious"], uiSeq["SetInstallScopeUser"], uiSeq["InstallScopeDlg"])
 	}
 }

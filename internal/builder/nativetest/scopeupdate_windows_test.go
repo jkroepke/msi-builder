@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestFullUIScopeUpdate(t *testing.T) { //nolint:paralleltest // msiexec runs
 
 	inputs := map[string][]byte{"app.exe": testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})}
 
-	for i, tc := range []struct {
+	for i, tc := range []struct { //nolint:paralleltest // msiexec runs one installation at a time
 		name, choose       string
 		launch, remember   bool
 		exit               int
@@ -66,12 +67,13 @@ func TestFullUIScopeUpdate(t *testing.T) { //nolint:paralleltest // msiexec runs
 		{"all users with launch condition", "^Install for all users", true, false, 0, "none", "machine"},
 		{"just you with launch condition", "", true, false, 1603, "machine", "none"},
 		{"remembered machine folder", "", true, true, 0, "none", "machine"},
+		{"per-user v1 just you", "", false, false, 0, "none", "user"},
 	} {
 		t.Run("UI-11 "+tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			name := fmt.Sprintf("ScopeUpdate%d", i)
 			config := func(version string) string {
-				doc := strings.NewReplacer("VERSION", version, "SCOPEUPDATE", name, "REMEMBER", fmt.Sprint(tc.remember),
+				doc := strings.NewReplacer("VERSION", version, "SCOPEUPDATE", name, "REMEMBER", strconv.FormatBool(tc.remember),
 					"6c1e9d3f7b5N", fmt.Sprintf("6c1e9d3f7b5%d", i)).Replace(scopeUpdateConfig)
 				if tc.launch {
 					doc += scopeUpdateLaunch
@@ -95,7 +97,12 @@ func TestFullUIScopeUpdate(t *testing.T) { //nolint:paralleltest // msiexec runs
 				_ = exec.CommandContext(context.Background(), "reg.exe", "delete", `HKLM\Software\MsiBuilderTest\`+name, "/f", "/reg:64").Run() //nolint:gosec // test-controlled arguments
 			}()
 
-			msiexecQuiet(t, filepath.Join(dir, "v1.log"), "/i", older, `MSIINSTALLPERUSER=""`)
+			context := `MSIINSTALLPERUSER=""`
+			if tc.oldAfter == "none" && tc.newAfter == "user" {
+				context = "MSIINSTALLPERUSER=1"
+			}
+
+			msiexecQuiet(t, filepath.Join(dir, "v1.log"), "/i", older, context)
 
 			log := filepath.Join(dir, "v2.log")
 			exit, seen := fullUIDriven(t, dir, tc.choose, "^(Next|Install|Finish|OK)$", "/i", newer, "/l*v", log)
