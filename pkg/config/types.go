@@ -33,6 +33,7 @@ type Config struct { //nolint:govet // field order is the YAML key order
 	Properties       Properties        `yaml:"properties"`
 	LaunchConditions []LaunchCondition `yaml:"launchConditions"`
 	CustomActions    []*CustomAction   `yaml:"customActions"`
+	StandardActions  []*StandardAction `yaml:"standardActions"`
 	Icons            map[string]string `yaml:"icons"`
 	Binaries         map[string]string `yaml:"binaries"`
 	Firewall         []*FirewallRule   `yaml:"firewall"`

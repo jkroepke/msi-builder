@@ -74,6 +74,9 @@ const (
 	actPublishProduct       = "PublishProduct"
 	actInstallFinalize      = "InstallFinalize"
 	actScheduleReboot       = "ScheduleReboot"
+	actFindRelatedProducts  = "FindRelatedProducts"
+	actAppSearch            = "AppSearch"
+	actLaunchConditions     = "LaunchConditions"
 	actDuplicateFiles       = "DuplicateFiles"
 
 	condNotInstalled = "NOT Installed"
@@ -177,20 +180,26 @@ func (b *build) anchoredTo(table, name string) int {
 	return count
 }
 
-// standardAt adds a standard action at its default number for the table
-// unless it is already scheduled there. It panics on an action without a
+// standardAt adds a standard action at its default number for the table,
+// or where standardActions moves it, unless it is already scheduled there. It panics on an action without a
 // default in that table, which is a builder bug.
 func (b *build) standardAt(table, name string) {
 	if b.scheduled(table, name) {
 		return
 	}
 
-	s, ok := sequence.LookupStandard(name)
-	if !ok || s.Number(table) == 0 {
+	std, ok := sequence.LookupStandard(name)
+	if !ok || std.Number(table) == 0 {
 		panic(fmt.Sprintf("builder: %s has no default number in %s", name, table))
 	}
 
-	b.schedule(table, name, s.Condition, "", "", s.Number(table))
+	if place, _, moved := b.cfg.StandardPlacement(table, name); moved {
+		b.schedule(table, name, std.Condition, place.Before, place.After, place.At)
+
+		return
+	}
+
+	b.schedule(table, name, std.Condition, "", "", std.Number(table))
 }
 
 // standardNumber is the default number of a standard action in a table.
@@ -591,19 +600,9 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 		}
 	}
 
-	if b.hasRows("LaunchCondition") {
-		for _, table := range []string{seqInstallExecute, seqInstallUI} {
-			// After AppSearch and the actions that apply its results when
-			// they do not fit between 50 and 100, so that the gap does not
-			// limit how many properties a package can search.
-			if b.scheduled(table, "AppSearch") && !b.scheduled(table, "LaunchConditions") &&
-				standardNumber(table, "AppSearch")+b.anchoredTo(table, "AppSearch") >= standardNumber(table, "LaunchConditions") {
-				b.schedule(table, "LaunchConditions", standardCondition("LaunchConditions"), "", "AppSearch", 0)
-			}
+	b.movedLast()
 
-			b.standardAt(table, "LaunchConditions")
-		}
-	}
+	b.launchConditionsAction()
 
 	for _, tbl := range slices.Sorted(maps.Keys(tableActions)) {
 		if !b.hasRows(tbl) {
@@ -672,6 +671,7 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 	}
 
 	b.checkSequences()
+	b.checkMoved()
 	b.checkWhen()
 	b.checkPerUserRollback()
 
@@ -717,9 +717,9 @@ func (b *build) sequenceError(table string, err error) {
 		return
 	}
 
-	path := b.placementPath(table, serr.Action)
+	path := b.userPath(table, serr.Action)
 	if path == "" {
-		path = b.placementPath(table, serr.Other)
+		path = b.userPath(table, serr.Other)
 	}
 
 	if path == "" {

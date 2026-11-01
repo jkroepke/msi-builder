@@ -286,6 +286,7 @@ Silent-failure cases a producer has to guard against itself:
 | UPG-12 | Confirmed | [ci](msitest/results/UPG-12/ci/log.md); GitHub `windows-latest` runner, 2026-10-30, CI run 41085630668: a WiX 5.0.2 package whose `Files` glob harvests four files (one per component, two below subfolders) upgraded with `afterInstallExecute` by the msi-builder package built from the converted source keeps every file when `convert --msi` put the WiX codes into the folder source's `guids`, and loses every file with generated codes |
 | UPG-13 | Confirmed | [ci](msitest/results/UPG-13/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI run 41222624233: with `upgrade.minVersion: 1.0.0` a 1.2.0 installs with exit 0 next to an installed 0.9.0, which stays registered and keeps `app.exe` after the 1.2.0 is uninstalled; 1.0.0 is removed at an inclusive floor and stays at an exclusive one; 1.1.0 is removed; a detect-only row of the own upgrade code below the floor with a launch condition fails the install with 1603 and leaves 0.9.0 installed |
 | UPG-14 | Confirmed | [ci](msitest/results/UPG-14/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41288811109: the codes `convert --arch` computes from a WiX 5.0.2 source (files in a 6432 folder with a two-level name, a folder without a name, a seeded folder and `CommonAppDataFolder`, a 32-bit and a default HKLM value, a `Files` glob) are those of the packages WiX built for x86 and x64, and the package converted without `--msi` upgrades the x64 one with a late removal and keeps every file and value |
+| UPG-15 | Confirmed | [ci](msitest/results/UPG-15/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41312024506 and probe run 41313596371 (PR #209): a `perUserOrMachine` v2 that sets `ALLUSERS=1` after AppSearch when it finds the HKLM value of a per-machine v1 leaves v1 installed with FindRelatedProducts at 25 ("current install is per-user. Related install ... is per-machine. Skipping") and removes it with FindRelatedProducts moved behind the setter, silently and with `/qr`; v2 is registered per machine but installs into `%LOCALAPPDATA%\Programs` (INSTALLDIR resolved when the package opened, INST-07) unless a second setter sets INSTALLDIR to `[%ProgramW6432]\<name>\`, which puts it in Program Files |
 | SVC-01 | Confirmed | [failure-actions table](msitest/results/SVC-01/failureactions-table-restart/log.md) 1939; [sc.exe recipe](msitest/results/SVC-01/sc-failure-recipe/log.md) works; without event 128 the service stays |
 | SVC-03 | Confirmed | [per-step](msitest/results/SVC-03/per-step/log.md); per-step restart delays, a reset in seconds and `INFINITE`; [details](#use-case-gap-cases-upg-05-search-03-file-03-svc-03) |
 | SVC-04 | Confirmed | SERVER2025, 2026-10-29, windows_exporter with `EXTRA_FLAGS=--no-such-flag`: split rows (start `Wait=0`), from msi-builder and from the WiX-built package, install with exit 0 in 1–2 s and leave the service stopped; one row with `Wait=1` fails with 1920 after about 247 s of start retries and rolls back; [details](#service-start-without-waiting-svc-04) |
@@ -1205,8 +1206,9 @@ dump. ENVVAR-04: the four parts came out as
 restored the machine `PATH` exactly and the user `PATH` without its
 trailing `;`. INST-08: see the case table above.
 
-- Not covered: setters in the UI sequence, the wizard's scope page with a
-  setter, Server 2016.
+- Not covered: the wizard's scope page with a setter, Server 2016. An
+  `ALLUSERS=1` setter in the UI sequence as well (`/qr`) gave the same
+  result in UPG-15: registered per machine with the per-user INSTALLDIR.
 
 ## Context actions (CA-09)
 

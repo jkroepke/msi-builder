@@ -233,14 +233,22 @@ type converter struct {
 	dirs          map[string]*dir
 	wixUI         *elem
 	out           *omap
-	pkg           *elem
-	major         *elem
-	summary       *elem
-	usedVars      map[string]bool
-	groups        map[string]*group
-	actions       map[string]*elem
-	needDirs      map[string]bool
-	renames       map[string]string
+	// moved holds the placements of the standard actions that the
+	// sequences move and standardActions takes, by action.
+	moved map[string][]any
+	// movedLines holds the source line of each moved placement.
+	movedLines map[*omap]int
+	// keptMoves holds, per movable action, the sequences in which convert
+	// keeps its move.
+	keptMoves map[string]map[string]bool
+	pkg       *elem
+	major     *elem
+	summary   *elem
+	usedVars  map[string]bool
+	groups    map[string]*group
+	actions   map[string]*elem
+	needDirs  map[string]bool
+	renames   map[string]string
 	// folded maps a nameless Directory that became a standard folder to it.
 	folded map[string]string
 	// wixDirs are the Directories as the source has them, before folding,

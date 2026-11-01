@@ -2315,6 +2315,80 @@ were not tested.
 Standard actions are added automatically for the tables a package uses. An
 action used only as an anchor is added at its default number.
 
+**Moving standard actions.** `standardActions` moves one of the three
+standard actions that run before costing, `FindRelatedProducts`,
+`AppSearch` and `LaunchConditions`, in the `execute` and `ui` sequences:
+
+```yaml
+customActions:
+  - id: SetAllUsersFromPrevious
+    setProperty: { name: ALLUSERS, value: "1" }
+    schedule:
+      - { sequence: execute, after: AppSearch, condition: PREVMACHINE }
+      - { sequence: ui, after: AppSearch, condition: PREVMACHINE }
+  - id: SetInstallDirFromPrevious
+    setProperty: { name: INSTALLDIR, value: '[%ProgramW6432]\Example\' }
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+      - { sequence: ui, after: SetAllUsersFromPrevious, condition: PREVMACHINE }
+
+standardActions:
+  - action: FindRelatedProducts
+    schedule:
+      - { sequence: execute, after: SetAllUsersFromPrevious }
+      - { sequence: ui, after: SetAllUsersFromPrevious }
+```
+
+FindRelatedProducts only finds products installed in the context it runs
+in, and after the `ui` sequence ran it the `execute` sequence skips it. A
+dual-scope package that picks the context from a previous install (here a
+search of a value only the per-machine install writes) therefore moves it
+behind the action that sets `ALLUSERS`; at its default number (25, before
+AppSearch) it misses a previous install in the other context, so that both
+versions stay installed (UPG-15). Setting `ALLUSERS` this late does not
+move the folders, which were resolved for the per-user context when the
+package opened: without the INSTALLDIR setter the package is registered
+per machine with its files in `[LocalAppDataFolder]Programs` (UPG-15,
+INST-07), and validate warns about the `ALLUSERS` setter. The second setter
+puts the files of this x64 package in Program Files (an x86 package needs
+the 32-bit folder, not tested); it also replaces an INSTALLDIR given on the
+command line or remembered from the previous install whenever the search
+finds one. Other per-user folders, such as the Start menu, are expected to
+stay (not tested). The scope page and `ALLUSERS=1` on the command line choose the
+context before the folders are resolved and are the better way where the
+installer can use them.
+
+Each placement has exactly one of `before`, `after` or `at` (a number below
+CostInitialize, 800) and no `condition` or `when`: the action keeps its own
+condition (specification section 16, "Decisions not adopted"). A moved
+action runs after the other actions that share its anchor, so `after:
+AppSearch` follows the actions that apply the search results. When AppSearch
+moves and LaunchConditions does not, LaunchConditions follows AppSearch and
+those actions. The build fails when a move leaves the action at or after
+CostInitialize, when the package does not run the action (FindRelatedProducts
+needs `upgrade`, AppSearch a property search, LaunchConditions a launch
+condition), and when LaunchConditions ends up before FindRelatedProducts
+while `upgrade.downgrade` is `error`, whose launch condition tests what
+FindRelatedProducts sets; with other launch conditions that order is a
+warning, and without the upgrade section, where FindRelatedProducts runs
+only as an anchor and sets nothing, it is neither. Validate reports these cases where the configuration decides them,
+together with the cycles and collisions a move causes, counting the
+LaunchConditions the builder puts after a moved AppSearch and the
+unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
+LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
+100 is treated as running after it even when a long chain of search actions
+would push LaunchConditions further; one moved to exactly 100 collides with
+it, which validate reports when the package runs no AppSearch and leaves to
+the build otherwise. In a package with launch conditions (its own or the downgrade check),
+AppSearch cannot be placed next to an unmoved LaunchConditions, which
+follows it. The other standard actions keep their
+numbers.
+
+A remembered install folder (`installDir.remember`) is restored right after
+AppSearch, before an action placed `after: AppSearch` sets `ALLUSERS`, so a
+dual-scope package that switches to per-machine this way does not restore
+the remembered per-machine folder.
+
 **Restart.** `scheduleReboot` asks for a restart at the end of the
 installation, after Windows features, drivers or system files changed that
 only take effect then:

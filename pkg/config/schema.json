@@ -1886,6 +1886,79 @@
         ]
       }
     },
+    "standardActions": {
+      "type": "array",
+      "description": "Moves a standard action that runs before costing away from its default number, for example FindRelatedProducts behind an action that sets ALLUSERS. The action keeps its own condition and must still run before CostInitialize.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "enum": [
+              "FindRelatedProducts",
+              "AppSearch",
+              "LaunchConditions"
+            ]
+          },
+          "schedule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "execute",
+                        "ui"
+                      ]
+                    },
+                    {
+                      "$ref": "#/$defs/var"
+                    }
+                  ]
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                },
+                "at": {
+                  "$ref": "#/$defs/int",
+                  "description": "An absolute sequence number below CostInitialize (800)."
+                }
+              },
+              "required": [
+                "sequence"
+              ],
+              "additionalProperties": false,
+              "oneOf": [
+                {
+                  "required": [
+                    "before"
+                  ]
+                },
+                {
+                  "required": [
+                    "after"
+                  ]
+                },
+                {
+                  "required": [
+                    "at"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "action",
+          "schedule"
+        ],
+        "additionalProperties": false
+      }
+    },
     "icons": {
       "type": "object",
       "propertyNames": {

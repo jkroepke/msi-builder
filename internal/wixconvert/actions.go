@@ -1,11 +1,14 @@
 package wixconvert
 
 import (
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+
+	msisequence "github.com/jkroepke/msi-builder/internal/sequence"
 )
 
 // Schedule sequences and event names shared by several keys.
@@ -104,9 +107,528 @@ func (c *converter) standardAction(entry, seq *elem) {
 		}
 	case entry.is("Show"):
 		c.todof(nil, "", entry.line, "<Show Dialog=%q> schedules a dialog; use the ui keys", entry.attr("Dialog"))
+	case movable(entry, seq):
+		c.moveStandard(entry, sequenceNames[seq.name])
 	default:
 		c.standardActionNote(entry, seq)
 	}
+}
+
+// movableActions are the standard actions that standardActions can move in
+// the execute and UI sequences.
+var movableActions = map[string]bool{actFindRelatedProducts: true, actAppSearch: true, actLaunchConditions: true} //nolint:gochecknoglobals // lookup table
+
+// The standard actions that standardActions moves.
+const (
+	actFindRelatedProducts = "FindRelatedProducts"
+	actAppSearch           = "AppSearch"
+	actLaunchConditions    = "LaunchConditions"
+)
+
+// movable reports whether standardActions can take a sequence entry: one
+// of the three movable actions, not suppressed, in the execute or UI
+// sequence.
+func movable(entry, seq *elem) bool {
+	name := sequenceNames[seq.name]
+
+	return movableActions[entry.name] && !entry.has("Suppress") && (name == seqExecute || name == seqUI)
+}
+
+// moveStandard takes the place a sequence gives FindRelatedProducts,
+// AppSearch or LaunchConditions into standardActions. An entry without a
+// place keeps the default number; a condition has no counterpart.
+func (c *converter) moveStandard(entry *elem, sequence string) {
+	placement := flowMap()
+	placement.order("sequence", "before", "after", "at")
+	placement.set("sequence", sequence)
+	placement.set("before", entry.attr("Before"))
+	placement.set("after", entry.attr("After"))
+
+	if at, err := strconv.Atoi(entry.attr("Sequence")); err == nil {
+		placement.set("at", at)
+	}
+
+	if cond := c.condition(entry); cond != "" {
+		c.todof(nil, "", entry.line, "the standard action %s in %s runs only when %s; msi-builder schedules the standard "+
+			"actions without conditions", entry.name, sequence, cond)
+	}
+
+	if placement.str("before") == "" && placement.str("after") == "" && placement.get("at") == nil {
+		return
+	}
+
+	// A place at the default number moves nothing.
+	if std, _ := msisequence.LookupStandard(entry.name); placement.get("at") == std.Number(sequenceTable(sequence)) {
+		return
+	}
+
+	if c.moved == nil {
+		c.moved = make(map[string][]any)
+		c.movedLines = make(map[*omap]int)
+	}
+
+	c.moved[entry.name] = append(c.moved[entry.name], placement)
+	c.movedLines[placement] = entry.line
+}
+
+// sequenceTable returns the table of the execute or the UI sequence.
+func sequenceTable(schedule string) string {
+	if schedule == seqUI {
+		return msisequence.InstallUI
+	}
+
+	return msisequence.InstallExecute
+}
+
+// movedIdle returns why the converted package does not run a moved
+// standard action, or "": AppSearch needs a property search or a
+// remembered install dir, LaunchConditions a launch condition, its own or
+// the downgrade check. The converted package always finds older versions.
+func (c *converter) movedIdle(name string) string {
+	switch {
+	case name == actAppSearch && !c.searches():
+		return "it has no property searches"
+	case name == actLaunchConditions && !c.runsLaunchConditions():
+		return "it has no launch conditions"
+	default:
+		return ""
+	}
+}
+
+// searches reports whether the converted package runs AppSearch: for a
+// property search or the remembered install dir.
+func (c *converter) searches() bool {
+	if install := c.out.mapAt("installDir"); install != nil && install.get("remember") != nil {
+		return true
+	}
+
+	props := c.out.mapAt("properties")
+	if props == nil {
+		return false
+	}
+
+	return slices.ContainsFunc(props.keys, func(key string) bool {
+		prop := props.mapAt(key)
+
+		return prop != nil && prop.get("search") != nil
+	})
+}
+
+// runsLaunchConditions reports whether the converted package runs LaunchConditions:
+// for its launch conditions or for the downgrade check, which the default
+// upgrade.downgrade (error) writes.
+func (c *converter) runsLaunchConditions() bool {
+	if c.out.get("launchConditions") != nil {
+		return true
+	}
+
+	upgrade := c.out.mapAt("upgrade")
+	downgrade := ""
+
+	if upgrade != nil {
+		downgrade = upgrade.str("downgrade")
+	}
+
+	return downgrade == "" || downgrade == downgradeError
+}
+
+// downgradeError is the upgrade.downgrade value that refuses a downgrade.
+const downgradeError = "error"
+
+// movedAnchorFails returns why a moved standard action cannot take a
+// placement, or "": a number must be below CostInitialize, a standard
+// action anchor must run before it, and any other anchor must be one of
+// the converted custom actions.
+func (c *converter) movedAnchorFails(placement *omap, emitted map[string]bool) string {
+	if at, ok := placement.get("at").(int); ok && (at < 1 || at >= costInitialize) {
+		return fmt.Sprintf("the number %d is not between 1 and CostInitialize (%d)", at, costInitialize)
+	}
+
+	for _, key := range []string{keyBefore, keyAfter} {
+		if why := movedAnchorFailure(placement, key, emitted); why != "" {
+			return why
+		}
+	}
+
+	return ""
+}
+
+// movedAnchorFailure checks the before or after anchor of a placement.
+func movedAnchorFailure(placement *omap, key string, emitted map[string]bool) string {
+	anchor := placement.str(key)
+	if anchor == "" || movableActions[anchor] || emitted[anchor] {
+		return ""
+	}
+
+	std, ok := msisequence.LookupStandard(anchor)
+	if !ok {
+		return anchor + " is not a converted custom action"
+	}
+
+	n := std.Number(sequenceTable(placement.str("sequence")))
+	if n == 0 || n > costInitialize || n == costInitialize && key == keyAfter {
+		return fmt.Sprintf("it would run %s %s, not before CostInitialize", key, anchor)
+	}
+
+	return ""
+}
+
+// costInitialize is the default number of CostInitialize.
+const costInitialize = 800
+
+// emittedActions returns the ids of the converted custom actions.
+func (c *converter) emittedActions() map[string]bool {
+	ids := make(map[string]bool)
+
+	if list, ok := c.out.get("customActions").([]any); ok {
+		for _, entry := range list {
+			if action, isMap := entry.(*omap); isMap {
+				ids[action.str("id")] = true
+			}
+		}
+	}
+
+	return ids
+}
+
+// emitMoved writes standardActions, in the order of the actions' default
+// numbers, with each placement on a left-out setter moved to the setter's
+// anchor, as for custom actions. A move of an action the converted package
+// does not run, or to a place msi-builder refuses, is left out with a note.
+func (c *converter) emitMoved(reanchor func(string, []any)) {
+	emitted := c.emittedActions()
+	kept := make(map[string][]*omap)
+
+	c.reanchorMoved(reanchor)
+	c.decideMoves(emitted)
+
+	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
+		placements := c.moved[name]
+		if len(placements) == 0 {
+			continue
+		}
+
+		why := c.movedIdle(name)
+
+		var schedule []any
+
+		for _, entry := range placements {
+			placement, ok := entry.(*omap)
+			if !ok {
+				continue
+			}
+
+			silent, reason := c.moveRefused(name, why, placement, emitted)
+			if silent {
+				continue
+			}
+
+			if reason != "" {
+				c.todof(nil, "", c.movedLines[placement], "the sequence moves the standard action %s in %s, which msi-builder cannot "+
+					"take (%s); convert left the move out", name, placement.str("sequence"), reason)
+
+				continue
+			}
+
+			schedule = append(schedule, placement)
+			kept[name] = append(kept[name], placement)
+		}
+
+		if len(schedule) == 0 {
+			continue
+		}
+
+		moved := newMap()
+		moved.order("action", "schedule")
+		moved.set("action", name)
+		moved.set("schedule", schedule)
+		c.out.add("standardActions", moved)
+	}
+
+	c.noteLaunchBeforeFind(kept)
+}
+
+// moveRefused returns why msi-builder cannot take a placement of a moved
+// action, or silent for a move that changes nothing; why is the reason the
+// package does not run the action, if any.
+func (c *converter) moveRefused(name, why string, placement *omap, emitted map[string]bool) (bool, string) {
+	if why != "" {
+		return false, why
+	}
+
+	if c.anchoredBack(name, placement) {
+		return true, ""
+	}
+
+	if silent, reason := c.searchNextToLaunch(name, placement); silent || reason != "" {
+		return silent, reason
+	}
+
+	if reason := c.atCollision(name, placement); reason != "" {
+		return false, reason
+	}
+
+	return false, c.movedAnchorFails(placement, emitted)
+}
+
+// anchoredBack reports whether a placement starts a loop of moves anchored
+// to one another in its sequence, such as AppSearch before LaunchConditions
+// and LaunchConditions after AppSearch, and its action comes first in the
+// loop, counting the LaunchConditions the builder puts after a moved
+// AppSearch. Such moves state one order, which msi-builder would see as a
+// cycle; dropping the move of the first action keeps the order.
+func (c *converter) anchoredBack(name string, placement *omap) bool {
+	order := []string{actFindRelatedProducts, actAppSearch, actLaunchConditions}
+	seq := placement.str("sequence")
+	seen := map[string]bool{name: true}
+	anchor := placement.str(keyBefore) + placement.str(keyAfter)
+
+	for anchor != name {
+		if !movableActions[anchor] || seen[anchor] || slices.Index(order, anchor) < slices.Index(order, name) {
+			return false
+		}
+
+		seen[anchor] = true
+		anchor = c.movedAnchor(anchor, seq)
+	}
+
+	return true
+}
+
+// movedAnchor returns the action a movable action is anchored to in a
+// sequence: that of its kept move, AppSearch for an unmoved
+// LaunchConditions, which the builder puts after a moved AppSearch, or "".
+func (c *converter) movedAnchor(name, seq string) string {
+	if c.movesIn(name, seq) {
+		if placement := c.movedPlacement(name, seq); placement != nil {
+			return placement.str(keyBefore) + placement.str(keyAfter)
+		}
+
+		return ""
+	}
+
+	if name == actLaunchConditions && c.runsLaunchConditions() && c.movesIn(actAppSearch, seq) {
+		return actAppSearch
+	}
+
+	return ""
+}
+
+// movedPlacement returns the move of an action in a sequence, or nil.
+func (c *converter) movedPlacement(name, seq string) *omap {
+	for _, entry := range c.moved[name] {
+		if placement, ok := entry.(*omap); ok && placement.str("sequence") == seq {
+			return placement
+		}
+	}
+
+	return nil
+}
+
+// searchNextToLaunch checks an AppSearch move next to LaunchConditions,
+// which the builder puts after a moved AppSearch unless LaunchConditions is
+// moved in the same sequence too: before it is the default order, so the
+// move is dropped silently; after it cannot be taken.
+func (c *converter) searchNextToLaunch(name string, placement *omap) (bool, string) {
+	if name != actAppSearch || !c.runsLaunchConditions() || c.movesIn(actLaunchConditions, placement.str("sequence")) {
+		return false, ""
+	}
+
+	switch actLaunchConditions {
+	case placement.str(keyBefore):
+		return true, ""
+	case placement.str(keyAfter):
+		return false, "LaunchConditions follows a moved AppSearch"
+	default:
+		return false, ""
+	}
+}
+
+// reanchorMoved moves the placements on left-out setters to the setters'
+// anchors, before decideMoves, so that it sees what is emitted.
+func (c *converter) reanchorMoved(reanchor func(string, []any)) {
+	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
+		if placements := c.moved[name]; len(placements) > 0 && c.movedIdle(name) == "" {
+			reanchor(name, placements)
+		}
+	}
+}
+
+// decideMoves works out in which sequences convert keeps the move of each
+// movable action. Whether one move can be taken depends on whether the
+// others are kept (a number that collides with an unmoved action,
+// AppSearch next to an unmoved LaunchConditions), so it starts from every
+// move in the sequences and drops refused ones until nothing changes.
+func (c *converter) decideMoves(emitted map[string]bool) {
+	c.keptMoves = nil
+	current := c.movesBySequence(func(string, *omap) bool { return true })
+
+	for range len(movableActions) + 1 {
+		c.keptMoves = current
+		next := c.movesBySequence(func(name string, placement *omap) bool {
+			silent, reason := c.moveRefused(name, c.movedIdle(name), placement, emitted)
+
+			return !silent && reason == ""
+		})
+
+		if maps.EqualFunc(current, next, maps.Equal) {
+			break
+		}
+
+		current = next
+	}
+
+	c.keptMoves = current
+}
+
+// movesBySequence returns, per movable action, the sequences of the moves
+// that keep reports true for.
+func (c *converter) movesBySequence(keep func(string, *omap) bool) map[string]map[string]bool {
+	kept := make(map[string]map[string]bool)
+
+	for name, entries := range c.moved {
+		kept[name] = make(map[string]bool)
+
+		for _, entry := range entries {
+			if placement, ok := entry.(*omap); ok && keep(name, placement) {
+				kept[name][placement.str("sequence")] = true
+			}
+		}
+	}
+
+	return kept
+}
+
+// atCollision returns why a moved action's number collides with the
+// default number of another movable action that the converted package runs
+// and does not move in that sequence, or "".
+func (c *converter) atCollision(name string, placement *omap) string {
+	number, ok := placement.get("at").(int)
+	if !ok {
+		return ""
+	}
+
+	seq := placement.str("sequence")
+
+	for _, other := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
+		std, _ := msisequence.LookupStandard(other)
+		if other == name || std.Number(sequenceTable(seq)) != number || c.movedIdle(other) != "" || c.movesIn(other, seq) {
+			continue
+		}
+
+		// LaunchConditions follows a moved AppSearch.
+		if other == actLaunchConditions && c.movesIn(actAppSearch, seq) {
+			continue
+		}
+
+		return fmt.Sprintf("the number %d is that of %s", number, other)
+	}
+
+	return ""
+}
+
+// movesIn reports whether convert keeps a move of an action in a
+// sequence, as far as decideMoves has worked it out.
+func (c *converter) movesIn(name, seq string) bool {
+	return c.keptMoves[name][seq]
+}
+
+// noteLaunchBeforeFind notes a move that puts LaunchConditions before
+// FindRelatedProducts, where a launch condition on an upgrade property,
+// the downgrade check among them, sees it unset; the build refuses that
+// order with upgrade.downgrade: error. Places next to custom actions are
+// not followed.
+func (c *converter) noteLaunchBeforeFind(kept map[string][]*omap) {
+	if !c.runsLaunchConditions() {
+		return
+	}
+
+	for _, seq := range []string{seqExecute, seqUI} {
+		ranks := movedRanks{kept: kept, seq: seq, seen: make(map[string]bool)}
+
+		find, findOK := ranks.rank(actFindRelatedProducts)
+		launch, launchOK := ranks.rank(actLaunchConditions)
+
+		if !findOK || !launchOK || launch > find {
+			continue
+		}
+
+		for _, name := range []string{actLaunchConditions, actFindRelatedProducts, actAppSearch} {
+			if placement := ranks.place(name); placement != nil {
+				c.todof(placement, "", c.movedLines[placement], "LaunchConditions runs before FindRelatedProducts here, so a launch "+
+					"condition on an upgrade property, the downgrade check of upgrade.downgrade: error among them, sees it unset; "+
+					"the build refuses that order with downgrade: error")
+
+				break
+			}
+		}
+	}
+}
+
+// movedRanks estimates where the moves of one sequence put the three
+// movable actions.
+type movedRanks struct {
+	kept map[string][]*omap
+	seen map[string]bool
+	seq  string
+}
+
+// place returns the kept placement of an action in the sequence, or nil.
+func (r movedRanks) place(name string) *omap {
+	for _, placement := range r.kept[name] {
+		if placement.str("sequence") == r.seq {
+			return placement
+		}
+	}
+
+	return nil
+}
+
+// rank estimates an action's place: its number, or just before or after
+// its anchor; an unmoved LaunchConditions follows a moved AppSearch. ok is
+// false for a place next to a custom action and for a cycle.
+func (r movedRanks) rank(name string) (float64, bool) {
+	if r.seen[name] {
+		return 0, false
+	}
+
+	r.seen[name] = true
+	defer delete(r.seen, name)
+
+	placement := r.place(name)
+	if placement == nil {
+		if name == actLaunchConditions && r.place(actAppSearch) != nil {
+			n, ok := r.rank(actAppSearch)
+
+			return n + 0.5, ok
+		}
+
+		std, _ := msisequence.LookupStandard(name)
+
+		return float64(std.Number(sequenceTable(r.seq))), true
+	}
+
+	if at, ok := placement.get("at").(int); ok {
+		return float64(at), true
+	}
+
+	offset, anchor := 0.5, placement.str(keyAfter)
+	if anchor == "" {
+		offset, anchor = -0.5, placement.str(keyBefore)
+	}
+
+	if movableActions[anchor] {
+		n, ok := r.rank(anchor)
+
+		return n + offset, ok
+	}
+
+	std, ok := msisequence.LookupStandard(anchor)
+	if n := std.Number(sequenceTable(r.seq)); ok && n != 0 {
+		return float64(n) + offset, true
+	}
+
+	return 0, false
 }
 
 // standardActionNote notes a standard action that a sequence reschedules or
@@ -216,6 +738,8 @@ func (c *converter) emitActions() {
 		c.extensionAnchors(action, setter, byAction, sides)
 		c.out.add("customActions", action)
 	}
+
+	c.emitMoved(reanchor)
 
 	for _, id := range slices.Sorted(maps.Keys(byAction)) {
 		if c.actions[id] == nil && id != c.launchAction {

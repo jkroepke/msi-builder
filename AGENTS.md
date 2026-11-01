@@ -437,6 +437,14 @@ go test ./... -shuffle=on -race
   file the build reads (payloads, icons, binaries, wizard licenses and
   pictures) also goes into the digest by content through `hashInput`, since
   the config only holds its path.
+- Validate numbers each sequence as far as the configuration decides it
+  (`pkg/config/schedules.go`), so it must never reject a schedule the
+  build accepts: an anchor whose number only the builder knows drops its
+  chain, and a standard action the builder places relative to another one
+  goes into `placedByBuilder`. Actions moved by `standardActions` join the
+  numbering like custom actions, under their `standardActions[i]` path, and
+  the builder appends them after every other action (`movedLast`) so that
+  they follow the actions that share their anchor.
 - A null list entry decodes to a nil pointer. `nullEntries`
   (`pkg/config/nulls.go`) finds them by reflection over the YAML keys, in
   `Parse` and in `Validate`, before the defaults dereference anything, so a
