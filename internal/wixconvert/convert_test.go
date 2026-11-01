@@ -2486,8 +2486,8 @@ func TestConvertRawRegistryFolderSearch(t *testing.T) {
 
 // TestConvertServiceConfig checks the MsiServiceConfig settings of a
 // ServiceConfig: the SID type and the preshutdown delay in milliseconds
-// become sidType and preshutdownTimeout, values without a counterpart and
-// RequiredPrivilege a todo.
+// become sidType and preshutdownTimeout; values without a counterpart,
+// RequiredPrivilege and events other than install and reinstall a todo.
 func TestConvertServiceConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2498,7 +2498,7 @@ func TestConvertServiceConfig(t *testing.T) {
         <Component>
           <File Source="hello.exe" />
           <ServiceInstall Name="Hello" Start="auto" Type="ownProcess" ErrorControl="normal">
-            <ServiceConfig %s OnInstall="yes" OnReinstall="yes" />
+            <ServiceConfig %s />
           </ServiceInstall>
         </Component>
       </Directory>
@@ -2507,14 +2507,15 @@ func TestConvertServiceConfig(t *testing.T) {
 </Wix>`
 
 	for _, tc := range []struct{ attrs, want string }{
-		{`ServiceSid="restricted" PreShutdownDelay="180000"`, "sidType: restricted\n        preshutdownTimeout: 180000ms\n"},
-		{`ServiceSid="none"`, "sidType: none\n"},
-		{`ServiceSid="other"`, `ServiceSid="other" has no counterpart`},
-		{`PreShutdownDelay="0"`, `PreShutdownDelay="0" is not a number of milliseconds`},
-		{`PreShutdownDelay="[DELAY]"`, `PreShutdownDelay="[DELAY]" is not a number of milliseconds`},
-		{`RequiredPrivilege="SeBackupPrivilege"`, "RequiredPrivilege has no counterpart"},
-		{`ServiceSid="restricted" OnUninstall="yes"`, "OnUninstall have no counterpart"},
-		{`PreShutdownDelay="060000"`, "preshutdownTimeout: 60000ms\n"},
+		{`ServiceSid="restricted" PreShutdownDelay="180000" OnInstall="yes" OnReinstall="yes"`, "sidType: restricted\n        preshutdownTimeout: 180000ms\n"},
+		{`ServiceSid="none" OnInstall="yes" OnReinstall="yes"`, "sidType: none\n"},
+		{`ServiceSid="other" OnInstall="yes" OnReinstall="yes"`, `ServiceSid="other" has no counterpart`},
+		{`PreShutdownDelay="0" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="0" is not a number of milliseconds`},
+		{`PreShutdownDelay="[DELAY]" OnInstall="yes" OnReinstall="yes"`, `PreShutdownDelay="[DELAY]" is not a number of milliseconds`},
+		{`RequiredPrivilege="SeBackupPrivilege" OnInstall="yes" OnReinstall="yes"`, "RequiredPrivilege has no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes" OnReinstall="yes" OnUninstall="yes"`, "OnUninstall have no counterpart"},
+		{`ServiceSid="restricted" OnInstall="yes"`, "OnUninstall have no counterpart"},
+		{`PreShutdownDelay="060000" OnInstall="yes" OnReinstall="yes"`, "preshutdownTimeout: 60000ms\n"},
 	} {
 		res, err := wixconvert.Convert(strings.NewReader(fmt.Sprintf(src, tc.attrs)), wixconvert.Options{})
 		if err != nil {

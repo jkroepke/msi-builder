@@ -132,7 +132,7 @@ func (c *converter) serviceConfigTodos(svc *omap, elm *elem) {
 	}
 
 	// msi-builder applies these settings at install and repair.
-	if elm.no("OnInstall") || elm.no("OnReinstall") || elm.yes("OnUninstall") {
+	if !elm.yes("OnInstall") || !elm.yes("OnReinstall") || elm.yes("OnUninstall") {
 		c.todof(svc, "", elm.line, "ServiceConfig OnInstall, OnReinstall and OnUninstall have no counterpart; "+
 			"msi-builder applies the settings at install and repair")
 	}

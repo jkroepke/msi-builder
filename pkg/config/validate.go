@@ -917,10 +917,12 @@ func (v *validator) components(cfg *Config, known *refs) {
 // sharedSidTypes warns about a restricted shareProcess service next to a
 // shareProcess service that is not restricted: Microsoft documents that a
 // restricted service in a shared process needs every service there
-// restricted (reported, SERVICE_SID_INFO). Two such services of a package
+// restricted (documented, unverified: SERVICE_SID_INFO). Two such services of a package
 // need not share a process, so this is a warning.
 func (v *validator) sharedSidTypes(cfg *Config) {
-	var restricted, others []string
+	type entry struct{ path, name string }
+
+	var restricted, others []entry
 
 	for i, comp := range cfg.Components {
 		for j, svc := range comp.Services {
@@ -928,22 +930,29 @@ func (v *validator) sharedSidTypes(cfg *Config) {
 				continue
 			}
 
-			svcPath := fmt.Sprintf("components[%d].services[%d]", i, j)
+			e := entry{fmt.Sprintf("components[%d].services[%d]", i, j), svc.Name}
 			if svc.SidType == "restricted" {
-				restricted = append(restricted, svcPath)
+				restricted = append(restricted, e)
 			} else {
-				others = append(others, svc.Name)
+				others = append(others, e)
 			}
 		}
 	}
 
-	if len(others) == 0 {
-		return
-	}
+	for _, svc := range restricted {
+		// Twin components may install the same service; it is no neighbour.
+		var names []string
 
-	for _, svcPath := range restricted {
-		v.warnf(svcPath+".sidType", "a restricted service in a shared process needs every service of that process "+
-			"restricted; %s is shareProcess without sidType: restricted", strings.Join(others, ", "))
+		for _, o := range others {
+			if !strings.EqualFold(o.name, svc.name) {
+				names = append(names, o.name)
+			}
+		}
+
+		if len(names) > 0 {
+			v.warnf(svc.path+".sidType", "a restricted service in a shared process needs every service of that process "+
+				"restricted; %s is shareProcess without sidType: restricted", strings.Join(names, ", "))
+		}
 	}
 }
 
