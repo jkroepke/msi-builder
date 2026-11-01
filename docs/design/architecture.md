@@ -439,8 +439,9 @@ generated from the command tree.
 | 11 | `sign`: Authenticode signing, verification and RFC 3161 timestamps (MSISPEC §12) | done |
 | 12 | Uncompressed files beside the package | later |
 
-Out of scope for good: MSIX (nfpm), patches, transforms, merge modules,
-bundles, advertised installs and shortcuts, script custom actions.
+Out of scope for good: MSIX (nfpm), patches, standalone transforms (`.mst`),
+merge modules, bundles, advertised installs and shortcuts, script custom
+actions.
 
 ## 4. Decisions worth recording
 
