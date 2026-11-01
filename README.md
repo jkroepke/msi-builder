@@ -117,14 +117,9 @@ agent with a service. These are not supported:
   tests do, on Windows without `-short` (elevated).
 - **Standalone transforms (`.mst`), patches (`.msp`), merge modules
   (`.msm`) and bundles or bootstrappers.** Ship a new major-upgrade MSI
-  instead of a patch. Multi-language wizards are supported: `ui.languages`
-  (with `ui.enabled`) builds one MSI with an embedded language transform per
-  further language ([YAML schema](docs/YAML%20Schema.md)).
-- **Spanned cabinets.** A file never continues into the next cabinet. The
-  payload is split at file boundaries into as many cabinets as it needs.
-  Embedded cabinets may add up to 2 GB; above that the build fails until
-  `package.embedCabinets: false` writes them beside the `.msi`. A single
-  file is at most 2 GiB − 32 KiB. Cabinets are LZX (the default), MSZIP or stored.
+  instead of a patch.
+- **Spanned cabinets.** A file never continues into the next cabinet, so a
+  single file is at most 2 GiB − 32 KiB.
 - **Script custom actions** (VBScript, JScript).
 - **Editing existing packages and XML input.** `msi-builder inspect` only
   reads packages to help debugging. `msi-builder convert` turns a WiX
