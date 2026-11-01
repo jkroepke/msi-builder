@@ -157,7 +157,14 @@ versioning after 1.0.
   (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
   (`name: .`), directly in a standard folder they become it, and in
   TARGETDIR they become the standard folder an unconditioned SetDirectory
-  sets (`[WindowsVolume]`), which is then `consumed` and left out.
+  sets (`[WindowsVolume]`), which is then `consumed` and left out, or
+  TARGETDIR itself when nothing sets them.
+  `convertActions` (`actions.go`) converts every custom action before any
+  is written and hands the scheduled ones it leaves out (scripts, extension
+  calls, actions of another source file) to `reanchor`'s drop function, so
+  that placements anchored on them move to their anchors like those on
+  left-out setters. Converted output must build or carry a todo that says
+  why not: check new cases with `validConfig` (`rerun_test.go`).
   Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
   branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
   a block only when every element directly in it is one whose output stays

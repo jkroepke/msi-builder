@@ -329,7 +329,7 @@ func (c *converter) feature(feat *feature) *omap { //nolint:cyclop // a flat lis
 	}
 
 	if d := elm.attr("ConfigurableDirectory"); d != "" {
-		out.set("directory", c.dirRef(d))
+		out.set("directory", c.stdID(c.dirRef(d)))
 	}
 
 	if elm.no("AllowAbsent") || elm.attr("Absent") == "disallow" {

@@ -37,22 +37,129 @@ var contextConditions = map[string]string{ //nolint:gochecknoglobals // lookup t
 // operatorSpace matches the spaces around a comparison operator.
 var operatorSpace = regexp.MustCompile(`\s*(<>|=)\s*`)
 
-// notKeyword matches the NOT operator in any case; property names stay
-// case-sensitive.
-var notKeyword = regexp.MustCompile(`(?i)\bnot\b`)
+// logicKeyword matches the NOT, AND and OR operators in any case; property
+// names stay case-sensitive.
+var logicKeyword = regexp.MustCompile(`(?i)\b(not|and|or)\b`)
 
 // normalizeCondition collapses the spaces of a condition, removes them
-// around = and <>, and writes NOT in upper case.
+// around = and <>, and writes NOT, AND and OR in upper case.
 func normalizeCondition(cond string) string {
-	cond = notKeyword.ReplaceAllString(strings.Join(strings.Fields(cond), " "), "NOT")
+	cond = logicKeyword.ReplaceAllStringFunc(strings.Join(strings.Fields(cond), " "), strings.ToUpper)
 
 	return operatorSpace.ReplaceAllString(cond, "$1")
 }
 
 // contextCondition returns the scope a component condition limits the
-// component to, or "".
+// component to, or "". Besides the conditions in contextConditions, it
+// reads them in parentheses, negated with NOT (...), and joined with AND or
+// OR when every part limits to the same scope:
+// "ALLUSERS <> 1 AND MSIINSTALLPERUSER = 1" is per user, and its negation
+// per machine.
 func contextCondition(cond string) string {
-	return contextConditions[normalizeCondition(cond)]
+	return normalizedContext(normalizeCondition(cond))
+}
+
+func normalizedContext(cond string) string {
+	cond = trimParens(strings.TrimSpace(cond))
+	if scope, ok := contextConditions[cond]; ok {
+		return scope
+	}
+
+	if inner, ok := strings.CutPrefix(cond, "NOT"); ok {
+		if inner = strings.TrimSpace(inner); strings.HasPrefix(inner, "(") && trimParens(inner) != inner {
+			return oppositeScope(normalizedContext(inner))
+		}
+	}
+
+	for _, operator := range []string{" AND ", " OR "} {
+		if parts := splitTopLevel(cond, operator); len(parts) > 1 {
+			return commonContext(parts)
+		}
+	}
+
+	return ""
+}
+
+// oppositeScope returns the other context of a scope, or "".
+func oppositeScope(scope string) string {
+	switch scope {
+	case scopeMachine:
+		return scopeUser
+	case scopeUser:
+		return scopeMachine
+	}
+
+	return ""
+}
+
+// commonContext returns the context every part limits to, or "".
+func commonContext(parts []string) string {
+	scope := normalizedContext(parts[0])
+	for _, part := range parts[1:] {
+		if normalizedContext(part) != scope {
+			return ""
+		}
+	}
+
+	return scope
+}
+
+// trimParens removes parentheses that enclose the whole condition.
+func trimParens(cond string) string {
+	for strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") && closingParen(cond) == len(cond)-1 {
+		cond = strings.TrimSpace(cond[1 : len(cond)-1])
+	}
+
+	return cond
+}
+
+// closingParen returns the index of the parenthesis that closes the one
+// cond starts with, or -1.
+func closingParen(cond string) int {
+	depth := 0
+
+	for i, r := range cond {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+// splitTopLevel splits cond at op outside parentheses. A condition with a
+// string literal is not split, since the literal could hold either.
+func splitTopLevel(cond, operator string) []string {
+	if strings.Contains(cond, `"`) {
+		return []string{cond}
+	}
+
+	var (
+		parts []string
+		depth int
+		start int
+	)
+
+	for i := 0; i < len(cond); i++ {
+		switch {
+		case cond[i] == '(':
+			depth++
+		case cond[i] == ')':
+			depth--
+		case depth == 0 && strings.HasPrefix(cond[i:], operator):
+			parts = append(parts, cond[start:i])
+			start = i + len(operator)
+			i += len(operator) - 1
+		}
+	}
+
+	return append(parts, cond[start:])
 }
 
 // componentConditionText returns a component's condition: its Condition
@@ -144,15 +251,22 @@ func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) stri
 		return scope
 	}
 
-	c.todof(pkgOut, "scope", line, "the per-user package chooses its install context itself, with components "+
+	// An ALLUSERS=1 row makes the install per machine by default, which
+	// perMachineOrUser keeps.
+	dual, other, otherDefault := scopeUserOrMachine, scopeMachineOrUser, "all users"
+	if c.propertyValue(propAllUsers) == "1" {
+		dual, other, otherDefault = scopeMachineOrUser, scopeUserOrMachine, "the installing user"
+	}
+
+	c.todof(pkgOut, "scope", line, "the package chooses its install context itself, with components "+
 		"conditioned on ALLUSERS or MSIINSTALLPERUSER or actions that set them; it became scope %s, whose "+
 		"components[].scope keeps machine and user data in their context, and ALLUSERS=1 or MSIINSTALLPERUSER on "+
-		"the command line still picks the context (INST-07); use %s if the install should default to all users; "+
-		"it needs installerVersion 5.0", scopeUserOrMachine, scopeMachineOrUser)
+		"the command line still picks the context (INST-07); use %s if the install should default to %s; "+
+		"it needs installerVersion 5.0", dual, other, otherDefault)
 
 	c.guessedDual = scope == ""
 
-	return scopeUserOrMachine
+	return dual
 }
 
 // skipContextSetter leaves out an action that sets ALLUSERS or

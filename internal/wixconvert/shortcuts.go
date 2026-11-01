@@ -140,7 +140,7 @@ func (c *converter) markAdvertised(e *elem) {
 
 func (c *converter) workingDirectory(s *omap, e *elem, fileDir string) {
 	if wd := e.attr("WorkingDirectory"); wd != "" && wd != fileDir {
-		s.set("workingDirectory", c.dirRef(wd))
+		s.set("workingDirectory", c.stdID(c.dirRef(wd)))
 	}
 }
 
@@ -179,12 +179,12 @@ func (c *converter) placeShortcut(pending pendingShortcut) {
 
 		return
 	case match != nil:
-		link.set("folder", c.dirRef(match[1]))
+		link.set("folder", c.stdID(c.dirRef(match[1])))
 	default:
 		link.set("program", c.expand(elm, target))
 	}
 
-	link.set("workingDirectory", c.dirRef(elm.attr("WorkingDirectory")))
+	link.set("workingDirectory", c.stdID(c.dirRef(elm.attr("WorkingDirectory"))))
 	pending.comp.out.add("shortcuts", link)
 	c.markAdvertised(elm)
 }
