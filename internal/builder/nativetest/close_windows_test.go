@@ -38,7 +38,9 @@ components:
 // <marker> and exits with 0; "visible <marker>" does the same with a
 // visible window and also opens a hidden one, which writes <marker>.hidden
 // when it gets WM_CLOSE; "hold <marker> <file>" is "window <marker>" with
-// <file> held open; "console" sleeps without a window.
+// <file> held open; "console" sleeps without a window. The window modes
+// write <marker>.endsession and exit on WM_ENDSESSION, as Restart Manager
+// sends it to a program it shuts down.
 const closeHelperSource = `//go:build windows
 
 package main
@@ -118,6 +120,9 @@ func window(marker string, visible bool) {
 			_ = os.WriteFile(marker, []byte("WM_CLOSE"), 0o644)
 			destroyWindow.Call(hwnd)
 			return 0
+		case m == 0x16 && wp != 0 && hwnd == mainWindow: // WM_ENDSESSION, the session ends
+			_ = os.WriteFile(marker+".endsession", []byte("WM_ENDSESSION"), 0o644)
+			os.Exit(0)
 		case m == 0x2 && hwnd == mainWindow: // WM_DESTROY
 			postQuitMessage.Call(0)
 			return 0

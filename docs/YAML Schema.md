@@ -367,8 +367,8 @@ properties:
 
 `restartResources` hands Restart Manager things the package does not
 install: a file that other programs keep open, a program by its full path,
-or a service. What holds or runs them is then shut down like a program
-that holds a package file:
+or a service. What holds or runs them is then meant to be shut down like
+a program that holds a package file:
 
 ```yaml
 components:

@@ -906,7 +906,7 @@ func (v *validator) components(cfg *Config, known *refs) {
 		}
 
 		v.componentServiceControl(p, comp, services, perUser)
-		v.componentRestartResources(cfg, p, comp, userData)
+		v.componentRestartResources(cfg, p, comp, perUser)
 		v.componentPermissions(p, comp)
 		v.movableGrants(cfg, known, p, comp)
 		v.componentEvents(p, comp, userData)

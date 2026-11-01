@@ -9,8 +9,11 @@ import (
 // BuilderRestartResources property, formatted by the custom action.
 const maxRestartValue = 1024
 
-// restartService is the restartResources key of a service.
-const restartService = "service"
+// restartFile and restartService are restartResources keys.
+const (
+	restartFile    = "file"
+	restartService = "service"
+)
 
 // componentRestartResources checks the files, programs and services a
 // component registers with the Restart Manager session (spec 17.11).
@@ -53,7 +56,7 @@ func (v *validator) componentRestartResources(cfg *Config, compPath string, comp
 func (r *RestartResource) kind() (string, string, bool) {
 	key, value, count := "", "", 0
 
-	for _, kv := range [][2]string{{"file", r.File}, {"program", r.Program}, {restartService, r.Service}} {
+	for _, kv := range [][2]string{{restartFile, r.File}, {"program", r.Program}, {restartService, r.Service}} {
 		if kv[1] != "" {
 			key, value = kv[0], kv[1]
 			count++
@@ -74,5 +77,8 @@ func (v *validator) restartValue(field, key, value string, perUser bool) {
 		v.errorf(field, "is %d characters, a service name holds %d", len(value), maxServiceName)
 	case key == restartService && perUser:
 		v.errorf(field, "%s cannot shut down services, which needs elevation", v.perUserPackage())
+	case key == restartFile && (strings.HasSuffix(value, `\`) || strings.HasSuffix(value, "/")):
+		v.warnf(field, "ends in a path separator; Restart Manager registers files, not folders, so list the files "+
+			"that programs hold open")
 	}
 }

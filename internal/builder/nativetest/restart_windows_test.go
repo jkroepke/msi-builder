@@ -60,7 +60,7 @@ func TestMsiexecRestartResources(t *testing.T) {
 	}
 
 	helper := closeHelper(t)
-	dir := t.TempDir()
+	dir := longPath(t.TempDir())
 	path := buildConfig(t, dir, "restart", restartConfig, map[string][]byte{"app.exe": helper})
 	installDir := filepath.Join(os.Getenv("ProgramFiles"), "MsiBuilderRestart")
 
@@ -81,7 +81,9 @@ func TestMsiexecRestartResources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	progDir, otherDir := t.TempDir(), t.TempDir()
+	// Long paths: the runner's TEMP may be an 8.3 path, and the image path
+	// a process reports is the long one.
+	progDir, otherDir := longPath(t.TempDir()), longPath(t.TempDir())
 	prog, other := filepath.Join(progDir, "tool.exe"), filepath.Join(otherDir, "tool.exe")
 	holderExe := filepath.Join(dir, "holder.exe")
 
@@ -113,7 +115,9 @@ func TestMsiexecRestartResources(t *testing.T) {
 		code := msiexecCode(t, log, step.args...)
 		t.Logf("%s: msiexec exit code %d, service %q\n%s", step.name, code, serviceState(t, restartService), restartLines(log))
 
-		if code != 0 {
+		// 3010: Restart Manager could not shut something down and the
+		// installer wants a reboot; the checks below tell what.
+		if code != 0 && code != 3010 {
 			t.Fatalf("%s failed with %d\n%s", step.name, code, readLog(log))
 		}
 
