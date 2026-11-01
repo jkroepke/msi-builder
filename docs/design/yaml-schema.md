@@ -1261,7 +1261,7 @@ properties:
 ```
 
 `DisableShutdown` is documented to keep Restart Manager for finding the processes but
-shuts nothing down. Microsoft documents that a custom action cannot change
+shut nothing down. Microsoft documents that a custom action cannot change
 the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
 line left Restart Manager on in a repair (CLOSE-04), so the package itself
 has to set it. The `windows_exporter` example turns it off, because its service
