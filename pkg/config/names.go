@@ -95,6 +95,7 @@ var standardActions = set( //nolint:gochecknoglobals // lookup table
 
 // builderProperties are written by the builder or set by the engine, so a
 // package cannot define them in properties (ICE87 covers the request ones).
+// The JSON Schema refuses the same names (TestJSONSchemaBuilderProperties).
 var builderProperties = set( //nolint:gochecknoglobals // lookup table
 	"ProductCode", "ProductName", "ProductVersion", "ProductLanguage", "Manufacturer",
 	"UpgradeCode", "ALLUSERS", "SecureCustomProperties", "MsiHiddenProperties",

@@ -1982,6 +1982,16 @@ an error. The request properties (`ADDLOCAL`, `REMOVE`, `REINSTALL`, …) and
 the properties the builder owns (`ProductCode`, `ProductVersion`, `ALLUSERS`,
 `SecureCustomProperties`, …) cannot be set here (ICE87).
 
+The JSON Schema (`pkg/config/schema.json`) lists the Windows Installer
+properties a package may set, such as `MSIRESTARTMANAGERCONTROL`, `REBOOT`,
+`ARPSYSTEMCOMPONENT`, `MSIFASTINSTALL` and `INSTALLLEVEL`, with a description
+and their documented values, so that an editor completes and checks them. It
+refuses the properties the builder writes, whose hover text names the key to
+use instead (`ARPNOMODIFY` is `product.arp.noModify`), and the request
+properties such as `ADDLOCAL`. Any other name takes any value. The descriptions follow Microsoft's documentation and
+are not verified on Windows; MSISPEC case PROP-04 plans the check for
+`MSIRESTARTMANAGERCONTROL`.
+
 **Search.** `search` fills a property from the target machine before the
 install. It is one search or a list of them; each search has exactly one of
 `registry`, `directory`, `file` or `component`:
@@ -2325,6 +2335,7 @@ firewall:
     port: '[LISTEN_PORT]'
     remoteAddresses: '[REMOTE_ADDR]'  # empty means any
     profiles: all                     # all | domain | private | public, or a list
+    ignoreFailure: false              # true: install without the rule if netsh fails
 ```
 
 The builder writes deferred, no-impersonate `netsh advfirewall` actions: on
@@ -2333,13 +2344,26 @@ rollback that deletes; on removal it deletes, with a rollback that adds. The
 `component` is usually an empty component with its own GUID, in the feature
 that switches the rule.
 
+`protocol` is `tcp` (the default), `udp` or `any`. `netsh` takes a port only
+with TCP or UDP, so a rule with `protocol: any` and a `port` is added twice
+under its name, once for TCP and once for UDP, and removed together; without
+a port, `any` is one rule for every protocol (MSISPEC CA-10).
+
+A rule whose add fails, for example because `netsh` rejects an argument that
+a property filled in at runtime, fails the install with
+1603 and rolls it back. With `ignoreFailure: true` the install goes on and
+the rule is missing (with `protocol: any` and a port, each of the two adds
+goes on by itself, so one protocol can be open without the other); use it for a rule the program can do without, such as
+one that only lets other machines connect. The removal never fails on a rule
+(MSISPEC section 17.3).
+
 `remoteAddresses` is passed to netsh's `remoteip=` unquoted, so it has no
 spaces or double quotes. A value with property references goes through a
 property that falls back to `any` when any property it references is empty
 at runtime. `any` and `*` mean any address and cannot be combined with other
 entries: netsh rejects `any` before or after an address and `*` before one
-and, since the add action has no Continue flag, the install fails (MSISPEC
-CA-02), so the build reports an error. `*` after an address is rejected as
+and the add action fails the install (MSISPEC
+CA-02, CA-04), so the build reports an error. `*` after an address is rejected as
 well, although that case is not tested. Keywords such as `localsubnet` combine with addresses.
 Neither the name nor the description may contain a double quote; netsh drops
 quotes inside the quoted description (MSISPEC CA-04). The name is literal

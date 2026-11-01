@@ -199,7 +199,7 @@ func (c *converter) markNeededDirs() {
 	idAttrs := map[string][]string{
 		elemShortcut:      {"WorkingDirectory"},
 		"CustomAction":    {attrDirectory},
-		"SetDirectory":    {"Id"},
+		elemSetDirectory:  {"Id"},
 		elemRemoveFile:    {attrDirectory, attrProperty},
 		elemRemoveFolder:  {attrDirectory, attrProperty},
 		"Property":        {"Id"},
@@ -566,7 +566,7 @@ func uiDirRef(elm *elem) string {
 		return elm.attr(attrProperty)
 	case elm.is("Publish"):
 		return strings.TrimSuffix(strings.TrimPrefix(elm.attr("Value"), "["), "]")
-	case elm.is("Feature"):
+	case elm.is(elemFeature):
 		return elm.attr("ConfigurableDirectory")
 	}
 
@@ -632,7 +632,7 @@ func unnamed(name string) bool {
 func (c *converter) setterFolder(setter *elem) string {
 	// A setter that runs in one sequence only, or that another action is
 	// sequenced against, keeps its row and its action.
-	if !setter.is("SetDirectory") || c.condition(setter) != "" || setter.attr("Sequence") != "" && setter.attr("Sequence") != "both" ||
+	if !setter.is(elemSetDirectory) || c.condition(setter) != "" || setter.attr("Sequence") != "" && setter.attr("Sequence") != "both" ||
 		c.anchored(c.doc.root, setterName(setter)) {
 		return ""
 	}

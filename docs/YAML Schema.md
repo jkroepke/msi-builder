@@ -315,6 +315,10 @@ firewall:
 The rule is added on install and removed on uninstall. `[#hello.exe]` is
 the installed path of the file `hello.exe`, the program the rule allows.
 `profiles` limits the rule to `domain`, `private` or `public` networks.
+`protocol: any` with a `port` opens the port for TCP and UDP. If the rule
+cannot be added, the install fails; `ignoreFailure: true` installs without
+the rule instead, or, for `any` with a port, possibly with only one of the
+two protocols.
 
 ### Register a file type
 

@@ -257,6 +257,7 @@ type compConv struct {
 	removeRows   map[[5]string]bool
 	services     []*omap
 	serviceLines []int
+	serviceKeys  []string // the services' match keys (serviceKey)
 	controls     []*elem
 	shortcuts    int
 	files        int

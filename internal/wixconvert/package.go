@@ -138,7 +138,7 @@ func (c *converter) literalStatic(text string) string {
 
 	return preprocessorVar.ReplaceAllStringFunc(text, func(ref string) string {
 		parts := preprocessorVar.FindStringSubmatch(ref)
-		if v, ok := c.defined[varName(parts[2])]; ok && parts[1] != "env" && parts[1] != varSys {
+		if v, ok := c.defined[varName(parts[2])]; ok && parts[1] != varEnv && parts[1] != varSys {
 			return v
 		}
 

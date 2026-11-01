@@ -2702,10 +2702,6 @@ func (v *validator) firewall(cfg *Config, known *refs) { //nolint:cyclop // a fl
 
 		v.remoteAddresses(p+".remoteAddresses", rule.RemoteAddresses)
 
-		if rule.Protocol == "any" && rule.Port != "" {
-			v.errorf(p+".port", "a port needs protocol tcp or udp")
-		}
-
 		for j, prof := range rule.Profiles {
 			v.oneOf(fmt.Sprintf("%s.profiles[%d]", p, j), prof, "all", "domain", "private", "public")
 		}

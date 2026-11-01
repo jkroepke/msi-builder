@@ -43,13 +43,16 @@ const (
 // varSys is the kind of WiX system variables, $(sys.NAME).
 const varSys = "sys"
 
+// varEnv is the kind of environment variables, $(env.NAME).
+const varEnv = "env"
+
 // varRefs returns the WiX variables that text reads: $(var.X) and $(X),
 // with dots as underscores.
 func varRefs(text string) []string {
 	var refs []string
 
 	for _, m := range preprocessorVar.FindAllStringSubmatch(text, -1) {
-		if m[1] != "env" && m[1] != varSys {
+		if m[1] != varEnv && m[1] != varSys {
 			refs = append(refs, varName(m[2]))
 		}
 	}
@@ -385,7 +388,7 @@ func directAllowed(elm, parent *elem) bool {
 	switch elm.name {
 	case elemComponent:
 		return contained(elm)
-	case "DirectoryRef":
+	case elemDirectoryRef:
 		// A reference that only places components, such as one per
 		// language in a <?foreach?>.
 		return placesComponents(elm)
@@ -1293,7 +1296,7 @@ var bracketRefs = regexp.MustCompile(`\[[#!$]([^\]]+)\]`)
 // ServiceInstall of the service it controls must sit in the same
 // branches too: the converter writes the control into the service.
 func (c *converter) checkReferences() {
-	kept := keptTargets(c.doc.root)
+	kept := c.keptTargets(c.doc.root)
 
 	walkElems(c.doc.root, func(elm *elem) {
 		for _, name := range elm.order {
@@ -1312,11 +1315,11 @@ func (c *converter) checkReferences() {
 
 		switch {
 		case elm.is(elemServiceInstall):
-			for _, ctl := range kept.controls[strings.ToLower(elm.attr("Name"))] {
+			for _, ctl := range kept.controls[c.serviceKey(elm)] {
 				unkeepApart(elm, ctl)
 			}
 		case elm.is(elemServiceControl):
-			for _, svc := range kept.services[strings.ToLower(elm.attr("Name"))] {
+			for _, svc := range kept.services[c.serviceKey(elm)] {
 				unkeepApart(elm, svc)
 			}
 		}
@@ -1336,7 +1339,7 @@ type targets struct {
 }
 
 // keptTargets returns the elements in kept blocks that others refer to.
-func keptTargets(root *elem) targets {
+func (c *converter) keptTargets(root *elem) targets {
 	kept := targets{
 		defs: make(map[string][]*elem), names: make(map[string][]*elem),
 		controls: make(map[string][]*elem), services: make(map[string][]*elem),
@@ -1359,11 +1362,11 @@ func keptTargets(root *elem) targets {
 				kept.defs[id] = append(kept.defs[id], elm)
 			}
 		case elm.is(elemServiceControl):
-			name := strings.ToLower(elm.attr("Name"))
-			kept.controls[name] = append(kept.controls[name], elm)
+			key := c.serviceKey(elm)
+			kept.controls[key] = append(kept.controls[key], elm)
 		case elm.is(elemServiceInstall):
-			name := strings.ToLower(elm.attr("Name"))
-			kept.services[name] = append(kept.services[name], elm)
+			key := c.serviceKey(elm)
+			kept.services[key] = append(kept.services[key], elm)
 		}
 	})
 
