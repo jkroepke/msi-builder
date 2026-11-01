@@ -414,6 +414,15 @@ func TestConvertPreprocessorKeeps(t *testing.T) {
     <Property Id="Q" Value="$(var.X)" />`,
 			want: "X: '{{ if eq .M \"{{{\" }}1{{ else }}{{ `{` }}{{ .M }}{{ end }}'",
 		},
+		"define that reads a variable before its default": {
+			body: `<?define Full = "$(var.Version)-full" ?><?ifdef D ?><?define F = "$(var.Version)-d" ?><?else ?><?define F = "$(var.Version)-r" ?><?endif ?>
+    <?ifndef Version ?><?define Version = "1.0" ?><?endif ?>
+    <Feature Id="Main"><ComponentRef Id="C" /></Feature>
+    <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>
+    <Property Id="Q" Value="$(var.Full)" /><Property Id="R" Value="$(var.F)" />`,
+			want: `Full: '{{ .Version }}-full'`,
+			vars: []string{"D"},
+		},
 		"property in both branches on one line": {
 			body: `<Feature Id="Main"><ComponentRef Id="C" /></Feature>
     <Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" /></Component>

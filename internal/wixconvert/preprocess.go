@@ -1077,8 +1077,14 @@ func (e *defineEval) define(proc procInst) {
 			e.conv.needFixed(self)
 		}
 
-		if !ok || loc[2] >= 0 && value[loc[2]:loc[3]] != "var" {
+		if loc[2] >= 0 && value[loc[2]:loc[3]] != "var" {
 			continue
+		}
+
+		if !ok {
+			// No define has run: the value comes from --var, as from -d
+			// in WiX, also when a later define sets the variable.
+			known = "{{ ." + ref + " }}"
 		}
 
 		text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literalStatic(value[last:loc[0]])))
