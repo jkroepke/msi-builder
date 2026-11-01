@@ -206,6 +206,8 @@ func TestConvertMachineSetter(t *testing.T) {
 		"not installed": anchored(`<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />`,
 			`<InstallUISequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT Installed</Custom></InstallUISequence>
     <InstallExecuteSequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT Installed</Custom></InstallExecuteSequence>`),
+		"other condition": anchored(`<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />`,
+			`<InstallExecuteSequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT Installed AND NOT REMOVE</Custom></InstallExecuteSequence>`),
 		"not installed set property": anchored(`<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts">NOT Installed</SetProperty>`, ""),
 		"anchored set property": anchored(`<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" />`,
 			`<SetProperty Id="FOO" Value="x" After="SetALLUSERS" />`),
@@ -258,6 +260,7 @@ func TestConvertChosenMachineSetter(t *testing.T) {
     <UI><Dialog Id="ScopeDlg" Width="370" Height="270" Title="Scope">
       <Control Id="All" Type="PushButton" X="10" Y="10" Width="56" Height="17" Text="All users"><Publish Event="DoAction" Value="SetAU">1</Publish></Control>
     </Dialog></UI>`),
+		"context condition": src("", `<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" Sequence="execute">NOT MSIINSTALLPERUSER</SetProperty>`),
 		"ui only custom": src("", `<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />
     <InstallUISequence><Custom Action="SetAU" Before="FindRelatedProducts" /></InstallUISequence>`),
 		// Without a context condition, the setter alone chooses the context.

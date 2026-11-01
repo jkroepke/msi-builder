@@ -302,11 +302,13 @@ upgrade:
   its conditions, since `ALLUSERS=1` always holds there. So does a WiX v3
   package without `InstallScope` whose action always sets `ALLUSERS=1`
   (a `SetProperty` outside the UI sequence, or an action
-  `InstallExecuteSequence` schedules, without a condition other than `1` or
-  `NOT Installed`), even when its
+  `InstallExecuteSequence` schedules, whose condition, such as
+  `NOT Installed`, does not read `ALLUSERS` or `MSIINSTALLPERUSER`) and
+  that neither sets `MSIINSTALLPERUSER` nor conditions a component on it, even
+  when its
   components test the context; `convert` drops that setter with a note.
-  A setter that only a dialog button, the UI sequence or a condition runs
-  lets the install choose the context, as does any setter in a per-user
+  A setter that only a dialog button or the UI sequence runs, or whose
+  condition reads the context, lets the install choose the context, as does any setter in a per-user
   package. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the command line
   still pick the context (INST-07).
 - WiX sets `WIX_UPGRADE_DETECTED` during an upgrade, msi-builder sets

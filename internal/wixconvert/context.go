@@ -129,7 +129,11 @@ func (c *converter) choosesContext(machineOK bool) int {
 // Convert keeps it perMachine when the dual package does not validate. A
 // per-machine package stays: there a condition on ALLUSERS=1 always holds.
 func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) string {
-	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !c.setsMachine() && !c.noDual
+	// A WiX v3 package that always sets ALLUSERS=1 states per machine,
+	// unless it also reads MSIINSTALLPERUSER.
+	statesMachine := c.setsMachine() && !c.readsInstallPerUser()
+
+	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !statesMachine && !c.noDual
 	if !perUser {
 		return scope
 	}
@@ -204,27 +208,25 @@ func (c *converter) setterValue(action *elem) string {
 	return c.value(action, "Value")
 }
 
-// firstInstallCondition reports whether a condition holds in every first
-// install: none, 1 or NOT Installed. A later maintenance install keeps the
-// context the product was registered in.
-func firstInstallCondition(cond string) bool {
-	switch normalizeCondition(cond) {
-	case "", "1", "NOT Installed":
-		return true
-	}
+// contextProperties matches the properties that pick the install context.
+var contextProperties = regexp.MustCompile(`\b(ALLUSERS|MSIINSTALLPERUSER)\b`)
 
-	return false
+// contextFree reports whether a setter's condition does not read the
+// install context. A setter of ALLUSERS=1 under such a condition, such as
+// NOT Installed, states the per-machine context of every install it runs
+// in; one whose condition reads ALLUSERS or MSIINSTALLPERUSER chooses it.
+func contextFree(cond string) bool {
+	return !contextProperties.MatchString(cond)
 }
 
-// alwaysRuns reports whether a context setter runs in every first install:
-// a SetProperty outside the UI sequence, or a CustomAction that
-// InstallExecuteSequence schedules, without a condition other than 1 or
-// NOT Installed.
-// A setter that only a dialog button, the UI sequence or a condition runs
-// lets the install choose the context.
+// alwaysRuns reports whether a context setter runs in the execute
+// sequence under a condition that does not read the context: a SetProperty
+// outside the UI sequence, or a CustomAction that InstallExecuteSequence
+// schedules. A setter that only a dialog button or the UI sequence runs, or
+// whose condition reads the context, lets the install choose the context.
 func (c *converter) alwaysRuns(action *elem) bool {
 	if action.is("SetProperty") {
-		return firstInstallCondition(c.condition(action)) && action.attr("Sequence") != "ui"
+		return contextFree(c.condition(action)) && action.attr("Sequence") != "ui"
 	}
 
 	runs := false
@@ -234,7 +236,7 @@ func (c *converter) alwaysRuns(action *elem) bool {
 
 	walk = func(elm *elem, execute bool) {
 		execute = execute || elm.is("InstallExecuteSequence")
-		if execute && elm.is("Custom") && elm.attr("Action") == actionID && firstInstallCondition(c.condition(elm)) {
+		if execute && elm.is("Custom") && elm.attr("Action") == actionID && contextFree(c.condition(elm)) {
 			runs = true
 		}
 
@@ -284,6 +286,31 @@ func (c *converter) setsMachine() bool {
 
 	walk = func(elm *elem) {
 		if contextSetter(elm) != "" && c.machineSetter(elm) {
+			found = true
+		}
+
+		for _, kid := range elm.kids {
+			walk(kid)
+		}
+	}
+
+	walk(c.doc.root)
+
+	return found
+}
+
+// readsInstallPerUser reports whether the file sets MSIINSTALLPERUSER or
+// conditions a component on it. Only an ALLUSERS=2 package reads it, so
+// such a file chooses its context even when it also sets ALLUSERS=1.
+func (c *converter) readsInstallPerUser() bool {
+	found := false
+
+	var walk func(*elem)
+
+	walk = func(elm *elem) {
+		switch {
+		case contextSetter(elm) == propInstallPerUser,
+			elm.is("Component") && strings.Contains(c.componentConditionText(elm), propInstallPerUser):
 			found = true
 		}
 
