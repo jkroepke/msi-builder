@@ -36,6 +36,11 @@ type scopePreference struct {
 	// the setters and the property are left out; direct when the page
 	// reads the property itself.
 	drop, direct bool
+	// readers is set when something but the dialog and its setters names
+	// the property.
+	readers bool
+	// early is set when a setter runs before AppSearch.
+	early bool
 }
 
 // propertyIs matches a condition that compares a property with a quoted
@@ -159,7 +164,7 @@ func (c *converter) mapScopePref(pref *scopePreference) {
 		return
 	}
 
-	if !c.keepsProperty(pref) && c.mapConditions(pref) {
+	if !c.keepsProperty(pref) && !pref.early && c.mapConditions(pref) {
 		pref.drop = true
 
 		return
@@ -200,7 +205,9 @@ func (c *converter) keepsProperty(pref *scopePreference) bool {
 		}
 	}
 
-	return c.readsElsewhere(pref)
+	pref.readers = c.readsElsewhere(pref)
+
+	return pref.readers
 }
 
 // mapConditions sets the conditions from the property's default and the
@@ -326,9 +333,10 @@ func (c *converter) scopeSetters(pref *scopePreference) {
 			continue
 		}
 
-		switch beforeDialog(anchors, src.id, dlg.e.attr("Id")) {
-		case placeBefore:
+		switch place := beforeDialog(anchors, src.id, dlg.e.attr("Id")); place {
+		case placeBefore, placeEarly:
 			pref.before[src.id] = true
+			pref.early = pref.early || place == placeEarly
 			pref.from = append(pref.from, src.id)
 		case placeAfter:
 			// The dialog has shown its choice by then.
@@ -402,6 +410,9 @@ const (
 	placeUnknown = iota
 	placeBefore
 	placeAfter
+	// placeEarly is before AppSearch: before the dialog, but before the
+	// searches its condition may read, where the page's conditions are not.
+	placeEarly
 )
 
 // beforeDialog follows an action's anchors in the UI sequence to the
@@ -418,7 +429,9 @@ func beforeDialog(anchors map[string]uiAnchor, action, dialog string) int {
 			return placeBefore
 		case anchor.target == dialog:
 			return placeAfter
-		case anchor.target == "AppSearch":
+		case anchor.target == actAppSearch && anchor.key == keyBefore:
+			return placeEarly
+		case anchor.target == actAppSearch:
 			return placeBefore
 		}
 
@@ -601,6 +614,12 @@ func (c *converter) uiScopePage(wizard *omap) {
 
 	what := pref.comment()
 
+	if pref.direct && pref.readers {
+		c.todof(page, "perMachine", dlg.e.line, "%s no longer follows the option chosen on the scope page, which sets ALLUSERS to 1 "+
+			"for all users and leaves it empty for the current user; conditions that read %s after the dialog should test ALLUSERS instead",
+			dlg.prop, dlg.prop)
+	}
+
 	for _, key := range []string{"perMachine", "perUser"} {
 		if page.str(key) != "" {
 			page.comment(key, what)
@@ -635,10 +654,60 @@ func (pref *scopePreference) comment() string {
 
 	switch {
 	case pref.direct:
-		what += " " + pref.dialog.prop + " and the actions that set it stay; they run before the scope page."
+		what += " " + pref.dialog.prop + " and the actions that set it stay."
 	case pref.drop:
 		what += " Convert left out " + pref.dialog.prop + pref.droppedSetters() + ", so msiexec " + pref.dialog.prop + "=... no longer preselects an option."
 	}
 
 	return what
+}
+
+// dialogAnchors moves the UI placements anchored on the scope dialog, which
+// the scope page replaces, to the page's place: right after AppSearch for
+// one before the dialog, and after LaunchConditions, which the builder runs
+// after the page, for one after it.
+func (c *converter) dialogAnchors() {
+	pref := c.scopePref()
+	if pref == nil || pref.problem != "" {
+		return
+	}
+
+	dialog := pref.dialog.e.attr("Id")
+
+	actions, ok := c.out.get("customActions").([]any)
+	if !ok {
+		return
+	}
+
+	for _, entry := range actions {
+		if action, isMap := entry.(*omap); isMap {
+			moveDialogAnchors(action, dialog)
+		}
+	}
+}
+
+// moveDialogAnchors moves an action's UI placements off the scope dialog.
+func moveDialogAnchors(action *omap, dialog string) {
+	schedule, ok := action.get("schedule").([]any)
+	if !ok {
+		return
+	}
+
+	for i, item := range schedule {
+		if placement, isMap := item.(*omap); isMap && placement.str("sequence") == seqUI {
+			schedule[i] = moveDialogAnchor(placement, dialog)
+		}
+	}
+}
+
+// moveDialogAnchor returns the placement moved off the scope dialog.
+func moveDialogAnchor(placement *omap, dialog string) *omap {
+	switch dialog {
+	case placement.str(keyBefore):
+		return moveAnchor(placement, flowMap().set(keyAfter, actAppSearch))
+	case placement.str(keyAfter):
+		return moveAnchor(placement, flowMap().set(keyAfter, actLaunchConditions))
+	default:
+		return placement
+	}
 }

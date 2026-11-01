@@ -166,7 +166,12 @@ versioning after 1.0.
   out (`scopeSources` moves placements on them); otherwise they stay and
   `ui.scopePage` tests the property (`mapProperty`). `beforeDialog` follows
   a setter's anchors to the dialog or `AppSearch`, since the page reads
-  its preselection right after `AppSearch`; any other place keeps a todo.
+  its preselection right after `AppSearch`; any other place keeps a todo,
+  and one before `AppSearch` keeps the property (its condition must not
+  see the searches). `dialogAnchors` moves UI placements on the dialog to
+  after `AppSearch` (before it) or `LaunchConditions` (after it). A kept
+  property no longer follows the page's choice: readers after the dialog
+  get a todo to test `ALLUSERS`.
   A ProgId without `Extension` children takes its verbs and `openWithOnly`
   extensions from the `RegistryValue`s of its component that write
   `<ProgId>\shell\<verb>\command` (running `[#file]`) and

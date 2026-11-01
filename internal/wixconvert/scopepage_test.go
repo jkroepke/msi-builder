@@ -148,10 +148,15 @@ func TestConvertScopeDialogKept(t *testing.T) {
 
 		wantAll(t, yaml,
 			"    perMachine: SCOPE = \"machine\"\n", "    perUser: SCOPE = \"user\"\n",
-			"SCOPE and the actions that set it stay; they run before the scope page.",
+			"SCOPE and the actions that set it stay.",
 			"  SCOPE: "+value+"\n",
 		)
 		wantNone(t, yaml, "Convert left out")
+
+		// Only a reader after the dialog misses the chosen option.
+		if follows := strings.Contains(yaml, "SCOPE no longer follows the option chosen"); follows != (name == "read") {
+			t.Errorf("%s: todo about readers = %v:\n%s", name, follows, yaml)
+		}
 	}
 }
 
@@ -184,6 +189,41 @@ func TestConvertScopeDialogSetterPlace(t *testing.T) {
     <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" After="CostFinalize" Sequence="ui" Condition="PREVMACHINE" />`))
 	wantAll(t, yaml, "the place of the action PreferMachine, which sets SCOPE, does not lead to the dialog or AppSearch")
 	wantNone(t, yaml, "scopePage:")
+}
+
+// TestConvertScopeDialogAnchors checks actions placed on the scope dialog,
+// which the scope page replaces: one before it runs right after AppSearch,
+// one after it after LaunchConditions, which follows the page, also when
+// the setter they followed is left out.
+func TestConvertScopeDialogAnchors(t *testing.T) {
+	t.Parallel()
+
+	yaml := convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" Before="ScopeDlg" Sequence="ui" Condition="PREVMACHINE" />
+    <SetProperty Id="GREETING" Value="hi" After="PreferMachine" Sequence="ui" />
+    <SetProperty Id="CHOSEN" Value="1" After="ScopeDlg" Sequence="ui" />`))
+
+	wantAll(t, yaml, "    perMachine: PREVMACHINE\n", "{sequence: ui, after: AppSearch}", "{sequence: ui, after: LaunchConditions}")
+	wantNone(t, yaml, "ScopeDlg}", "id: PreferMachine")
+
+	// Kept, the setter itself moves.
+	yaml = convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" Before="ScopeDlg" Sequence="ui" Condition="PREVMACHINE" />
+    <Launch Condition="Installed OR SCOPE = &quot;machine&quot; OR NOT PREVMACHINE" Message="Installed for everyone already." />`))
+	wantAll(t, yaml, "{sequence: ui, after: AppSearch, condition: PREVMACHINE}")
+}
+
+// TestConvertScopeDialogEarlySetter checks a setter before AppSearch,
+// whose condition WiX evaluates before the searches: it stays, and the
+// page tests the property, instead of evaluating the condition after them.
+func TestConvertScopeDialogEarlySetter(t *testing.T) {
+	t.Parallel()
+
+	yaml := convertValid(t, scopeDialogSource("perUserOrMachine", "user", `
+    <SetProperty Id="SCOPE" Action="PreferMachine" Value="machine" Before="AppSearch" Sequence="ui" Condition="PREVMACHINE" />`))
+
+	wantAll(t, yaml, "    perMachine: SCOPE = \"machine\"\n", "id: PreferMachine", "before: AppSearch")
+	wantNone(t, yaml, "perMachine: PREVMACHINE")
 }
 
 // TestConvertScopeDialogPerUser checks a scope dialog in a package that

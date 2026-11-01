@@ -167,6 +167,7 @@ func (c *converter) emit() {
 	c.emitProperties()
 	c.emitLaunchConditions()
 	c.emitActions()
+	c.dialogAnchors()
 	c.emitFiles()
 	c.emitUI()
 	c.emitErrorRows()
