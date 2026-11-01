@@ -296,6 +296,7 @@ Silent-failure cases a producer has to guard against itself:
 | CA-07 | Confirmed | [ci](msitest/results/CA-07/ci/log.md); GitHub `windows-latest` runner, 2026-10-29, CI run 40940932552: `localport=80,443,8000-8010` from the package and from a property is stored as written; uninstall removes the rule |
 | CA-08 | Confirmed | GitHub `windows-latest` runner, 2026-10-30, CI runs 41053365815 and 41058632106 (`TestMsiexecProgressText`, `TestFullUIProgressText`): the full-UI progress page shows a deferred action's `ActionText` description with `[ProductName]` resolved; the verbose log writes descriptions formatted; the German transform replaces the row; a `/qn` log has no description for an immediate action; [details](#progress-texts-ca-08) |
 | CA-09 | Confirmed | [ci](msitest/results/CA-09/ci/log.md); GitHub `windows-latest` runner, 2026-10-31, CI runs 41236083486 and 41239378858 (PR #183): in `ALLUSERS=2` packages a no-impersonate action conditioned `ALLUSERS=1` runs as LocalSystem per machine (install, repair, uninstall) and not per user, also not in an administrator's per-user install; unconditioned it runs per user as the installing user, administrator or standard user, in both dual scopes; ICE105 warns about it in `perUserOrMachine` with or without the condition and is silent in `perMachineOrUser`, and treats a `System64Folder` Directory row the same way |
+| CA-10 | Confirmed, except the stopped service | [ci](msitest/results/CA-10/ci/log.md); GitHub `windows-latest` runner, 2026-11-01, CI run 41298591380 (PR #206): `netsh` refuses `protocol=any` with `localport=` ("Ports can only be specified if the protocol is TCP or UDP.", exit 1); `protocol: any` with a port installs a TCP and a UDP rule of the name and uninstall removes both; a failing add exits 1603 and rolls back, with `ignoreFailure` exit 0 without the rule; a WiX 5 exception with a `Port` and no `Protocol` installs one TCP rule; MpsSvc did not stop even with the stop right granted; [details](#firewall-rules-for-any-protocol-and-ignorefailure-ca-10) |
 | SHORTCUT-01 | Confirmed | [hkcu-folder](msitest/results/SHORTCUT-01/hkcu-folder/log.md), [file-component](msitest/results/SHORTCUT-01/file-component/log.md), [file-component-folder](msitest/results/SHORTCUT-01/file-component-folder/log.md), [advertised](msitest/results/SHORTCUT-01/advertised/log.md), [per-user](msitest/results/SHORTCUT-01/per-user/log.md); every layout installs and removes both shortcuts, the Start menu subfolder goes without a `RemoveFile` row; [details](#shortcuts-shortcut-01) |
 | SHORTCUT-02 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI run 40882369236 (PR #98): the engine converts `PropVariantValue` to the property's type and formats it; a CLSID needs braces; an unknown name or a bad value is warning 1946 and the install goes on; [details](#shortcut-properties-shortcut-02) |
 | SHORTCUT-03 | Confirmed | GitHub `windows-latest` runner, 2026-10-29, CI runs 40900720903 and 40908162979 (PR #105): WriteIniValues writes the `.url` as ANSI with CRLF, the shell reads the address, the `RemoveFile` row deletes it at uninstall after the shell added a section; [details](#shortcut-targets-shortcut-03-shortcut-04) |
@@ -1086,6 +1087,27 @@ Windows Defender Firewall service is stopped (MSISPEC section 16, WiX issues
   product and the work folder were removed.
 
 The stopped-service install did not run: Not tested.
+
+CA-10 (CI runner, 2026-11-01, CI run 41298591380) granted Administrators
+the stop right with `sc sdset`; `Stop-Service mpssvc -Force` then failed
+with "Cannot stop mpssvc service" and the service kept running
+([log](msitest/results/CA-10/ci/log.md)). Still not tested.
+
+## Firewall rules for any protocol and ignoreFailure (CA-10)
+
+Run on 2026-11-01 in CI run 41298591380 on the
+`Build & Test (windows-latest, native)` job (Windows Server 2025 x64,
+elevated) by `internal/builder/nativetest/firewall_windows_test.go`.
+Details: [log](msitest/results/CA-10/ci/log.md).
+
+| Case | Result |
+| --- | --- |
+| `netsh add rule protocol=any localport=12345` | exit 1, "Ports can only be specified if the protocol is TCP or UDP.", no rule |
+| `protocol: any`, `port: '12345,12350-12352'` | a TCP and a UDP rule of the name, both with the port list; uninstall removes both |
+| failing add (remote address `not-an-address`), no `ignoreFailure` | exit 1603, rolled back, no rule |
+| the same with `ignoreFailure: true` | exit 0, program installed, no rule; uninstall exit 0 |
+| WiX 5 exception, `Port` without `Protocol` | one TCP rule with the port |
+| WiX 5 exception with `IgnoreFailure="yes"`, failing remote address | exit 0, no rule |
 
 ## HKCU key paths for profile components (INST-04)
 
