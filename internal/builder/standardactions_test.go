@@ -174,3 +174,17 @@ func TestMoveStandardActionRejected(t *testing.T) {
 		})
 	}
 }
+
+// Without the upgrade section FindRelatedProducts sets nothing, so a
+// LaunchConditions before it is neither an error nor a warning.
+func TestMoveBeforeFindWithoutUpgrade(t *testing.T) {
+	t.Parallel()
+
+	src := strings.Replace(movedBase, "launchConditions:", "upgrade: false\nlaunchConditions:", 1) +
+		"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: FindRelatedProducts}]}\n"
+
+	res, err := buildMoved(t, src)
+	if err != nil || strings.Contains(fmt.Sprint(res.Diagnostics), "LaunchConditions") {
+		t.Errorf("err %v, diagnostics %s", err, res.Diagnostics)
+	}
+}

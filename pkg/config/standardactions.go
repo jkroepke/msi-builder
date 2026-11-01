@@ -100,7 +100,7 @@ func anchoredIn(cfg *Config, action, schedule string) bool {
 // search actions) and is not numbered here, a FindRelatedProducts at 100
 // or later counts as after it.
 func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []sequence.Numbered) {
-	if !hasLaunchConditions(cfg) {
+	if !launchSeesFind(cfg) {
 		return
 	}
 
@@ -145,6 +145,14 @@ func (v *validator) findOnLaunch(cfg *Config, table string, find int) {
 	if path := movePath(cfg, table); path != "" && idle(cfg, actAppSearch, scheduleName(table)) != "" {
 		v.errorf(path, "FindRelatedProducts at %d takes the number of LaunchConditions; place it before or after LaunchConditions", find)
 	}
+}
+
+// launchSeesFind reports whether the order of LaunchConditions and
+// FindRelatedProducts matters: the package has launch conditions and the
+// upgrade section; without it FindRelatedProducts, run only as an anchor,
+// sets no properties.
+func launchSeesFind(cfg *Config) bool {
+	return hasLaunchConditions(cfg) && upgrades(cfg)
 }
 
 // reportLaunchBeforeFind reports launch conditions before

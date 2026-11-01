@@ -71,7 +71,9 @@ func (b *build) checkMoved() {
 // that tests an upgrade property sees it unset. The downgrade check of
 // upgrade.downgrade: error is such a condition, so it is an error there.
 func (b *build) checkLaunchAfterFind() {
-	if !b.hasRows("LaunchCondition") {
+	// Without the upgrade section FindRelatedProducts, run only as an
+	// anchor, sets no properties.
+	if !b.hasRows("LaunchCondition") || b.cfg.Upgrade == nil || b.cfg.Upgrade.Disabled {
 		return
 	}
 
@@ -88,7 +90,7 @@ func (b *build) checkLaunchAfterFind() {
 			continue
 		}
 
-		if b.cfg.Upgrade != nil && b.cfg.Upgrade.Downgrade == "error" {
+		if b.cfg.Upgrade.Downgrade == "error" {
 			b.errorf(path, "%s: LaunchConditions (%d) runs before FindRelatedProducts (%d), "+
 				"so the downgrade check of upgrade.downgrade: error never sees a newer version", table, launch, find)
 

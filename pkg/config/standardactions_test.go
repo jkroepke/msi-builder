@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -40,6 +41,9 @@ func TestStandardActionsAccepted(t *testing.T) {
 			"standardActions:\n  - {action: LaunchConditions, schedule: [{sequence: execute, after: SetAllUsers}]}\n",
 		// Without launch conditions the builder adds no LaunchConditions
 		// after a moved AppSearch.
+		"LaunchConditions before FindRelatedProducts without upgrade": "upgrade: false\n" + search +
+			"launchConditions: [{condition: VersionNT, message: x}]\n" +
+			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: FindRelatedProducts}]}\n",
 		"AppSearch before LaunchConditions without launch conditions": "upgrade: {downgrade: allow}\n" + search +
 			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, before: LaunchConditions}]}\n",
 	} {
@@ -48,7 +52,7 @@ func TestStandardActionsAccepted(t *testing.T) {
 			full = strings.Replace(base, "upgrade: {}\n", "", 1)
 		}
 
-		if ds := validate(t, full+appComponent+doc); errorCount(ds) != 0 {
+		if ds := validate(t, full+appComponent+doc); errorCount(ds) != 0 || strings.Contains(fmt.Sprint(ds), "runs before FindRelatedProducts") {
 			t.Errorf("%s: %v", name, ds)
 		}
 	}

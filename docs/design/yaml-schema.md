@@ -2177,7 +2177,8 @@ needs `upgrade`, AppSearch a property search, LaunchConditions a launch
 condition), and when LaunchConditions ends up before FindRelatedProducts
 while `upgrade.downgrade` is `error`, whose launch condition tests what
 FindRelatedProducts sets; with other launch conditions that order is a
-warning. Validate reports these cases where the configuration decides them,
+warning, and without the upgrade section, where FindRelatedProducts runs
+only as an anchor and sets nothing, it is neither. Validate reports these cases where the configuration decides them,
 together with the cycles and collisions a move causes, counting the
 LaunchConditions the builder puts after a moved AppSearch and the
 unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
