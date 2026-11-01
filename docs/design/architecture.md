@@ -258,9 +258,12 @@ placement fails (and the other one involved), so that `config.Validate`
 (`pkg/config/schedules.go`) and the builder report it as a diagnostic at
 that action's YAML placement. Validate numbers each sequence with the custom
 actions, the run actions' data actions, the always-present standard actions
-and the anchored ones; the builder's own actions only lengthen chains, so
-an error there is an error in the build too, and the build reports the
-collisions with actions only it adds. The builder then checks ICE77
+and the anchored ones, plus the chains the builder hangs off CostFinalize
+and AppSearch as far as the configuration decides them (`chains.go`: search
+results, the remembered install dir, ARP install location, firewall remote
+addresses, the scope page); the builder's other actions only lengthen
+chains, so an error there is an error in the build too, and the build
+reports the collisions with actions only it adds. The builder then checks ICE77
 (deferred actions inside InstallInitialize…InstallFinalize), ICE63 as the
 engine applies it (RemoveExistingProducts anywhere from after
 FindRelatedProducts up to InstallInitialize, right after InstallExecute or

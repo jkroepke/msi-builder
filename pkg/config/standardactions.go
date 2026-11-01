@@ -118,16 +118,9 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 		return
 	}
 
-	launch := sequence.Find(numbered, actLaunchConditions)
-	if launch == 0 {
-		std, _ := sequence.LookupStandard(actLaunchConditions)
-		launch = std.Number(table)
-
-		if find == launch {
-			v.findOnLaunch(cfg, table, find)
-
-			return
-		}
+	launch, done := v.launchNumber(cfg, table, numbered, find)
+	if done {
+		return
 	}
 
 	path = movePath(cfg, table)
@@ -136,6 +129,112 @@ func (v *validator) launchBeforeFind(cfg *Config, table string, numbered []seque
 	}
 
 	v.reportLaunchBeforeFind(cfg, path)
+}
+
+// launchNumber returns the number of LaunchConditions, or its default when
+// validate leaves it to the build; done reports that nothing is left to
+// check: FindRelatedProducts is chained after AppSearch, or it takes the
+// default number of LaunchConditions.
+func (v *validator) launchNumber(cfg *Config, table string, numbered []sequence.Numbered, find int) (int, bool) {
+	if launch := sequence.Find(numbered, actLaunchConditions); launch != 0 {
+		return launch, false
+	}
+
+	// A FindRelatedProducts chained after AppSearch runs before an
+	// unmoved LaunchConditions: the builder runs it at 100 or, when the
+	// actions after AppSearch reach 100, after them.
+	if afterSearch(cfg, table) && inSearchBlock(numbered, find) {
+		return 0, true
+	}
+
+	std, _ := sequence.LookupStandard(actLaunchConditions)
+	launch := std.Number(table)
+
+	if find == launch {
+		v.findOnLaunch(cfg, table, find)
+
+		return 0, true
+	}
+
+	return launch, false
+}
+
+// afterSearch reports whether a moved FindRelatedProducts is chained after
+// AppSearch, through custom actions, moved standard actions or the actions
+// the builder chains there: whatever the side of the other links, the last
+// one is after AppSearch.
+func afterSearch(cfg *Config, table string) bool {
+	anchors := placementAnchors(cfg, table)
+	seen := make(map[string]bool)
+
+	for link := anchors[actFindRelatedProducts]; link.name != "" && !seen[link.name]; link = anchors[link.name] {
+		if link.name == actAppSearch {
+			return link.after
+		}
+
+		seen[link.name] = true
+	}
+
+	return false
+}
+
+// anchorLink is the anchor of a placement and whether it runs after it.
+type anchorLink struct {
+	name  string
+	after bool
+}
+
+// placementAnchors maps each action placed relative to another in a table
+// to that anchor: the builder's chains, custom actions and moved standard
+// actions.
+func placementAnchors(cfg *Config, table string) map[string]anchorLink {
+	anchors := make(map[string]anchorLink)
+	link := func(place Placement) anchorLink {
+		return anchorLink{name: place.Before + place.After, after: place.After != ""}
+	}
+
+	chained, _ := builderChains(cfg, table)
+	for _, action := range chained {
+		anchors[action.Name] = anchorLink{name: action.After, after: true}
+	}
+
+	for _, action := range cfg.CustomActions {
+		for _, place := range action.Schedule {
+			if place.Sequence == scheduleName(table) {
+				anchors[action.ID] = link(place)
+			}
+		}
+	}
+
+	for _, name := range movableActions {
+		if place, _, ok := cfg.StandardPlacement(table, name); ok {
+			anchors[name] = link(place)
+		}
+	}
+
+	return anchors
+}
+
+// inSearchBlock reports whether number belongs to the unbroken run of
+// numbers after AppSearch, that is to the actions chained after it.
+func inSearchBlock(numbered []sequence.Numbered, number int) bool {
+	search := sequence.Find(numbered, actAppSearch)
+	if search == 0 || number <= search {
+		return false
+	}
+
+	taken := make(map[int]bool, len(numbered))
+	for _, n := range numbered {
+		taken[n.Sequence] = true
+	}
+
+	for i := search + 1; i < number; i++ {
+		if !taken[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // findOnLaunch reports FindRelatedProducts on the number of an unmoved
