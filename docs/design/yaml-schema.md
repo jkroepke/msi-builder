@@ -260,7 +260,7 @@ way:
 | no `installDir` | `INSTALLDIR`, configurable, named after the product, under `ProgramFiles64Folder` (`ProgramFilesFolder` on x86, `LocalAppDataFolder\Programs` for `perUser`). Not added when `directories` already defines that ID (section 4.4); added next to a tree with a configurable directory, or an upper-case one below Program Files, it warns, since components without `directory` go there. |
 | component without `directory` | the install dir |
 | `directory: bin` or `directory: CommonAppDataFolder/Hello/logs` | directory nodes for the path, with generated IDs such as `INSTALLDIR_bin` (section 4.4) |
-| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the directory ID |
+| component without `id` | an ID from the key file's name (`hello.exe`), else the first service name, else the first own file type's ProgID, else the directory ID |
 | no `features` | one feature `MainFeature`, titled with the product name, holding every component, with the install dir as its configurable directory |
 | a component written inside `features[].components` | the same component in `components`, referenced by ID |
 | `features[].components` entry that is only an ID | a reference to that component; in Go, `config.ComponentRef(id)` |
@@ -1212,13 +1212,15 @@ lists the `Registry` table for ICE69 too). Like a component shortcut, a
 file in another component of the same feature is named `[#id]`, which
 ICE69 reports as a warning (observed on shortcuts; for `Registry` rows
 documented, not tested). With the file's feature as the parent, as above,
-the file is always there. A component with nothing but
+the file should always be there, since a child feature installs only with
+its parent (documented for the default feature attributes, not tested
+here). A component with nothing but
 file types is keyed on the first value with data they write: the ProgID's
 description, else its `DefaultIcon`, a verb's text or command or the default
 of an extension it owns, in the order they are written (an `openWithOnly` entry alone is not enough, which is an
 error). In a per-user package that value is under
-`HKCU\Software\Classes`, so it is the HKCU key path a profile folder needs (ICE38; REG-09 runs the
-ICE suite on a per-user package).
+`HKCU\Software\Classes`, which should serve as the HKCU key path a profile folder needs (ICE38;
+REG-09 runs the ICE suite on a per-user package, not yet run on Windows).
 Adding a feature later should write only its rows and removing it remove
 only those, with the uninstall removing the rest (REG-09, not yet run on
 Windows). Give each optional

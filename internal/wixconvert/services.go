@@ -975,12 +975,18 @@ func (c *converter) placeTypes() {
 		// the file it opens stays in that component, which names the file,
 		// so that it stays optional.
 		if pending.comp != file.comp && c.componentDiffers(file.comp, pending.comp) {
-			placed[progID] = placedType{pending: pending, file: file, home: pending.comp}
+			if pending.comp.folder == nil {
+				placed[progID] = placedType{pending: pending, file: file, home: pending.comp}
 
-			pending.out.set("file", fileRefName(file))
-			pending.comp.out.add("fileTypes", pending.out)
+				pending.out.set("file", fileRefName(file))
+				pending.comp.out.add("fileTypes", pending.out)
 
-			continue
+				continue
+			}
+
+			c.todof(pending.out, "", pending.e.line, "the ProgId %s was in a component with a folder source, which cannot list "+
+				"file types; it installs with the file it opens now, so the condition and features of that component no longer "+
+				"apply: move it to a component of its own with file", pending.e.attr("Id"))
 		}
 
 		placed[progID] = placedType{pending: pending, file: file, home: file.comp}
@@ -1072,8 +1078,9 @@ func (c *converter) mergeType(first placedType, again pendingType, file *fileRef
 	}
 
 	note := ""
-	if again.comp != first.home && c.componentDiffers(first.home, again.comp) {
-		note = "; it installs with the first declaration now, so the condition and features of the component that declared it again no longer apply"
+	if again.comp != first.home && (c.componentDiffers(first.home, again.comp) || c.componentDiffers(again.comp, first.home)) {
+		note = "; it installs with the component of the first declaration now, whose condition and features replace those of the " +
+			"component that declared it again"
 	}
 
 	c.todof(first.pending.out, "", again.e.line, "the ProgId %s is declared again; convert merged its extensions into this file type "+
