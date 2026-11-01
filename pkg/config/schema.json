@@ -377,7 +377,7 @@
     },
     "properties": {
       "type": "object",
-      "description": "Properties of the package. Any name can be defined. The Windows Installer properties listed here are described from Microsoft's documentation, which is not verified on Windows unless docs/spec/MSISPEC.md names a test case; the properties the builder writes are refused, and their description names the key to use.",
+      "description": "Properties of the package. Any name can be defined. The Windows Installer properties listed here are described from Microsoft's documentation, which is not verified on Windows unless docs/spec/MSISPEC.md names a test case; the properties the builder writes and the request properties are refused, and the description of a builder one names the key to use.",
       "properties": {
         "ADDDEFAULT": {
           "description": "A request property, given on the msiexec command line; a package cannot define it.",
@@ -408,26 +408,22 @@
             {
               "anyOf": [
                 {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
                   ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
                       ]
                     }
                   }
@@ -457,26 +453,22 @@
             {
               "anyOf": [
                 {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
                   ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
                       ]
                     }
                   }
@@ -514,26 +506,22 @@
             {
               "anyOf": [
                 {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
                   ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
                       ]
                     }
                   }
@@ -622,7 +610,7 @@
           "not": {}
         },
         "DISABLEROLLBACK": {
-          "description": "1 turns rollback off: a failed install leaves what it already changed, and rollback and commit actions are skipped.",
+          "description": "Set to any value, usually 1, it turns rollback off: a failed install leaves what it already changed, and rollback and commit actions are skipped.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -638,13 +626,12 @@
                       ]
                     },
                     {
-                      "type": "null"
-                    },
-                    {
-                      "const": ""
-                    },
-                    {
-                      "$ref": "#/$defs/var"
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
                     }
                   ]
                 },
@@ -660,13 +647,12 @@
                           ]
                         },
                         {
-                          "type": "null"
-                        },
-                        {
-                          "const": ""
-                        },
-                        {
-                          "$ref": "#/$defs/var"
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null"
+                          ]
                         }
                       ]
                     }
@@ -750,7 +736,7 @@
           ]
         },
         "LIMITUI": {
-          "description": "Any value limits the user interface to basic UI, so the wizard is never shown. Microsoft asks such a package to set ARPNOMODIFY too (product.arp.noModify).",
+          "description": "Set to any value, usually 1, it limits the user interface to basic UI, so the wizard is never shown. Microsoft asks such a package to set ARPNOMODIFY too (product.arp.noModify).",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -766,13 +752,12 @@
                       ]
                     },
                     {
-                      "type": "null"
-                    },
-                    {
-                      "const": ""
-                    },
-                    {
-                      "$ref": "#/$defs/var"
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
                     }
                   ]
                 },
@@ -788,13 +773,12 @@
                           ]
                         },
                         {
-                          "type": "null"
-                        },
-                        {
-                          "const": ""
-                        },
-                        {
-                          "$ref": "#/$defs/var"
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null"
+                          ]
                         }
                       ]
                     }
@@ -817,26 +801,22 @@
             {
               "anyOf": [
                 {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
                   ]
                 },
                 {
                   "type": "object",
                   "properties": {
                     "value": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "null"
-                        }
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
                       ]
                     }
                   }
@@ -1224,7 +1204,7 @@
           ]
         },
         "MSIUSEREALADMINDETECTION": {
-          "description": "1 sets AdminUser from the user's real token instead of assuming an administrator under UAC. Conditions should use Privileged anyway.",
+          "description": "1 sets AdminUser from the user's actual rights; without it AdminUser equals Privileged on Windows Vista and later. Conditions should use Privileged anyway.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1346,7 +1326,7 @@
           "not": {}
         },
         "REBOOT": {
-          "description": "Force asks for a restart after the install, and restarts without asking when there is no UI, so every silent install restarts the machine; Suppress drops the restart prompt at the end but keeps those of ForceReboot; ReallySuppress drops every restart, and msiexec returns 3010 when one is needed. Only the first letter is read.",
+          "description": "Force asks for a restart after the install, and restarts without asking when there is no UI unless msiexec runs with /norestart; Suppress drops the restart prompt at the end but keeps those of ForceReboot; ReallySuppress drops every restart, and msiexec returns 3010 when one is needed. Only the first letter is read.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -1427,10 +1407,6 @@
                       ]
                     },
                     {
-                      "type": "string",
-                      "pattern": "^[Ss]"
-                    },
-                    {
                       "type": "null"
                     },
                     {
@@ -1451,10 +1427,6 @@
                             "Suppress",
                             "S"
                           ]
-                        },
-                        {
-                          "type": "string",
-                          "pattern": "^[Ss]"
                         },
                         {
                           "type": "null"
@@ -1478,7 +1450,7 @@
           "not": {}
         },
         "REINSTALLMODE": {
-          "description": "Letters, in any case and order, that say what a repair or reinstall overwrites: p, o, e, d, a, c for files, u and m for registry, s for shortcuts, v to re-cache the package. Default omus. In the package it applies to every later repair and makes ICE40 warn; set files[].version for one file instead.",
+          "description": "Letters, in any case and order, that say what a repair or reinstall overwrites: p, o, e, d, a, c for files, u and m for registry, s for shortcuts, v to re-cache the package. Default omus. msiexec /f sets its own letters; in the package it makes ICE40 warn, and files[].version is the fix for one file whose version went down.",
           "allOf": [
             {
               "$ref": "#/$defs/property"
@@ -4136,7 +4108,8 @@
             "value": {
               "type": [
                 "string",
-                "number"
+                "number",
+                "null"
               ]
             },
             "secure": {

@@ -55,7 +55,10 @@ func TestMsiexecRestartManagerControl(t *testing.T) {
 	report := make([]string, 0, 12)
 
 	for _, value := range []string{"0", "Disable", "DisableShutdown", "disable"} {
-		report = append(report, restartManagerRun(t, value, target)...)
+		lines := restartManagerRun(t, value, target)
+		t.Log(strings.Join(lines, "\n")) // kept if a later value fails
+
+		report = append(report, lines...)
 	}
 
 	t.Errorf("PROP-04 probe:\n%s", strings.Join(report, "\n"))
@@ -75,6 +78,9 @@ func restartManagerRun(t *testing.T, value, target string) []string {
 			t.Logf("%s: uninstall: %v", value, err)
 		}
 	}()
+
+	// A run that failed earlier may have left the product installed.
+	_ = exec.CommandContext(context.Background(), "msiexec", "/x", path, "/qn", "/norestart").Run()
 
 	report := []string{"== " + value}
 
@@ -145,9 +151,11 @@ func dropPendingRenames(t *testing.T, dir string) {
 	script := `$k = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager'
 $v = (Get-ItemProperty $k -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations
 if ($v) {
+  if ($v.Count % 2) { throw "odd PendingFileRenameOperations count $($v.Count)" }
   $keep = @()
+  $pat = '*' + $env:RM_DIR + '\*'
   for ($i = 0; $i + 1 -lt $v.Count; $i += 2) {
-    if ($v[$i] -notlike ('*' + $env:RM_DIR + '\*')) { $keep += $v[$i]; $keep += $v[$i + 1] }
+    if ($v[$i] -notlike $pat -and $v[$i + 1] -notlike $pat) { $keep += $v[$i]; $keep += $v[$i + 1] }
   }
   if ($keep.Count) { Set-ItemProperty $k -Name PendingFileRenameOperations -Value $keep -Type MultiString }
   else { Remove-ItemProperty $k -Name PendingFileRenameOperations }
