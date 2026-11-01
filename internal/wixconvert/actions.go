@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	msisequence "github.com/jkroepke/msi-builder/internal/sequence"
 )
 
 // Schedule sequences and event names shared by several keys.
@@ -113,7 +115,14 @@ func (c *converter) standardAction(entry, seq *elem) {
 
 // movableActions are the standard actions that standardActions can move in
 // the execute and UI sequences.
-var movableActions = map[string]bool{"FindRelatedProducts": true, "AppSearch": true, "LaunchConditions": true} //nolint:gochecknoglobals // lookup table
+var movableActions = map[string]bool{actFindRelatedProducts: true, actAppSearch: true, actLaunchConditions: true} //nolint:gochecknoglobals // lookup table
+
+// The standard actions that standardActions moves.
+const (
+	actFindRelatedProducts = "FindRelatedProducts"
+	actAppSearch           = "AppSearch"
+	actLaunchConditions    = "LaunchConditions"
+)
 
 // moveStandard takes the place a sequence gives FindRelatedProducts,
 // AppSearch or LaunchConditions into standardActions. An entry without a
@@ -138,21 +147,115 @@ func (c *converter) moveStandard(entry *elem, sequence string) {
 		return
 	}
 
+	// A place at the default number moves nothing.
+	if std, _ := msisequence.LookupStandard(entry.name); placement.get("at") == std.Number(sequenceTable(sequence)) {
+		return
+	}
+
 	if c.moved == nil {
 		c.moved = make(map[string][]any)
+		c.movedLines = make(map[*omap]int)
 	}
 
 	c.moved[entry.name] = append(c.moved[entry.name], placement)
+	c.movedLines[placement] = entry.line
 }
+
+// sequenceTable returns the table of the execute or the UI sequence.
+func sequenceTable(schedule string) string {
+	if schedule == seqUI {
+		return msisequence.InstallUI
+	}
+
+	return msisequence.InstallExecute
+}
+
+// movedIdle returns why the converted package does not run a moved
+// standard action, or "": AppSearch needs a property search or a
+// remembered install dir, LaunchConditions a launch condition. The
+// converted package always finds older versions.
+func (c *converter) movedIdle(name string) string {
+	switch {
+	case name == actAppSearch && !c.searches():
+		return "it has no property searches"
+	case name == actLaunchConditions && c.out.get("launchConditions") == nil:
+		return "it has no launch conditions"
+	default:
+		return ""
+	}
+}
+
+// searches reports whether the converted package runs AppSearch: for a
+// property search or the remembered install dir.
+func (c *converter) searches() bool {
+	if install := c.out.mapAt("installDir"); install != nil && install.get("remember") != nil {
+		return true
+	}
+
+	props := c.out.mapAt("properties")
+	if props == nil {
+		return false
+	}
+
+	return slices.ContainsFunc(props.keys, func(key string) bool {
+		prop := props.mapAt(key)
+
+		return prop != nil && prop.get("search") != nil
+	})
+}
+
+// findAfterLaunch reports a FindRelatedProducts placed after
+// LaunchConditions at its default number: the launch conditions, the
+// downgrade check among them, then test the upgrade properties unset.
+func (c *converter) findAfterLaunch(placement *omap) bool {
+	at, ok := placement.get("at").(int)
+	if placement.str("after") == actLaunchConditions {
+		ok, at = true, standardLaunch+1
+	}
+
+	if !ok || at <= standardLaunch {
+		return false
+	}
+
+	for _, entry := range c.moved[actLaunchConditions] {
+		if moved, isMap := entry.(*omap); isMap && moved.str("sequence") == placement.str("sequence") {
+			return false
+		}
+	}
+
+	return true
+}
+
+// standardLaunch is the default number of LaunchConditions.
+const standardLaunch = 100
 
 // emitMoved writes standardActions, in the order of the actions' default
 // numbers, with each placement on a left-out setter moved to the setter's
 // anchor, as for custom actions.
 func (c *converter) emitMoved(reanchor func(string, []any)) {
-	for _, name := range []string{"FindRelatedProducts", "AppSearch", "LaunchConditions"} {
+	for _, name := range []string{actFindRelatedProducts, actAppSearch, actLaunchConditions} {
 		placements := c.moved[name]
 		if len(placements) == 0 {
 			continue
+		}
+
+		if why := c.movedIdle(name); why != "" {
+			for _, entry := range placements {
+				if placement, ok := entry.(*omap); ok {
+					c.todof(nil, "", c.movedLines[placement], "the sequence moves the standard action %s, which the converted package does not run (%s); "+
+						"convert left the move out", name, why)
+				}
+			}
+
+			continue
+		}
+
+		for _, entry := range placements {
+			if placement, ok := entry.(*omap); ok && name == actFindRelatedProducts && c.findAfterLaunch(placement) {
+				c.todof(placement, "", c.movedLines[placement], "FindRelatedProducts runs after LaunchConditions here, so a launch "+
+					"condition on an upgrade property, the downgrade check of upgrade.downgrade: error among them, sees it unset; "+
+					"the build refuses that order with downgrade: error")
+			}
 		}
 
 		reanchor(name, placements)

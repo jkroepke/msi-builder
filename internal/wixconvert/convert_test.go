@@ -2547,3 +2547,46 @@ func TestConvertMovedStandardActions(t *testing.T) {
 		t.Errorf("the converted file does not validate: %v\n%s", err, out)
 	}
 }
+
+// TestConvertMovesThatDoNothing leaves out a move to the default number and
+// a move of an action the converted package does not run, and notes a
+// FindRelatedProducts placed after LaunchConditions.
+func TestConvertMovesThatDoNothing(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <InstallExecuteSequence>
+      <AppSearch Sequence="1" />
+      <LaunchConditions Sequence="100" />
+      <FindRelatedProducts Sequence="200" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"the sequence moves the standard action AppSearch, which the converted package does not run (it has no property searches); convert left the move out",
+		"FindRelatedProducts runs after LaunchConditions here",
+		"      - {sequence: execute, at: 200}\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "action: AppSearch") || strings.Contains(out, "action: LaunchConditions") {
+		t.Errorf("a move that does nothing was kept:\n%s", out)
+	}
+}

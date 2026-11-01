@@ -153,6 +153,12 @@ func TestMoveStandardActionRejected(t *testing.T) {
 				movedBase + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: Late}]}\n",
 			"standardActions[0].schedule[0]", "must run before CostInitialize",
 		},
+		// LaunchConditions follows a moved AppSearch, here to before
+		// FindRelatedProducts.
+		"downgrade check before FindRelatedProducts through AppSearch": {
+			movedBase + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, at: 10}]}\n",
+			"standardActions[0].schedule[0]", "downgrade check",
+		},
 		"downgrade check before FindRelatedProducts": {
 			movedBase + "standardActions:\n  - {action: LaunchConditions, schedule: [{sequence: ui, before: FindRelatedProducts}]}\n",
 			"standardActions[0].schedule[0]", "downgrade check",

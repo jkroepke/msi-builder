@@ -21,7 +21,31 @@ type StandardAction struct {
 // movableActions are the standard actions that standardActions may move.
 // They only read the system and set properties, and each must still run
 // before CostInitialize.
-var movableActions = []string{"FindRelatedProducts", "AppSearch", "LaunchConditions"} //nolint:gochecknoglobals // lookup table
+var movableActions = []string{"FindRelatedProducts", actAppSearch, actLaunchConditions} //nolint:gochecknoglobals // lookup table
+
+const (
+	actAppSearch        = "AppSearch"
+	actLaunchConditions = "LaunchConditions"
+)
+
+// hasLaunchConditions reports whether the package gets LaunchCondition
+// rows: its own, or the downgrade check of upgrade.downgrade: error.
+func hasLaunchConditions(cfg *Config) bool {
+	return len(cfg.LaunchConditions) > 0 || upgrades(cfg) && cfg.Upgrade.Downgrade == downgradeError
+}
+
+// movedNumbers reports the moved standard actions that a numbered sequence
+// puts at or after CostInitialize, at their YAML paths.
+func (v *validator) movedNumbers(cfg *Config, table string, numbered []sequence.Numbered) {
+	cost := sequence.Find(numbered, "CostInitialize")
+
+	for _, name := range movableActions {
+		_, path, moved := cfg.StandardPlacement(table, name)
+		if n := sequence.Find(numbered, name); moved && cost != 0 && n > cost {
+			v.errorf(path, "%s at %d must run before CostInitialize (%d)", name, n, cost)
+		}
+	}
+}
 
 // StandardPlacement returns the placement that standardActions gives a
 // standard action in a sequence table, and its YAML path; ok is false when
@@ -102,6 +126,8 @@ func (v *validator) standardPlacement(cfg *Config, placePath, action string, pla
 	v.placementPosition(placePath, place)
 
 	if place.At < 0 {
+		v.errorf(placePath+".at", "a moved standard action cannot be a termination action")
+
 		return
 	}
 

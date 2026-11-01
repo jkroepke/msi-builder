@@ -41,10 +41,12 @@ func (v *validator) schedules(cfg *Config) {
 
 		v.unscheduledAnchors(byID, name, actions, paths)
 
-		_, err := sequence.Number(withAnchors(actions, table))
+		numbered, err := sequence.Number(withAnchors(actions, table))
 
 		var serr *sequence.Error
 		if !errors.As(err, &serr) {
+			v.movedNumbers(cfg, table, numbered)
+
 			continue
 		}
 
@@ -133,6 +135,14 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 		}
 	}
 
+	// The builder puts LaunchConditions after a moved AppSearch, unless it
+	// is moved itself.
+	if _, _, searchMoved := cfg.StandardPlacement(sequenceTables[name], actAppSearch); searchMoved && paths[actAppSearch] != "" &&
+		paths[actLaunchConditions] == "" && hasLaunchConditions(cfg) {
+		paths[actLaunchConditions] = paths[actAppSearch]
+		actions = append(actions, sequence.Action{Name: actLaunchConditions, After: actAppSearch})
+	}
+
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.
 	for _, id := range runs {
@@ -164,8 +174,18 @@ func wellPlaced(place Placement) bool {
 // wellMoved reports whether a moved standard action's placement passed
 // standardPlacement, so that its errors are not reported twice.
 func wellMoved(action string, place Placement) bool {
-	return slices.Contains(movableActions, action) && wellPlaced(place) && place.At < costInitialize() &&
-		place.Before != action && place.After != action
+	if !slices.Contains(movableActions, action) || !wellPlaced(place) || place.At < 0 || place.At >= costInitialize() ||
+		place.Before == action || place.After == action {
+		return false
+	}
+
+	for i, anchor := range []string{place.Before, place.After} {
+		if standardActions[anchor] && !earlyAnchor(anchor, place.Sequence, i == 0) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // withAnchors adds the standard actions every product gets and those the

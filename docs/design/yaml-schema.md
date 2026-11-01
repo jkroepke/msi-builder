@@ -2162,8 +2162,8 @@ in, and after the `ui` sequence ran it the `execute` sequence skips it. A
 dual-scope package that picks the context from a previous install (here a
 search of a value only the per-machine install writes) therefore moves it
 behind the action that sets `ALLUSERS`; at its default number (25, before
-AppSearch) it misses a previous install in the other context, and both
-versions stay installed (UPG-14).
+AppSearch) it is expected to miss a previous install in the other context,
+so that both versions stay installed (UPG-14 pending).
 
 Each placement has exactly one of `before`, `after` or `at` (a number below
 CostInitialize, 800) and no `condition` or `when`: the action keeps its own
@@ -2177,7 +2177,10 @@ needs `upgrade`, AppSearch a property search, LaunchConditions a launch
 condition), and when LaunchConditions ends up before FindRelatedProducts
 while `upgrade.downgrade` is `error`, whose launch condition tests what
 FindRelatedProducts sets; with other launch conditions that order is a
-warning. The other standard actions keep their numbers.
+warning. Validate reports the cycles and the numbers at or after
+CostInitialize that these moves cause, including the LaunchConditions the
+builder puts after a moved AppSearch, and a termination number. The other
+standard actions keep their numbers.
 
 **Restart.** `scheduleReboot` asks for a restart at the end of the
 installation, after Windows features, drivers or system files changed that

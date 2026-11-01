@@ -74,6 +74,9 @@ const (
 	actPublishProduct       = "PublishProduct"
 	actInstallFinalize      = "InstallFinalize"
 	actScheduleReboot       = "ScheduleReboot"
+	actFindRelatedProducts  = "FindRelatedProducts"
+	actAppSearch            = "AppSearch"
+	actLaunchConditions     = "LaunchConditions"
 	actDuplicateFiles       = "DuplicateFiles"
 
 	condNotInstalled = "NOT Installed"
@@ -553,8 +556,8 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 			// limit how many properties a package can search, or when
 			// AppSearch was moved, so that the launch conditions still see
 			// what it found.
-			_, _, searchMoved := b.cfg.StandardPlacement(table, "AppSearch")
-			_, _, launchMoved := b.cfg.StandardPlacement(table, "LaunchConditions")
+			_, _, searchMoved := b.cfg.StandardPlacement(table, actAppSearch)
+			_, _, launchMoved := b.cfg.StandardPlacement(table, actLaunchConditions)
 
 			if b.scheduled(table, "AppSearch") && !b.scheduled(table, "LaunchConditions") && !launchMoved &&
 				(searchMoved || standardNumber(table, "AppSearch")+b.anchoredTo(table, "AppSearch") >= standardNumber(table, "LaunchConditions")) {

@@ -113,3 +113,34 @@ func TestStandardActionsRejected(t *testing.T) {
 		}
 	}
 }
+
+// Validate sees what the build adds around a moved action: LaunchConditions
+// after a moved AppSearch, and the number a chain gives the moved action.
+func TestStandardActionsNumbered(t *testing.T) {
+	t.Parallel()
+
+	launch := "launchConditions: [{condition: VersionNT, message: x}]\n"
+
+	for name, test := range map[string]struct {
+		doc, path, msg string
+	}{
+		"AppSearch after the LaunchConditions that follow it": {
+			launch + "standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: LaunchConditions}]}\n",
+			"standardActions[0].schedule[0]", "AppSearch → LaunchConditions → AppSearch",
+		},
+		"past CostInitialize through a custom action": {
+			"customActions:\n  - {id: Late, setProperty: {name: P, value: x}, schedule: [{sequence: execute, after: CostFinalize}]}\n" +
+				"standardActions:\n  - {action: AppSearch, schedule: [{sequence: execute, after: Late}]}\n",
+			"standardActions[0].schedule[0]", "must run before CostInitialize (800)",
+		},
+		"termination number": {
+			"standardActions:\n  - {action: AppSearch, schedule: [{sequence: ui, at: -1}]}\n",
+			"standardActions[0].schedule[0].at", "termination action",
+		},
+	} {
+		ds := validate(t, base+appComponent+test.doc)
+		if !find(ds, config.SeverityError, test.path, test.msg) || errorCount(ds) != 1 {
+			t.Errorf("%s: want one error at %s with %q: %v", name, test.path, test.msg, ds)
+		}
+	}
+}

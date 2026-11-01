@@ -798,7 +798,7 @@ A `FindRelatedProducts`, `AppSearch` or `LaunchConditions` element with
 `InstallUISequence` becomes a `standardActions` entry. Packages that pick
 the install context from a previous install move `FindRelatedProducts`
 behind the action that sets `ALLUSERS`, because it only finds products in
-the context it runs in (UPG-14):
+the context it runs in (section 8.10 of the specification):
 
 ```xml
 <SetProperty Id="ALLUSERS" Action="SetAllUsersFromPrevious" Value="1" After="AppSearch" Sequence="both" Condition="PREVMACHINE" />
@@ -825,7 +825,11 @@ standardActions:
 ```
 
 Other standard actions keep their place, and a condition on a standard
-action has no counterpart; convert notes both.
+action has no counterpart; convert notes both. A place at the default
+number is dropped, and so, with a note, is the move of AppSearch or
+LaunchConditions in a package without searches or launch conditions;
+FindRelatedProducts after LaunchConditions (Microsoft's 200, for example)
+gets a note, because the downgrade check then sees no newer version.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where

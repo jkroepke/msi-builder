@@ -127,7 +127,9 @@ type converter struct {
 	out           *omap
 	// moved holds the placements of the standard actions that the
 	// sequences move and standardActions takes, by action.
-	moved      map[string][]any
+	moved map[string][]any
+	// movedLines holds the source line of each moved placement.
+	movedLines map[*omap]int
 	pkg        *elem
 	major      *elem
 	summary    *elem

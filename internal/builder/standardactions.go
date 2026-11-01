@@ -76,18 +76,14 @@ func (b *build) checkLaunchAfterFind() {
 	}
 
 	for _, table := range []string{seqInstallExecute, seqInstallUI} {
-		find := sequence.Find(b.numbered[table], "FindRelatedProducts")
-		launch := sequence.Find(b.numbered[table], "LaunchConditions")
+		find := sequence.Find(b.numbered[table], actFindRelatedProducts)
+		launch := sequence.Find(b.numbered[table], actLaunchConditions)
 
 		if find == 0 || launch == 0 || launch > find {
 			continue
 		}
 
-		_, path, ok := b.cfg.StandardPlacement(table, "LaunchConditions")
-		if !ok {
-			_, path, _ = b.cfg.StandardPlacement(table, "FindRelatedProducts")
-		}
-
+		path := b.movePath(table)
 		if path == "" {
 			continue
 		}
@@ -104,12 +100,25 @@ func (b *build) checkLaunchAfterFind() {
 	}
 }
 
+// movePath returns the YAML path of the move that put LaunchConditions
+// before FindRelatedProducts in a table: that of LaunchConditions, of
+// FindRelatedProducts, or of AppSearch, which LaunchConditions follows.
+func (b *build) movePath(table string) string {
+	for _, name := range []string{actLaunchConditions, actFindRelatedProducts, actAppSearch} {
+		if _, path, ok := b.cfg.StandardPlacement(table, name); ok {
+			return path
+		}
+	}
+
+	return ""
+}
+
 // notNeeded says why a movable standard action is missing from a package.
 func notNeeded(action string) string {
 	switch action {
-	case "FindRelatedProducts":
+	case actFindRelatedProducts:
 		return "it needs the upgrade section"
-	case "AppSearch":
+	case actAppSearch:
 		return "it searches for nothing"
 	default:
 		return "it has no launch conditions"
