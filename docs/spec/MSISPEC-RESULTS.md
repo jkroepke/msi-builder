@@ -1299,6 +1299,18 @@ The window helpers now exit on `WM_ENDSESSION` and record it.
 | CLOSE-04 second product with `MSIRESTARTMANAGERCONTROL=Disable` in its `Property` table | exit 0. `RESTART MANAGER: Disabled by MSIRESTARTMANAGERCONTROL property; Windows Installer will use the built-in FilesInUse functionality`; the action logged `no Restart Manager session; nothing registered`; service PID 7528 unchanged |
 | CLOSE-05 `/i` with a program that called `RegisterApplicationRestart` 65 s before | exit 0. Registered and shut down (`WM_ENDSESSION`); msiexec returned at 13:56:40.784, the restarted copy (new PID 8200, started with the registered command line) wrote its marker at 13:56:40.911 |
 
+Third run on 2026-11-01, the push to `main` after PR #211 merged, run
+41315908285 (commit cab63fa, same job). Since PR #215 the tests run a
+`/f<modes>` repair as `/i <package> REINSTALL=ALL REINSTALLMODE=<modes>`, so
+the repair step became `/i ... REINSTALL=ALL REINSTALLMODE=omus
+MSIRESTARTMANAGERCONTROL=Disable`.
+
+| Case and step | Result |
+| --- | --- |
+| CLOSE-04 `/i` | exit 0. All three registered; the holder and the registered program got `WM_ENDSESSION` |
+| CLOSE-04 repair in the `/i REINSTALL=ALL` form with `MSIRESTARTMANAGERCONTROL=Disable` on the command line | exit 0. `RESTART MANAGER: Disabled by MSIRESTARTMANAGERCONTROL property`; the action logged `no Restart Manager session; nothing registered`; service PID 6784 before and after. The command-line property turns Restart Manager off once it reaches the server, so the `/fomus` runs above dropped it |
+| CLOSE-04 second product with `MSIRESTARTMANAGERCONTROL=Disable` in its `Property` table | exit 0. As in the second run |
+
 - Restart Manager stops and starts a registered running service again.
 - Programs are restarted when the session closes at the end of the
   installation, not right after `InstallValidate`.
