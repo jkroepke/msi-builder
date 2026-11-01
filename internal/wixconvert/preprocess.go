@@ -46,6 +46,9 @@ const varSys = "sys"
 // varEnv is the kind of environment variables, $(env.NAME).
 const varEnv = "env"
 
+// varVar is the kind of preprocessor variables, $(var.NAME).
+const varVar = "var"
+
 // varRefs returns the WiX variables that text reads: $(var.X) and $(X),
 // with dots as underscores.
 func varRefs(text string) []string {
@@ -73,12 +76,18 @@ type ppBlock struct {
 	// <?else?> is empty.
 	conds []string
 	line  int
+	// chosen is the branch converted when the block is not kept: the one
+	// a build without -d variables takes when evaluated is set, else the
+	// first; noBranch when none applies. archRead is set when the
+	// evaluated condition reads the platform --arch names.
+	chosen int
 	// keep is set when every branch is converted, each inside the
-	// template action that tests it. Otherwise only the first branch is.
+	// template action that tests it. Otherwise only the branch chosen is.
 	keep bool
 	// elems is set when an element sits in the block.
-	elems   bool
-	foreach bool
+	elems               bool
+	foreach             bool
+	evaluated, archRead bool
 }
 
 // ppBranch is the instruction that opens a branch: if, ifdef, ifndef,
@@ -97,7 +106,7 @@ type ppPos struct {
 
 // pruned reports whether pos lies in a branch that is left out.
 func pruned(pos []ppPos) bool {
-	return slices.ContainsFunc(pos, func(p ppPos) bool { return !p.block.keep && p.branch > 0 })
+	return slices.ContainsFunc(pos, func(p ppPos) bool { return !p.block.keep && p.branch != p.block.chosen })
 }
 
 // keptLoops returns the loop variables of the kept <?foreach?> blocks in pos.
@@ -198,6 +207,9 @@ func relOpens(elm, container *elem) []openRef {
 // planBlocks decides which blocks are converted as templates and leaves
 // out the branches of the others but the first.
 func (c *converter) planBlocks() {
+	// The branches come first: the checks below read pruned.
+	c.chooseBranches()
+
 	for i, blk := range c.doc.blocks {
 		if c.forced[i] {
 			blk.keep = false
@@ -251,7 +263,7 @@ func (c *converter) markProcs() {
 
 		proc.skipped = pruned(proc.pos)
 		if proc.block != nil && !proc.block.keep && (proc.target == piElseif || proc.target == piElse) {
-			proc.leftOut = !proc.skipped
+			proc.leftOut = !proc.skipped && proc.branch != proc.block.chosen
 		}
 	}
 }
@@ -394,6 +406,10 @@ func directAllowed(elm, parent *elem) bool {
 		return placesComponents(elm)
 	}
 
+	if allowed, ok := groupAllowed(elm, parent); ok {
+		return allowed
+	}
+
 	parents, ok := directParents[elm.name]
 	if !ok || !slices.Contains(parents, parent.name) {
 		return false
@@ -504,7 +520,64 @@ const (
 )
 
 // memberParents are the elements that list components.
-var memberParents = []string{elemFeature, "FeatureRef", "ComponentGroup", "FeatureGroup"} //nolint:gochecknoglobals // lookup table
+var memberParents = []string{elemFeature, "FeatureRef", elemComponentGroup, "FeatureGroup"} //nolint:gochecknoglobals // lookup table
+
+// Component groups and the WiX 4 file harvesting element.
+const (
+	elemComponentGroup = "ComponentGroup"
+	elemPackage        = "Package"
+	elemFiles          = "Files"
+)
+
+// groupParents are the elements a ComponentGroup in a branch may sit in.
+var groupParents = []string{"Fragment", elemPackage, "Product", "Module"} //nolint:gochecknoglobals // lookup table
+
+// groupAllowed reports whether a ComponentGroup, or a File or Files in
+// one, which is a component of its own, may sit in a branch; ok is false
+// for other elements.
+func groupAllowed(elm, parent *elem) (bool, bool) {
+	inLoop := slices.ContainsFunc(elm.pos, func(p ppPos) bool { return p.block.foreach })
+
+	switch {
+	case elm.is(elemComponentGroup):
+		return !inLoop && slices.Contains(groupParents, parent.name) && groupContained(elm), true
+	case parent.is(elemComponentGroup) && (elm.is(elemFile) || elm.is(elemFiles)):
+		return !inLoop && implicitContained(elm), true
+	}
+
+	return false, false
+}
+
+// groupContained reports whether everything a ComponentGroup converts to
+// stays in entries of its own: components and files that are components
+// of their own. A reference would leave its components, written outside
+// the block, without a feature in builds that leave the group out.
+func groupContained(group *elem) bool {
+	return !slices.ContainsFunc(group.kids, func(kid *elem) bool {
+		switch {
+		case kid.ns != nsCore:
+			return true
+		case kid.is(elemComponent):
+			return !contained(kid)
+		case kid.is(elemFile), kid.is(elemFiles):
+			return !implicitContained(kid)
+		}
+
+		return true
+	})
+}
+
+// implicitContained reports whether a File or Files outside a Component,
+// which is a component of its own, stays in its own entry.
+func implicitContained(file *elem) bool {
+	if file.is(elemFile) {
+		return contained(file)
+	}
+
+	return file.ns == nsCore && !slices.ContainsFunc(file.kids, func(kid *elem) bool {
+		return kid.ns != nsCore || !kid.is("Exclude")
+	})
+}
 
 // placesComponents reports whether a DirectoryRef holds components and
 // nothing else.
@@ -523,7 +596,7 @@ var directParents = map[string][]string{ //nolint:gochecknoglobals // lookup tab
 	elemEnvironment:   {elemComponent},
 	refComponent:      memberParents,
 	refComponentGroup: memberParents,
-	attrProperty:      {"Package", "Product", "Fragment"},
+	attrProperty:      {elemPackage, "Product", "Fragment"},
 }
 
 // plainProperty reports whether a Property only becomes a properties
@@ -824,7 +897,7 @@ func definedFrom(proc procInst) []string {
 
 // needFixed records that the converter needs one value of a variable:
 // the kept blocks that define it, or a variable its defines read, must
-// be read by their first branch.
+// be read by one branch (ppBlock.chosen).
 func (c *converter) needFixed(name string) {
 	if c.conditionalVars()[name] {
 		c.needFixedAt(name, len(c.doc.procs), make(map[fixedAt]bool))
@@ -888,7 +961,7 @@ func (c *converter) lastDefine(name string, at int) int {
 }
 
 // recordUnkeep records the kept blocks in pos for the next conversion
-// to read by their first branch.
+// to read by one branch (ppBlock.chosen).
 func (c *converter) recordUnkeep(pos []ppPos) {
 	for _, inside := range pos {
 		if inside.block.keep {
@@ -1078,7 +1151,7 @@ func (e *defineEval) define(proc procInst) {
 			e.conv.needFixed(self)
 		}
 
-		if loc[2] >= 0 && value[loc[2]:loc[3]] != "var" {
+		if loc[2] >= 0 && value[loc[2]:loc[3]] != varVar {
 			continue
 		}
 
@@ -1403,7 +1476,7 @@ func refsIn(text string, defs map[string][]*elem) []*elem {
 	return out
 }
 
-// unkeepApart reads by their first branch the kept blocks that used sits
+// unkeepApart reads by one branch the kept blocks that used sits
 // in and user does not.
 func unkeepApart(user, used *elem) {
 	for _, p := range used.pos {

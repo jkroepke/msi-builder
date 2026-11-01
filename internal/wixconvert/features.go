@@ -185,12 +185,16 @@ func (c *converter) membersIn(ms []member, seen map[string]bool) []compIn {
 }
 
 // unionOpens returns the actions of one followed by those of other that
-// one does not have.
+// one does not have. An if that tests the same condition as one before
+// it, such as a reference and the group it names in blocks of the same
+// condition, adds nothing.
 func unionOpens(one, other []openRef) []openRef {
 	out := slices.Clone(one)
 
 	for _, open := range other {
-		if !slices.Contains(out, open) {
+		implied := strings.HasPrefix(open.Action, "if ") &&
+			slices.ContainsFunc(out, func(have openRef) bool { return have.Action == open.Action })
+		if !implied && !slices.Contains(out, open) {
 			out = append(out, open)
 		}
 	}

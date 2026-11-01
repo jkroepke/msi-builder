@@ -112,7 +112,7 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 // convertAll converts the file; with noDual, a WiX v3 package without a
 // scope does not become a dual package. A block that turns out to need one
 // value for all builds, such as a variable that a feature level reads, is
-// converted again with its first branch only.
+// converted again with one branch only (ppBlock.chosen).
 func convertAll(data []byte, opts Options, noDual bool) (*Result, *converter, error) {
 	forced := make(map[int]bool)
 
@@ -160,7 +160,7 @@ func validationErrors(res *Result) int {
 }
 
 // convertOnce converts the file once, with the blocks in forced read by
-// their first branch.
+// one branch (ppBlock.chosen).
 func convertOnce(data []byte, opts Options, forced map[int]bool, noDual bool) (*converter, []byte, error) {
 	doc, err := parse(bytes.NewReader(data))
 	if err != nil {
@@ -298,7 +298,7 @@ type converter struct {
 	// kept blocks.
 	ppFails []string
 	// forced are the blocks, by index, that an earlier conversion found
-	// it must read by their first branch; unkeep are the ones this
+	// it must read by one branch (ppBlock.chosen); unkeep are the ones this
 	// conversion finds.
 	forced, unkeep map[int]bool
 	// condVars caches conditionalVars.
@@ -317,19 +317,21 @@ type converter struct {
 	// actions, and consumed the sources they take in.
 	quietCommands map[string]commandSource
 	consumed      map[*elem]bool
-	featureGrps   map[string]*featureGroup
-	topGroupRefs  []string
-	comps         []*comp
-	notes         []Note
-	header        []string
-	dirOrder      []*dir
-	files         []*fileRef
-	pending       []pendingShortcut
-	pendingTypes  []pendingType
-	anonymous     int
-	removeLine    int
-	uiLine        int
-	v3            bool
+	// fileIDs caches sourceFileIDs.
+	fileIDs      map[string]bool
+	featureGrps  map[string]*featureGroup
+	topGroupRefs []string
+	comps        []*comp
+	notes        []Note
+	header       []string
+	dirOrder     []*dir
+	files        []*fileRef
+	pending      []pendingShortcut
+	pendingTypes []pendingType
+	anonymous    int
+	removeLine   int
+	uiLine       int
+	v3           bool
 	// bcgg makes registry key path codes those of WiX 3.
 	bcgg bool
 	// platformNamed is set when --arch names the platform: neither the
@@ -499,7 +501,7 @@ func (c *converter) index() error {
 
 	for _, elm := range c.doc.root.kids {
 		switch {
-		case elm.is("Package"), elm.is("Product"):
+		case elm.is(elemPackage), elm.is("Product"):
 			packages = append(packages, elm)
 		case elm.is("Fragment"):
 		case elm.is("Bundle"), elm.is("Module"), elm.is("Patch"), elm.is("PatchCreation"):
@@ -732,7 +734,7 @@ func (c *converter) walkElem(elm *elem, within scope) bool {
 	}
 
 	// The v3 Package element is the summary information.
-	if elm.name == "Package" && c.v3 {
+	if elm.name == elemPackage && c.v3 {
 		c.summary = elm
 
 		return true
@@ -914,7 +916,11 @@ func (c *converter) group(id string) *group {
 // component WiX makes for it, which takes its Id, Directory and
 // Subdirectory.
 func implicitComponent(file *elem) *elem {
-	component := &elem{attrs: make(map[string]string), ns: file.ns, space: file.space, name: elemComponent, kids: []*elem{file}, line: file.line}
+	component := &elem{
+		attrs: make(map[string]string), ns: file.ns, space: file.space, name: elemComponent, kids: []*elem{file}, line: file.line,
+		// The component is in the file's branches.
+		pos: file.pos, opens: file.opens, loops: file.loops,
+	}
 
 	// WiX names the component after the file.
 	for _, name := range []string{"Id", attrDirectory, "Subdirectory"} {
@@ -1004,8 +1010,8 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 		case "include":
 			c.todof(nil, "", proc.line, "<?include %s?>: convert the included file and merge it in by hand", proc.inst)
 		case piIf, piIfdef, piIfndef:
-			if !kept {
-				c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
+			if !kept && proc.block != nil {
+				c.unkeptNote(proc)
 			}
 		case piElseif, piElse:
 			if proc.leftOut {
@@ -1023,6 +1029,48 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 		default:
 			c.todof(nil, "", proc.line, "<?%s %s?> has no counterpart", proc.target, proc.text)
 		}
+	}
+}
+
+// unkeptNote notes which branch of a block that is not a template was
+// converted.
+func (c *converter) unkeptNote(proc procInst) {
+	blk := proc.block
+
+	if !blk.evaluated {
+		switch blk.chosen {
+		case 0:
+			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only its first branch was converted", proc.target, proc.text)
+		case noBranch:
+			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: no branch applies with the values convert assumed for "+
+				"the blocks before it, so none was converted; convert it by hand if your build takes one", proc.target, proc.text)
+		default:
+			c.todof(nil, "", proc.line, "<?%s %s?> is not evaluated: only the branch on line %d, the first not known to be "+
+				"false, was converted", proc.target, proc.text, blk.branches[blk.chosen].line)
+			c.todof(nil, "", proc.line, "the <?%s %s?> branch was left out; convert it by hand if your build takes it",
+				proc.target, proc.text)
+		}
+
+		return
+	}
+
+	with := "a build without -d variables"
+	if blk.archRead {
+		with = "a build for --arch " + c.arch + " without -d variables"
+	}
+
+	if blk.chosen == noBranch {
+		c.todof(nil, "", proc.line, "<?%s %s?> is not converted as a template: no branch applies in %s, so none was "+
+			"converted; convert it by hand if your build takes one", proc.target, proc.text, with)
+
+		return
+	}
+
+	c.todof(nil, "", proc.line, "<?%s %s?> is not converted as a template: only the branch on line %d, which %s takes, "+
+		"was converted", proc.target, proc.text, blk.branches[blk.chosen].line, with)
+
+	if blk.chosen > 0 {
+		c.todof(nil, "", proc.line, "the <?%s %s?> branch was left out; convert it by hand if your build takes it", proc.target, proc.text)
 	}
 }
 
