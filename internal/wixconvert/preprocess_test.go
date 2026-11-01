@@ -155,6 +155,28 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			body: `<Component Id="C" Directory="INSTALLFOLDER"><?if $(var.A) = 1 ?><File Source="a.exe"><?else ?><File Source="b.exe"></File><?endif ?></File></Component>`,
 			note: "the <?else?> branch was left out; convert it by hand if your build takes it",
 		},
+		"ifdef of a variable the file defines": {
+			body: `<?ifdef Debug ?><?define Extra = "1" ?><?endif ?>
+    <?ifdef Extra ?><Property Id="P" Value="1" /><?endif ?>`,
+			note: "<?ifdef Extra?> is not evaluated: only its first branch was converted",
+		},
+		"ifndef with more than its default": {
+			body: `<?ifndef Version ?><?define Version = "1.0.0" ?><?define Dev = "yes" ?><?endif ?>`,
+			note: "<?ifndef Version?> is not evaluated: only its first branch was converted",
+		},
+		"variable defined again after the block": {
+			body: `<?define Arch = "x86" ?><?if $(var.Arch) = x86 ?><?define Folder = "a" ?><?endif ?><?define Arch = "x64" ?>`,
+			note: "<?if $(var.Arch) = x86?> is not evaluated: only its first branch was converted",
+		},
+		"key path in a branch": {
+			body: `<Component Id="C" Directory="INSTALLFOLDER"><File Source="a.exe" />
+    <?ifdef Extra ?><RegistryValue Root="HKLM" Key="Software\Example" Name="x" Value="1" KeyPath="yes" /><?endif ?></Component>`,
+			note: "<?ifdef Extra?> is not evaluated: only its first branch was converted",
+		},
+		"error under a block convert cannot read": {
+			body: `<?ifdef Debug ?><?if $(sys.BUILDARCH) = x64 ?><?error no debug on x64 ?><?endif ?><?endif ?>`,
+			note: "<?error no debug on x64?> has no counterpart",
+		},
 		"define in a loop": {
 			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
 			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
@@ -174,9 +196,45 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 				t.Errorf("notes %q, want %q", res.Notes, tc.note)
 			}
 
-			if strings.Contains(string(res.YAML), "{{ if") || strings.Contains(string(res.YAML), "{{ range") {
+			if strings.Contains(string(res.YAML), "{{ fail") || strings.Contains(string(res.YAML), "{{ range") ||
+				strings.Contains(string(res.YAML), "{{ if") && !strings.Contains(tc.body, "ifdef Debug") {
 				t.Errorf("the block became a template:\n%s", res.YAML)
 			}
 		})
+	}
+}
+
+// TestConvertPreprocessorExtendDefine checks that a define in a block that
+// reads the variable's earlier value takes that value, as WiX does.
+func TestConvertPreprocessorExtendDefine(t *testing.T) {
+	t.Parallel()
+
+	src := `<?define Name = "Hello" ?>
+<?ifdef Debug ?><?define Name = "$(var.Name) Debug" ?><?endif ?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="$(var.Name)" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for vars, want := range map[string]string{"": "Hello", "Debug": "Hello Debug"} {
+		opts := config.Options{Vars: map[string]string{}}
+		if vars != "" {
+			opts.Vars[vars] = ""
+		}
+
+		cfg, err := config.Parse(res.YAML, opts)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", vars, err, res.YAML)
+		}
+
+		if cfg.Product.Name != want {
+			t.Errorf("%s: name %q, want %q", vars, cfg.Product.Name, want)
+		}
 	}
 }

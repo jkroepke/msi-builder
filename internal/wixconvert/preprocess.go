@@ -56,7 +56,9 @@ type ppBlock struct {
 	line  int
 	// keep is set when every branch is converted, each inside the
 	// template action that tests it. Otherwise only the first branch is.
-	keep    bool
+	keep bool
+	// elems is set when an element sits in the block.
+	elems   bool
 	foreach bool
 }
 
@@ -200,7 +202,7 @@ func (c *converter) translateKept() {
 		}
 
 		c.ppUsed = make(map[string]bool)
-		if err := c.translate(blk); err != nil {
+		if err := c.translate(blk); err != nil || c.redefinedAfter(blk) {
 			blk.keep = false
 
 			continue
@@ -268,6 +270,10 @@ func (c *converter) checkDirect(elm, parent *elem) {
 	start := 0
 	if parent != nil {
 		start = len(parent.pos)
+	}
+
+	for _, p := range elm.pos[start:] {
+		p.block.elems = true
 	}
 
 	if len(elm.pos) > start && !directAllowed(elm, parent) {
@@ -341,11 +347,22 @@ func directAllowed(elm, parent *elem) bool {
 		return false
 	}
 
-	if elm.name == attrProperty {
+	switch elm.name {
+	case attrProperty:
 		return plainProperty(elm)
+	case refComponent, refComponentGroup:
+		return true
 	}
 
-	return elm.name == refComponent || elm.name == refComponentGroup || contained(elm)
+	return componentResource(elm, parent)
+}
+
+// componentResource reports whether a resource in a branch of a
+// component converts to an entry of its own. The component's keyPath, or
+// its Id taken from its first resource, would name an entry that a build
+// leaves out.
+func componentResource(elm, parent *elem) bool {
+	return !holdsKeyPath(elm) && parent.has("Id") && contained(elm)
 }
 
 // The references that put components in features and groups.
@@ -494,15 +511,7 @@ func (c *converter) translate(blk *ppBlock) error {
 		case piIf, piElseif:
 			blk.conds[i], err = c.ppCondition(branch.inst, loops)
 		case piIfdef, piIfndef:
-			name := ppDefName(branch.inst)
-			if !isName(name) {
-				return fmt.Errorf("<?%s %s?>: not a variable name", branch.target, branch.inst)
-			}
-
-			blk.conds[i] = fmt.Sprintf("has %q", varName(name))
-			if branch.target == piIfndef {
-				blk.conds[i] = "not (" + blk.conds[i] + ")"
-			}
+			blk.conds[i], err = c.ppDefined(blk, branch)
 		case piElse:
 		}
 
@@ -512,6 +521,27 @@ func (c *converter) translate(blk *ppBlock) error {
 	}
 
 	return nil
+}
+
+// ppDefined turns an <?ifdef?> or <?ifndef?> into a has condition.
+func (c *converter) ppDefined(blk *ppBlock, branch ppBranch) (string, error) {
+	name := ppDefName(branch.inst)
+	if !isName(name) {
+		return "", fmt.Errorf("<?%s %s?>: not a variable name", branch.target, branch.inst)
+	}
+
+	if c.definesVar(varName(name)) && !defaultBlock(blk, varName(name), c.doc.procs) {
+		// has is true for a variable the vars header defines, also in
+		// builds where the define did not run.
+		return "", fmt.Errorf("<?%s %s?>: the file defines the variable", branch.target, branch.inst)
+	}
+
+	cond := fmt.Sprintf("has %q", varName(name))
+	if branch.target == piIfndef {
+		cond = "not (" + cond + ")"
+	}
+
+	return cond, nil
 }
 
 // ppDefName returns the variable an <?ifdef?> names: Name, var.Name or
@@ -583,7 +613,9 @@ func (c *converter) varOperand(name string, loops []string) string {
 // fails the build where the block's branch applies.
 func (c *converter) ppFail(proc procInst) bool {
 	opens := c.opensOf(proc.pos)
-	if len(opens) == 0 {
+	if len(opens) == 0 || slices.ContainsFunc(proc.pos, func(p ppPos) bool { return !p.block.keep }) {
+		// An <?error?> in a block that convert reads one branch of
+		// would fail builds that WiX passes.
 		return false
 	}
 
@@ -697,10 +729,34 @@ func (e *defineEval) step(proc procInst) {
 }
 
 // define sets a variable to its value as a template.
+// A variable that has a value at this point takes that value, as in
+// WiX, so that a define that extends a variable reads its earlier value.
 func (e *defineEval) define(proc procInst) {
-	if name, value, ok := strings.Cut(proc.inst, "="); ok {
-		e.env[varName(strings.TrimSpace(name))] = e.conv.expand(e.conv.pkg, e.conv.literal(strings.Trim(strings.TrimSpace(value), `"`)))
+	name, value, ok := strings.Cut(proc.inst, "=")
+	if !ok {
+		return
 	}
+
+	value = strings.Trim(strings.TrimSpace(value), `"`)
+
+	var text strings.Builder
+
+	last := 0
+
+	for _, loc := range preprocessorVar.FindAllStringSubmatchIndex(value, -1) {
+		known, ok := e.env[varName(value[loc[4]:loc[5]])]
+		if !ok || loc[2] >= 0 && value[loc[2]:loc[3]] != "var" {
+			continue
+		}
+
+		text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literal(value[last:loc[0]])))
+		text.WriteString(known)
+
+		last = loc[1]
+	}
+
+	text.WriteString(e.conv.expand(e.conv.pkg, e.conv.literal(value[last:])))
+	e.env[varName(strings.TrimSpace(name))] = text.String()
 }
 
 // mergeBranches returns the values after a block: one template per
@@ -774,4 +830,66 @@ func (c *converter) branchValue(frame *defineFrame, name string) string {
 	text.WriteString("{{ end }}")
 
 	return text.String()
+}
+
+// definesVar reports whether a <?define?> of the file sets the variable.
+func (c *converter) definesVar(name string) bool {
+	return slices.ContainsFunc(c.doc.procs, func(proc procInst) bool { return defineName(proc) == name })
+}
+
+// defineName returns the variable a <?define?> sets, or "".
+func defineName(proc procInst) string {
+	if proc.target != piDefine {
+		return ""
+	}
+
+	name, _, ok := strings.Cut(proc.inst, "=")
+	if !ok {
+		return ""
+	}
+
+	return varName(strings.TrimSpace(name))
+}
+
+// defaultBlock reports whether blk is <?ifndef X?><?define X = ...?><?endif?>
+// and nothing else, which becomes a default for X in the vars header.
+func defaultBlock(blk *ppBlock, name string, procs []procInst) bool {
+	if len(blk.branches) != 1 || blk.branches[0].target != piIfndef || blk.elems {
+		return false
+	}
+
+	inside := 0
+
+	for _, proc := range procs {
+		if slices.ContainsFunc(proc.pos, func(p ppPos) bool { return p.block == blk }) {
+			inside++
+
+			if defineName(proc) != name {
+				return false
+			}
+		}
+	}
+
+	return inside == 1
+}
+
+// redefinedAfter reports whether a variable that the conditions of blk
+// read is defined again after the block starts: the template reads the
+// last value, where WiX reads the one the variable has at the block.
+func (c *converter) redefinedAfter(blk *ppBlock) bool {
+	started := false
+
+	for _, proc := range c.doc.procs {
+		started = started || proc.block == blk
+		if started && c.ppUsed[defineName(proc)] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// holdsKeyPath reports whether elm or an element in it is a key path.
+func holdsKeyPath(elm *elem) bool {
+	return elm.yes("KeyPath") || slices.ContainsFunc(elm.kids, holdsKeyPath)
 }

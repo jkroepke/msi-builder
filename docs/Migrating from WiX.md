@@ -253,14 +253,18 @@ components:
 Inside `{{ range }}`, the dot is the list item, so the other variables are
 read as `{{ $.NAME }}`. `=` and `!=` compare case-sensitively, `~=` ignores
 case, and `<`, `>`, `<=` and `>=` compare as whole numbers when one side is
-a number (convert's reading of WiX's rules; not checked against WiX).
+a number and as text otherwise (convert's reading of WiX's rules; not
+checked against WiX).
 `<?ifndef X?><?define X = ...?><?endif?>` becomes a plain default for `X`
 in the vars header, and an `<?error?>` in a block becomes `fail`, which
 stops the build with its message. A block whose branches hold anything but
 components, files, registry values and keys, environment variables, plain
 properties and component references, such as directories or custom
-actions, is converted with its first branch only and a `# TODO`; so is
-one whose branches define the same component Id.
+actions, is converted with its first branch only and a `# TODO`. So is a
+block whose branches define the same component Id or hold a key path, an
+`<?ifdef?>` of a variable that the file defines (`has` is true for every
+variable in the vars header), and a block whose condition reads a
+variable that the file defines again later.
 
 `[INSTALLFOLDER]`, `[#hello.exe]` and other names in brackets work as they
 do in WiX: Windows Installer fills them in at install time.
