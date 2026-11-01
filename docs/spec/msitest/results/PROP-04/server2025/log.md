@@ -21,8 +21,8 @@ Both calls passed `/qn /norestart`; the server-side command lines differ:
 `/norestart` was turned into `REBOOT=ReallySuppress` on `/i` but not on
 `/fa`. A preflight `/fa` repair with `REBOOT=ReallySuppress` on its command
 line (and no file held) gave the same server line without `REBOOT`: `/f`
-did not pass `REBOOT` to the server (other command-line properties were not
-checked).
+did not pass `REBOOT` to the server, as SEC-02 saw for other command-line
+properties.
 
 ## `0`
 

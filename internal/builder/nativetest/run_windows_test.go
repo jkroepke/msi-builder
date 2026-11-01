@@ -55,7 +55,9 @@ func buildRunProbe(t *testing.T, arch string) string {
 // omus, its documented default. /norestart sets REBOOT=ReallySuppress on /i,
 // but /f did not pass REBOOT to the server, even when given on the command
 // line: a /fa repair that scheduled a held file's replacement returned 1641
-// and restarted the machine (PROP-04). Other arguments are kept.
+// and restarted the machine (PROP-04); SEC-02 saw it drop other properties
+// too. Other arguments are kept, so unlike /f the rewritten form passes
+// properties given after the package to the server.
 func repairArgs(args []string) []string {
 	if len(args) < 2 || len(args[0]) < 2 || !strings.EqualFold(args[0][:2], "/f") {
 		return args

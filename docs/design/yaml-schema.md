@@ -1343,7 +1343,8 @@ restart: a silent `/fa` repair then returned 1641 and restarted the machine
 although `/norestart` was given (PROP-04). `/f` did not pass `REBOOT` to
 the server, so run such a repair as `msiexec /i <package> REINSTALL=ALL
 REINSTALLMODE=a REBOOT=ReallySuppress`; with `DisableShutdown` such a
-repair returned 3010 instead. The value is case-sensitive: `disable`
+repair returned 3010 instead (not run with `Disable`, where 3010 is
+expected too). The value is case-sensitive: `disable`
 behaved like `0`. Not adopted from WiX:
 closing a program by name wherever it runs, end-session messages
 (`WM_QUERYENDSESSION`), registering programs for a restart after the
