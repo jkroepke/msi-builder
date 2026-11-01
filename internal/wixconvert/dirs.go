@@ -17,14 +17,8 @@ var installDirNames = []string{"INSTALLFOLDER", "INSTALLDIR", "APPLICATIONFOLDER
 func (c *converter) chooseInstallDir() {
 	var chosen []string
 
-	if c.wixUI != nil {
-		chosen = append(chosen, c.wixUI.attr("InstallDirectory"))
-	}
-
-	for _, p := range c.properties {
-		if p.attr("Id") == "WIXUI_INSTALLDIR" {
-			chosen = append(chosen, p.attr("Value"))
-		}
+	for _, setter := range c.wizardDirs() {
+		chosen = append(chosen, setter.id)
 	}
 
 	c.eachFeature(func(f *feature) { chosen = append(chosen, f.e.attr("ConfigurableDirectory")) })
@@ -211,6 +205,7 @@ func (c *converter) markNeededDirs() {
 		"Property":        {"Id"},
 		"DirectorySearch": {"Id"},
 		"RemoveFolderEx":  {attrProperty},
+		"Feature":         {"ConfigurableDirectory"},
 	}
 
 	own := make(map[*elem]string)
@@ -337,6 +332,11 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		}
 	}
 
+	// A folder a feature lets the user move is configurable.
+	configurable := make(map[string]bool)
+
+	c.eachFeature(func(f *feature) { configurable[f.e.attr("ConfigurableDirectory")] = true })
+
 	var roots []*omap
 
 	rootByID := make(map[string]*omap)
@@ -378,7 +378,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 				"sets it; msi-builder has no such folder, give it a name or use a standard folder", folder.id)
 		}
 
-		if folder == c.installDir {
+		if folder == c.installDir || configurable[folder.id] {
 			entry.set("configurable", true)
 		}
 
@@ -510,6 +510,11 @@ func (c *converter) dirSetters() map[string][]*elem {
 		setters[prop.attr("Id")] = append(setters[prop.attr("Id")], prop)
 	}
 
+	// The wizard's install folder is one too.
+	for _, setter := range c.wizardDirs() {
+		setters[setter.id] = append(setters[setter.id], setter.elm)
+	}
+
 	c.uiDirRefs(c.doc.root, setters)
 
 	return setters
@@ -544,19 +549,52 @@ func (c *converter) uiDirRefs(elm *elem, setters map[string][]*elem) {
 		return
 	}
 
-	switch {
-	case elm.is("Control") && elm.has(attrProperty):
-		setters[elm.attr(attrProperty)] = append(setters[elm.attr(attrProperty)], elm)
-	case elm.is("Publish") && elm.attr("Event") == "SetTargetPath":
-		id := strings.TrimSuffix(strings.TrimPrefix(elm.attr("Value"), "["), "]")
+	if id := uiDirRef(elm); id != "" {
 		setters[id] = append(setters[id], elm)
-	case elm.is("Publish") && elm.has(attrProperty):
-		setters[elm.attr(attrProperty)] = append(setters[elm.attr(attrProperty)], elm)
 	}
 
 	for _, kid := range elm.kids {
 		c.uiDirRefs(kid, setters)
 	}
+}
+
+// uiDirRef returns the directory a dialog control, a SetTargetPath event, a
+// property event or a feature's ConfigurableDirectory lets the user set.
+func uiDirRef(elm *elem) string {
+	switch {
+	case elm.is("Control"), elm.is("Publish") && elm.attr("Event") != "SetTargetPath":
+		return elm.attr(attrProperty)
+	case elm.is("Publish"):
+		return strings.TrimSuffix(strings.TrimPrefix(elm.attr("Value"), "["), "]")
+	case elm.is("Feature"):
+		return elm.attr("ConfigurableDirectory")
+	}
+
+	return ""
+}
+
+// dirSetter is a directory ID and the element that names it.
+type dirSetter struct {
+	elm *elem
+	id  string
+}
+
+// wizardDirs returns the folders the WixUI wizard installs into: its
+// InstallDirectory and the WIXUI_INSTALLDIR property.
+func (c *converter) wizardDirs() []dirSetter {
+	var dirs []dirSetter
+
+	if c.wixUI != nil && c.wixUI.has("InstallDirectory") {
+		dirs = append(dirs, dirSetter{id: c.wixUI.attr("InstallDirectory"), elm: c.wixUI})
+	}
+
+	for _, prop := range c.properties {
+		if prop.attr("Id") == propWixUIInstallDir && prop.has("Value") {
+			dirs = append(dirs, dirSetter{id: prop.attr("Value"), elm: prop})
+		}
+	}
+
+	return dirs
 }
 
 // aliasTarget returns the standard folder that a directory without a name

@@ -426,6 +426,20 @@ func (cc *compConv) removeFile(elm *elem) {
 		row.set("on", when)
 	}
 
+	// On="both" on a property becomes uninstall-only outside a per-user
+	// package, and can then equal an uninstall row of the same folder.
+	key := [5]string{elm.name, strings.ToLower(row.str("name")), row.str("directory"), row.str("property"), row.str("on")}
+	if cc.removeRows[key] {
+		if elm.attr("On") != when {
+			conv.todof(cc.out, "", elm.line, "the install half of %s On=%q on the property %s was not converted, and "+
+				"the rest equals another row; see the note there", elm.name, elm.attr("On"), elm.attr(attrProperty))
+		}
+
+		return
+	}
+
+	cc.removeRows[key] = true
+
 	if elm.is(elemRemoveFolder) {
 		cc.removeFolder = append(cc.removeFolder, row)
 

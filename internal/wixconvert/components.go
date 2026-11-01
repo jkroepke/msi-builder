@@ -146,7 +146,7 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 
 	c.bitness(out, elm)
 
-	content := &compConv{c: c, cp: comp, out: out, tree: tree, keyIsDir: elm.yes("KeyPath")}
+	content := &compConv{c: c, cp: comp, out: out, tree: tree, keyIsDir: elm.yes("KeyPath"), removeRows: make(map[[5]string]bool)}
 	for _, kid := range elm.kids {
 		content.child(kid)
 	}
@@ -250,6 +250,9 @@ type compConv struct {
 	firstKeyID   string
 	hkcuKeyPaths []*omap
 	removeFolder []*omap
+	// removeRows are the removeFiles rows written so far, so that a row
+	// that dropping an install half made equal to another is left out.
+	removeRows   map[[5]string]bool
 	services     []*omap
 	serviceLines []int
 	controls     []*elem

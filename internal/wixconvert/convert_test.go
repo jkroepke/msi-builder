@@ -1314,6 +1314,97 @@ func TestConvertAliasInstallDir(t *testing.T) {
 	}
 }
 
+// TestConvertConfigurableFolders checks folders a feature or the wizard
+// lets the user move: a second ConfigurableDirectory, here a "." alias,
+// stays in the tree as configurable; a nameless folder directly in a
+// standard folder that the wizard names keeps its row with a note instead
+// of becoming the standard folder; and a RemoveFolder On="both" on a
+// property, which loses its install half, does not repeat an uninstall row.
+func TestConvertConfigurableFolders(t *testing.T) {
+	t.Parallel()
+
+	head := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+`
+
+	for _, tc := range []struct {
+		name, body string
+		valid      bool
+		want       []string
+	}{
+		{
+			name: "second ConfigurableDirectory", valid: true,
+			body: `<StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="Top"><File Id="t" Source="hello.exe" Name="top.exe" /></Component>
+        <Directory Id="PLUGINS"><Component Id="App"><File Source="hello.exe" /></Component></Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main" ConfigurableDirectory="INSTALLFOLDER"><ComponentRef Id="Top" />
+      <Feature Id="Plug" ConfigurableDirectory="PLUGINS"><ComponentRef Id="App" /></Feature>
+    </Feature>`,
+			want: []string{"- id: PLUGINS\n            name: .\n            configurable: true"},
+		},
+		{
+			name: "wizard names a nameless root",
+			body: `<StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="PFALIAS">
+        <Directory Id="APPDIR" Name="Hello"><Component Id="App"><File Source="hello.exe" /></Component></Directory>
+      </Directory>
+    </StandardDirectory>
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="PFALIAS" />
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>`,
+			want: []string{"the Directory PFALIAS has no Name"},
+		},
+		{
+			name: "both on a property", valid: true,
+			body: `<Property Id="LOGDIR"><RegistrySearch Id="s" Root="HKLM" Key="SOFTWARE\Ex" Name="Logs" Type="directory" /></Property>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component Id="App"><File Source="hello.exe" />
+          <RemoveFolder Id="r3" Property="LOGDIR" On="uninstall" />
+          <RemoveFolder Id="r4" Property="LOGDIR" On="both" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>`,
+			want: []string{"the rest equals another row"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			src := head + "    " + tc.body + "\n  </Package>\n</Wix>"
+
+			res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := string(res.YAML)
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the YAML lacks %q:\n%s", want, out)
+				}
+			}
+
+			if !tc.valid {
+				return
+			}
+
+			cfg, err := config.Parse(res.YAML, config.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := config.Validate(cfg).Err(); err != nil {
+				t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {
