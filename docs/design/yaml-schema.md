@@ -1260,7 +1260,7 @@ properties:
   MSIRESTARTMANAGERCONTROL: Disable   # FilesInUse handling instead of Restart Manager
 ```
 
-`DisableShutdown` keeps Restart Manager for finding the processes but
+`DisableShutdown` is documented to keep Restart Manager for finding the processes but
 shuts nothing down. Microsoft documents that a custom action cannot change
 the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
 line left Restart Manager on in a repair (CLOSE-04), so the package itself
@@ -1300,7 +1300,7 @@ it shuts the desktop down until the installation ends. A service of a per-user
 package is an error, an entry listed twice in one component too, a `file`
 that ends in a backslash (a folder, which Restart Manager does not take)
 gives a warning, and `MSIRESTARTMANAGERCONTROL: Disable` (nothing is
-expected to be registered) or `DisableShutdown` (nothing is shut down) gives a warning
+expected to be registered) or `DisableShutdown` (nothing is expected to be shut down) gives a warning
 too.
 
 **Component shortcuts.** A component can list `shortcuts` of its own, for

@@ -54,8 +54,8 @@ func (v *validator) componentRestartResources(cfg *Config, compPath string, comp
 		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is Disable, so the installer is expected to start no "+
 			"Restart Manager session and nothing is registered")
 	case strings.EqualFold(prop.Value, "DisableShutdown"):
-		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is DisableShutdown, so Restart Manager shuts "+
-			"nothing down")
+		v.warnf(compPath+".restartResources", "MSIRESTARTMANAGERCONTROL is DisableShutdown, so Restart Manager is "+
+			"expected to shut nothing down")
 	}
 }
 
