@@ -202,6 +202,11 @@ func TestConvertMachineSetter(t *testing.T) {
 		"anchored custom action": anchored(`<CustomAction Id="SetAllUsers" Property="ALLUSERS" Value="1" />`,
 			`<CustomAction Id="SetOther" Property="FOO" Value="x" />
     <InstallExecuteSequence><Custom Action="SetAllUsers" Before="FindRelatedProducts" /><Custom Action="SetOther" After="SetAllUsers" /></InstallExecuteSequence>`),
+		// The usual WiX v3 form runs on every first install.
+		"not installed": anchored(`<CustomAction Id="SetAU" Property="ALLUSERS" Value="1" />`,
+			`<InstallUISequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT Installed</Custom></InstallUISequence>
+    <InstallExecuteSequence><Custom Action="SetAU" Before="FindRelatedProducts">NOT Installed</Custom></InstallExecuteSequence>`),
+		"not installed set property": anchored(`<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts">NOT Installed</SetProperty>`, ""),
 		"anchored set property": anchored(`<SetProperty Id="ALLUSERS" Value="1" Before="FindRelatedProducts" />`,
 			`<SetProperty Id="FOO" Value="x" After="SetALLUSERS" />`),
 		// A condition on the context always holds per machine.

@@ -204,14 +204,27 @@ func (c *converter) setterValue(action *elem) string {
 	return c.value(action, "Value")
 }
 
-// alwaysRuns reports whether a context setter runs in every install: a
-// SetProperty without a condition outside the UI sequence, or a
-// CustomAction that InstallExecuteSequence schedules without a condition.
+// firstInstallCondition reports whether a condition holds in every first
+// install: none, 1 or NOT Installed. A later maintenance install keeps the
+// context the product was registered in.
+func firstInstallCondition(cond string) bool {
+	switch normalizeCondition(cond) {
+	case "", "1", "NOT Installed":
+		return true
+	}
+
+	return false
+}
+
+// alwaysRuns reports whether a context setter runs in every first install:
+// a SetProperty outside the UI sequence, or a CustomAction that
+// InstallExecuteSequence schedules, without a condition other than 1 or
+// NOT Installed.
 // A setter that only a dialog button, the UI sequence or a condition runs
 // lets the install choose the context.
 func (c *converter) alwaysRuns(action *elem) bool {
 	if action.is("SetProperty") {
-		return c.condition(action) == "" && action.attr("Sequence") != "ui"
+		return firstInstallCondition(c.condition(action)) && action.attr("Sequence") != "ui"
 	}
 
 	runs := false
@@ -221,7 +234,7 @@ func (c *converter) alwaysRuns(action *elem) bool {
 
 	walk = func(elm *elem, execute bool) {
 		execute = execute || elm.is("InstallExecuteSequence")
-		if execute && elm.is("Custom") && elm.attr("Action") == actionID && c.condition(elm) == "" {
+		if execute && elm.is("Custom") && elm.attr("Action") == actionID && firstInstallCondition(c.condition(elm)) {
 			runs = true
 		}
 

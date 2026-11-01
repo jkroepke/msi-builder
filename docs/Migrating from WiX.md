@@ -301,8 +301,9 @@ upgrade:
   dropped setter to its place. A per-machine package keeps its scope and
   its conditions, since `ALLUSERS=1` always holds there. So does a WiX v3
   package without `InstallScope` whose action always sets `ALLUSERS=1`
-  (a `SetProperty` without a condition outside the UI sequence, or an
-  action `InstallExecuteSequence` schedules without one), even when its
+  (a `SetProperty` outside the UI sequence, or an action
+  `InstallExecuteSequence` schedules, without a condition other than `1` or
+  `NOT Installed`), even when its
   components test the context; `convert` drops that setter with a note.
   A setter that only a dialog button, the UI sequence or a condition runs
   lets the install choose the context, as does any setter in a per-user
