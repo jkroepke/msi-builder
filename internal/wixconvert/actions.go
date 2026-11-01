@@ -543,39 +543,67 @@ func (c *converter) noteLaunchBeforeFind(kept map[string][]*omap) {
 		return
 	}
 
+	bad := make(map[string]bool)
+
 	for _, seq := range []string{seqExecute, seqUI} {
-		ranks, before := launchBeforeFind(kept, seq)
-		if !before {
-			continue
-		}
-
-		// Without launch conditions of the file's own, a moved
-		// LaunchConditions only holds the downgrade check: leave its move
-		// out rather than check nothing.
-		if c.out.get("launchConditions") == nil && c.downgradeChecked() && ranks.place(actLaunchConditions) != nil {
-			c.dropLaunchMove(seq)
-
-			kept[actLaunchConditions] = slices.DeleteFunc(slices.Clone(kept[actLaunchConditions]), func(p *omap) bool {
-				return p.str("sequence") == seq
-			})
-
-			if ranks, before = launchBeforeFind(kept, seq); !before {
-				continue
-			}
-		}
-
-		for _, name := range []string{actLaunchConditions, actFindRelatedProducts, actAppSearch} {
-			if placement := ranks.place(name); placement != nil {
-				c.todof(placement, "", c.movedLines[placement], "LaunchConditions runs before FindRelatedProducts here, so a launch "+
-					"condition on an upgrade property, the downgrade check of upgrade.downgrade: error among them, sees it unset; "+
-					"the build refuses that order with downgrade: error")
-
-				break
-			}
-		}
-
-		c.ignoreDowngrades(kept)
+		bad[seq] = c.launchFirstIn(kept, seq)
 	}
+
+	// A WiX downgrade check still works in a sequence that keeps the
+	// order, so ignore stands in for it only when no sequence does.
+	switch checked := c.wixDowngradeCheck(); {
+	case !bad[seqExecute] && !bad[seqUI]:
+	case !checked:
+		c.ignoreDowngrades(kept, "the WiX package has no downgrade check")
+	case bad[seqExecute] && bad[seqUI]:
+		c.ignoreDowngrades(kept, "the WiX package never saw a newer version in a launch condition")
+	}
+}
+
+// launchFirstIn notes kept moves that put LaunchConditions before
+// FindRelatedProducts in seq and reports whether they do; a move of
+// LaunchConditions that would only run the downgrade check is left out.
+func (c *converter) launchFirstIn(kept map[string][]*omap, seq string) bool {
+	ranks, before := launchBeforeFind(kept, seq)
+	if !before {
+		return false
+	}
+
+	// Without launch conditions of the file's own, a moved
+	// LaunchConditions only holds the downgrade check: leave its move
+	// out rather than check nothing.
+	if c.out.get("launchConditions") == nil && c.downgradeChecked() && ranks.place(actLaunchConditions) != nil {
+		c.dropLaunchMove(seq)
+
+		kept[actLaunchConditions] = slices.DeleteFunc(slices.Clone(kept[actLaunchConditions]), func(p *omap) bool {
+			return p.str("sequence") == seq
+		})
+
+		if ranks, before = launchBeforeFind(kept, seq); !before {
+			return false
+		}
+	}
+
+	for _, name := range []string{actLaunchConditions, actFindRelatedProducts, actAppSearch} {
+		if placement := ranks.place(name); placement != nil {
+			c.todof(placement, "", c.movedLines[placement], "LaunchConditions runs before FindRelatedProducts here, so a launch "+
+				"condition on an upgrade property, the downgrade check of upgrade.downgrade: error among them, sees it unset; "+
+				"the build refuses that order with downgrade: error")
+
+			break
+		}
+	}
+
+	return true
+}
+
+// wixDowngradeCheck reports whether the WiX package refuses downgrades
+// itself: a MajorUpgrade without AllowDowngrades, or a launch condition on
+// a property a related row sets for newer versions.
+func (c *converter) wixDowngradeCheck() bool {
+	upgrade := c.out.mapAt("upgrade")
+
+	return c.major != nil && !c.major.yes("AllowDowngrades") || upgrade != nil && upgrade.str("newerProperty") != ""
 }
 
 // launchBeforeFind reports whether the kept moves put LaunchConditions
@@ -658,21 +686,21 @@ func (c *converter) dropSequence(schedule []any, seq string) []any {
 
 // ignoreDowngrades sets upgrade.downgrade: ignore when LaunchConditions
 // runs before FindRelatedProducts in a package that would otherwise check
-// for downgrades (the default error), which the build refuses: in the WiX
-// package no launch condition saw a newer version in that order, so it
-// installed next to one, as ignore does. A package without launch
+// for downgrades (the default error), which the build refuses, and the WiX
+// package did not refuse a downgrade either: it had no check, or no
+// sequence ran its check after FindRelatedProducts (why says which). A package without launch
 // conditions of its own then runs no LaunchConditions, so a kept move of it
 // would fail the build; that one keeps the todo only.
-func (c *converter) ignoreDowngrades(kept map[string][]*omap) {
+func (c *converter) ignoreDowngrades(kept map[string][]*omap, why string) {
 	if !c.downgradeChecked() || c.out.get("launchConditions") == nil && len(kept[actLaunchConditions]) > 0 {
 		return
 	}
 
 	upgrade := c.out.mapAt("upgrade")
 	upgrade.set("downgrade", "ignore")
-	c.todof(upgrade, "downgrade", 0, "LaunchConditions runs before FindRelatedProducts, so the WiX package never saw a "+
-		"newer version in a launch condition and installed next to it; downgrade: ignore does that too. To refuse "+
-		"downgrades, let LaunchConditions run after FindRelatedProducts and remove this line")
+	c.todof(upgrade, "downgrade", 0, "LaunchConditions runs before FindRelatedProducts, where the build refuses the downgrade "+
+		"check of downgrade: error; %s, so it installed next to a newer version, as downgrade: ignore does. To refuse "+
+		"downgrades, let LaunchConditions run after FindRelatedProducts and remove this line", why)
 }
 
 // movedRanks estimates where the moves of one sequence put the three
@@ -1169,11 +1197,17 @@ type anchorSide struct{ anchor, sequence, key string }
 // source schedules actions on: Custom entries and SetProperty or
 // SetDirectory elements, counted in every sequence a setter may run in.
 func (c *converter) extensionSides(byAction map[string][]any) map[anchorSide]bool {
+	return c.anchorSides(byAction, extensionAction.MatchString)
+}
+
+// anchorSides returns the sides of the anchors match accepts that the
+// source schedules actions on, as extensionSides describes.
+func (c *converter) anchorSides(byAction map[string][]any, match func(string) bool) map[anchorSide]bool {
 	sides := make(map[anchorSide]bool)
 
 	for _, setter := range c.setters {
 		for _, key := range []string{keyBefore, keyAfter} {
-			if anchor := setter.attr(strings.ToUpper(key[:1]) + key[1:]); extensionAction.MatchString(anchor) {
+			if anchor := setter.attr(strings.ToUpper(key[:1]) + key[1:]); match(anchor) {
 				for _, seq := range sequenceNames {
 					sides[anchorSide{anchor, seq, key}] = true
 				}
@@ -1189,7 +1223,7 @@ func (c *converter) extensionSides(byAction map[string][]any) map[anchorSide]boo
 			}
 
 			for _, key := range []string{keyBefore, keyAfter} {
-				if anchor := placement.str(key); extensionAction.MatchString(anchor) {
+				if anchor := placement.str(key); match(anchor) {
 					sides[anchorSide{anchor, placement.str("sequence"), key}] = true
 				}
 			}
@@ -1346,20 +1380,16 @@ func (c *converter) reanchor(byAction map[string][]any) (func(string, []any), fu
 	anchors, sources := c.sourceAnchors(byAction)
 	dropped := make(map[string]*elem)
 
+	var sides map[anchorSide]bool
+
 	move := func(actionID string, entries []any) {
+		if sides == nil {
+			sides = c.anchorSides(byAction, func(name string) bool { return dropped[name] != nil })
+		}
+
 		for i, entry := range entries {
-			placement, ok := entry.(*omap)
-			if !ok {
-				continue
-			}
-
-			gone := placement.str(keyBefore) + placement.str(keyAfter)
-			moved := c.followAnchors(actionID, placement, anchors, sources)
-			entries[i] = moved
-
-			if src, isDropped := dropped[gone]; isDropped && moved != placement {
-				c.todof(moved, "", src.line, "%s was scheduled next to %s, which convert left out; it now runs "+
-					"where %s was scheduled, check that place", actionID, gone, gone)
+			if placement, ok := entry.(*omap); ok {
+				entries[i] = c.moveOff(actionID, placement, dropped, sides, anchors, sources)
 			}
 		}
 	}
@@ -1387,6 +1417,48 @@ func (c *converter) reanchor(byAction map[string][]any) (func(string, []any), fu
 	}
 
 	return move, drop
+}
+
+// moveOff moves one placement off a left-out action: through followAnchors,
+// or, next to a dropped action with actions on both of its sides, by
+// pivotAnchor.
+func (c *converter) moveOff(actionID string, placement *omap, dropped map[string]*elem, sides map[anchorSide]bool,
+	anchors map[anchorKey]*omap, sources map[string]*elem,
+) *omap {
+	gone := placement.str(keyBefore) + placement.str(keyAfter)
+	seq := placement.str("sequence")
+
+	src, isDropped := dropped[gone]
+	if isDropped && sides[anchorSide{gone, seq, keyBefore}] && sides[anchorSide{gone, seq, keyAfter}] {
+		return c.pivotAnchor(actionID, placement, gone, src)
+	}
+
+	moved := c.followAnchors(actionID, placement, anchors, sources)
+	if isDropped && moved != placement {
+		c.todof(moved, "", src.line, "%s was scheduled next to %s, which convert left out; it now runs "+
+			"where %s was scheduled, check that place", actionID, gone, gone)
+	}
+
+	return moved
+}
+
+// pivotAnchor places an action scheduled next to a left-out action that
+// has actions on both of its sides: taking the left-out action's place
+// would lose their order, so, as for a WiX extension's action, the
+// placement keeps its side of fallbackAnchor, the same one for every action
+// around the left-out one.
+func (c *converter) pivotAnchor(actionID string, placement *omap, gone string, src *elem) *omap {
+	key := keyAfter
+	if placement.str(keyBefore) != "" {
+		key = keyBefore
+	}
+
+	target := fallbackAnchor(src.name != "" && inScript(src))
+	moved := moveAnchor(placement, flowMap().set(key, target))
+	c.todof(moved, "", src.line, "%s was scheduled %s %s, which convert left out and which has actions on both sides; "+
+		"convert placed it %s %s to keep their order, check that place", actionID, key, gone, key, target)
+
+	return moved
 }
 
 // The standard actions that convert places actions on.

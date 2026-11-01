@@ -3085,8 +3085,8 @@ func TestConvertMovedStandardActions(t *testing.T) {
 
 // TestConvertMovesThatDoNothing leaves out a move to the default number and
 // a move of an action the converted package does not run, and notes a
-// FindRelatedProducts placed after LaunchConditions, which turns the
-// downgrade check off.
+// FindRelatedProducts placed after LaunchConditions; the UI sequence still
+// checks for downgrades, so the check stays.
 func TestConvertMovesThatDoNothing(t *testing.T) {
 	t.Parallel()
 
@@ -3126,13 +3126,11 @@ func TestConvertMovesThatDoNothing(t *testing.T) {
 		t.Errorf("a move that does nothing was kept:\n%s", out)
 	}
 
-	// The downgrade check would run before FindRelatedProducts, which the
-	// build refuses; WiX's never saw a newer version there either.
-	if !strings.Contains(out, "  downgrade: ignore\n") {
-		t.Errorf("the YAML lacks downgrade: ignore:\n%s", out)
+	// The UI sequence keeps FindRelatedProducts first, so WiX's downgrade
+	// check still works there: convert does not turn it off.
+	if strings.Contains(out, "downgrade: ignore") {
+		t.Errorf("the downgrade check was turned off:\n%s", out)
 	}
-
-	validConfig(t, res.YAML)
 }
 
 // TestConvertMovesMsiBuilderRefuses leaves out moves to places the build

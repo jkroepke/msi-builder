@@ -273,8 +273,72 @@ func TestConvertLaunchConditionsFirst(t *testing.T) {
 </Wix>`
 
 	yaml := convertWith(t, src, wixconvert.Options{})
-	wantAll(t, yaml, "  downgrade: ignore\n", "the WiX package never saw a newer version in a launch condition",
+	wantAll(t, yaml, "  downgrade: ignore\n", "the WiX package has no downgrade check",
 		"  - action: LaunchConditions\n")
+}
+
+// TestConvertLaunchConditionsFirstEverywhere sets downgrade: ignore for a
+// MajorUpgrade package only when every sequence runs LaunchConditions
+// before FindRelatedProducts, so its downgrade check never saw a newer
+// version.
+func TestConvertLaunchConditionsFirstEverywhere(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Condition Message="Hello needs Windows 10.">Installed OR VersionNT >= 603</Condition>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Hello">
+          <Component Id="App" Guid="*" Win64="yes"><File Source="hello.exe" KeyPath="yes" /></Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+    <InstallExecuteSequence><LaunchConditions Sequence="10" /></InstallExecuteSequence>
+    <InstallUISequence><LaunchConditions Sequence="10" /></InstallUISequence>
+  </Product>
+</Wix>`
+
+	yaml := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, yaml, "  downgrade: ignore\n", "the WiX package never saw a newer version in a launch condition")
+}
+
+// TestConvertDroppedActionBothSides keeps the order of actions on both
+// sides of a left-out action: taking its place would put them in file
+// order, so they keep their sides of the fallback anchor instead.
+func TestConvertDroppedActionBothSides(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Hello">
+          <Component Id="App" Guid="*" Win64="yes"><File Source="hello.exe" KeyPath="yes" /></Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+    <Binary Id="Fix" SourceFile="fix.js" />
+    <CustomAction Id="RunJs" BinaryKey="Fix" JScriptCall="Fix" Execute="deferred" />
+    <CustomAction Id="SetSecond" Property="SECOND" Value="2" />
+    <CustomAction Id="SetFirst" Property="FIRST" Value="1" />
+    <InstallExecuteSequence>
+      <Custom Action="RunJs" After="InstallFiles" />
+      <Custom Action="SetSecond" After="RunJs" />
+      <Custom Action="SetFirst" Before="RunJs" />
+    </InstallExecuteSequence>
+  </Product>
+</Wix>`
+
+	yaml := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, yaml, "{sequence: execute, before: InstallFiles}", "{sequence: execute, after: InstallFiles}",
+		"which convert left out and which has actions on both sides")
 }
 
 // TestConvertDuplicateFirewallNames gives the second of two firewall

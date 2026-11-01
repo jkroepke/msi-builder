@@ -983,17 +983,22 @@ number of another of the three actions that keeps its place, such as
 FindRelatedProducts at 50). A move that puts LaunchConditions
 before FindRelatedProducts (FindRelatedProducts at Microsoft's 200, for
 example) gets a note, because the downgrade check then sees no newer
-version and the build refuses it. No launch condition of the WiX package
-saw a newer version in that order either, so convert sets
+version and the build refuses it. When the WiX package has no downgrade
+check, or runs LaunchConditions before FindRelatedProducts in both
+sequences so that its check never saw a newer version, convert sets
 `upgrade.downgrade: ignore`, which installs next to a newer version as
-the WiX package did; in a package without launch conditions of its own,
-where LaunchConditions holds only the downgrade check, it leaves the move
+the WiX package did. When one sequence keeps the order, the WiX check
+still worked there, so convert keeps the note and leaves the choice to
+you. In a package without launch conditions of its own, where
+LaunchConditions holds only the downgrade check, convert leaves the move
 of LaunchConditions out instead.
 
 An action placed next to a custom action that convert leaves out (a
 script, a call into a WiX extension, or an action of another source
 file) moves to that action's place, with a note, so that the output
-builds.
+builds. When actions sit on both sides of the left-out action, they keep
+their sides of CostFinalize (InstallFiles for a deferred one) instead, so
+that their order stays.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where
