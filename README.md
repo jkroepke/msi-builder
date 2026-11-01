@@ -115,14 +115,16 @@ agent with a service. These are not supported:
 - **MSIX.** Use [nFPM](https://github.com/goreleaser/nfpm).
 - **Running packages.** msi-builder never installs or executes an MSI. Only its
   tests do, on Windows without `-short` (elevated).
-- **Transforms (`.mst`), patches (`.msp`), merge modules (`.msm`) and
-  bundles or bootstrappers.** Ship a new major-upgrade MSI instead of a patch.
-- **Multi-language packages.** A package has one language; there are no
-  embedded language transforms. Not in schema v1.
-- **Spanned cabinets.** A file never continues into the next cabinet. A
-  payload above 2 GB is split at file boundaries into several cabinets
-  beside the `.msi` (`package.embedCabinets: false`); a single file is at
-  most 2 GiB − 32 KiB. Cabinets are LZX (the default), MSZIP or stored.
+- **Standalone transforms (`.mst`), patches (`.msp`), merge modules
+  (`.msm`) and bundles or bootstrappers.** Ship a new major-upgrade MSI
+  instead of a patch. Multi-language packages are supported: `ui.languages`
+  builds one MSI with an embedded language transform per further language
+  ([YAML schema](docs/design/yaml-schema.md)).
+- **Spanned cabinets.** A file never continues into the next cabinet. The
+  payload is split at file boundaries into as many cabinets as it needs; a
+  package whose cabinets add up to more than 2 GB keeps them beside the
+  `.msi` (`package.embedCabinets: false`). A single file is at most
+  2 GiB − 32 KiB. Cabinets are LZX (the default), MSZIP or stored.
 - **Script custom actions** (VBScript, JScript).
 - **Editing existing packages and XML input.** `msi-builder inspect` only
   reads packages to help debugging. `msi-builder convert` turns a WiX
