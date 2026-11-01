@@ -174,8 +174,9 @@ func eventLogID(comp *config.Component, e *config.EventSource) string {
 // msiexec applies the rows in table order, which is the order of their
 // keys (ENVVAR-04), so that two parts of one variable come out in the
 // order the rows are applied in. The keys number the variables of the
-// package in config order, padded to one width, so that the table keeps
-// the YAML order across components too: a later append goes behind an
+// package in config order (Config.Components: top-level components, then
+// those defined inside features), padded to one width, so that the table
+// keeps that order across components too: a later append goes behind an
 // earlier one and a later prepend in front of it.
 func (b *build) writeEnvironment(info *componentInfo) {
 	// Every package has the table, also without rows.

@@ -634,7 +634,10 @@ Several `Environment` elements of one variable in one component, such
 as a program folder and its `Scripts` folder both appended to `PATH`,
 stay separate entries: each adds its own part and the uninstall removes
 each (ENVVAR-04). They are applied in the order of the YAML, which
-`convert` keeps from the source.
+`convert` keeps from the source. The engine applies `Environment` rows in
+key order, so a WiX package whose `Environment` Ids sort differently from
+its elements probably applied the parts in Id order; check the variable
+after installing the converted package (inferred, not run).
 
 Drop the `BroadcastEnvironmentChange` custom action reference that WiX
 packages often carry. Windows Installer itself tells running programs that

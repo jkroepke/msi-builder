@@ -1211,7 +1211,9 @@ component and a sixth (`append4`) in a third, whose carriers sort second,
 third, first in both contexts, CI run 41323573618 (PR #220) gave
 `prepend2;prepend1;…;append1;append2;append3;append4` in both contexts.
 Grouped by component in either key order, `append3` and `append4` would
-have come out elsewhere: the engine applies the rows in key order. INST-08: see the case table above.
+have come out elsewhere: the engine applies the rows in key order.
+
+INST-08: see the case table above.
 
 - Not covered: the wizard's scope page with a setter, Server 2016. An
   `ALLUSERS=1` setter in the UI sequence as well (`/qr`) gave the same
