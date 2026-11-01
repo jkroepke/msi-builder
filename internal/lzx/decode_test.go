@@ -426,7 +426,9 @@ func TestDecoderRejectsIncompleteTree(t *testing.T) {
 // TestWindowsFixtures keeps the streams in testdata/windows in step with the
 // code that crafts them. internal/cab's native tests extract them through
 // cabinet.dll, and expect both cabinet.dll and the reader to fail on the
-// ones named reject-*, and only the reader on the ones named lenient-*.
+// ones named reject-*, and only the reader on the ones named lenient-*; on
+// the ones named varies-* the reader fails and cabinet.dll's outcome
+// depends on the Windows version.
 // MSI_BUILDER_UPDATE_SNAPSHOTS=1 rewrites them.
 func TestWindowsFixtures(t *testing.T) {
 	t.Parallel()
@@ -436,7 +438,7 @@ func TestWindowsFixtures(t *testing.T) {
 		"e8-size-2gib":                  e8LargeSize(),
 		"reject-incomplete-tree":        incompleteTree(),
 		"reject-incomplete-length-tree": incompleteLengthTree(),
-		"reject-offset-beyond-history":  repeatedOffsetMatch(15, 4, 5),
+		"varies-offset-before-start":    repeatedOffsetMatch(15, 4, 5),
 		// An offset of the window plus one: cabinet.dll takes it modulo the
 		// window, as offset 1, both right after a full window of bytes
 		// (where it also reaches before the stream's start) and after two;

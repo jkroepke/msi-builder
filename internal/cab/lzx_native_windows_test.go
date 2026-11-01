@@ -100,10 +100,12 @@ const lzxFrameSize = 32768
 // byte for byte: an odd stored block that ends at a frame's end, whose pad
 // byte opens the next frame, repeated offsets from a stored block header
 // that reach the window less 3 to the full window and an E8 translation size
-// of 2^31. Both must reject the reject-* streams (incomplete Huffman trees, a
-// match beyond the decoded bytes). cabinet.dll extracts the lenient-*
-// streams (a match at the window plus one, read as offset 1), which the
-// reader rejects.
+// of 2^31. Both must reject the reject-* streams (incomplete Huffman trees).
+// cabinet.dll extracts the lenient-* streams (a match at the window plus
+// one, read as offset 1), which the reader rejects. The reader rejects the
+// varies-* streams (a match before the stream's start), where cabinet.dll's
+// outcome depends on the Windows version: windows-latest CI rejected it,
+// Windows Server 2025 extracted it (2026-11-01).
 func TestNativeFDICraftedLZX(t *testing.T) { //nolint:paralleltest // the FDI callbacks share one package state
 	if testing.Short() {
 		t.Skip("native tests run without -short")
@@ -141,6 +143,16 @@ func TestNativeFDICraftedLZX(t *testing.T) { //nolint:paralleltest // the FDI ca
 				}
 
 				t.Logf("%s: cabinet.dll extracts it with offset 1, cab.Read rejects it", filepath.Base(path))
+
+				return
+			}
+
+			if strings.HasPrefix(filepath.Base(path), "varies-") {
+				if _, readErr := cab.Read(raw); readErr == nil {
+					t.Fatal("cab.Read accepted a stream it rejects by design")
+				}
+
+				t.Logf("%s: cab.Read rejects it; cabinet.dll: extracted %d files, error %v", filepath.Base(path), len(got), err)
 
 				return
 			}
