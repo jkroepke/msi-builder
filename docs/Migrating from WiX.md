@@ -261,7 +261,7 @@ stops the build with its message. A block whose branches hold anything but
 components, files, registry values and keys, environment variables, plain
 properties and component references, such as directories or custom
 actions, is converted with its first branch only and a `# TODO`. So is a
-block whose branches define the same component Id or hold a key path, an
+block whose branches define the same component ID or hold a key path, an
 `<?ifdef?>` of a variable that the file defines (`has` is true for every
 variable in the vars header), and a block whose condition reads a
 variable that the file defines again later.

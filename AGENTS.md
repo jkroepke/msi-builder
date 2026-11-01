@@ -109,11 +109,11 @@ versioning after 1.0.
   Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
   branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
   a block only when every element directly in it is one whose output stays
-  in one entry (`directAllowed`) and no Id repeats in branches that apply
+  in one entry (`directAllowed`) and no ID repeats in branches that apply
   together, else it falls back to the first branch. Kept entries carry
   `opens`; `omap.node` writes them as marker comments, which
   `applyBlocks` turns into `{{ if }}`/`{{ else }}`/`{{ range }}`/`{{ end }}`
-  lines, closing at the next line not indented deeper. Ids keep
+  lines, closing at the next line not indented deeper. IDs keep
   `$(var.X)` until `expandLeftMap` fills them in inside their loops.
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
