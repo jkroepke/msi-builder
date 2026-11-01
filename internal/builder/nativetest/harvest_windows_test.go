@@ -77,14 +77,26 @@ func TestMsiexecHarvestedComponentCodes(t *testing.T) {
 			writeText(t, filepath.Join(dir, "v1.wxs"), fmt.Sprintf(harvestSource, "1.0.0"))
 			runTool(t, dir, wix, "build", "-arch", "x64", "-o", older, "v1.wxs")
 
-			writeText(t, filepath.Join(dir, "v2.wxs"), fmt.Sprintf(harvestSource, "1.1.0"))
+			// Next to dist, convert computes the codes WiX gives the files
+			// (UPG-14); without --msi the source is converted from a folder
+			// without dist, so that the files get generated codes.
+			source := "v2.wxs"
+			if !tc.msi {
+				source = filepath.Join("elsewhere", source)
+			}
+
+			if err := os.MkdirAll(filepath.Join(dir, "elsewhere"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+
+			writeText(t, filepath.Join(dir, source), fmt.Sprintf(harvestSource, "1.1.0"))
 
 			args := []string{"convert", "-o", "msi.yaml"}
 			if tc.msi {
 				args = append(args, "--msi", older)
 			}
 
-			t.Log(runTool(t, dir, cli, append(args, "v2.wxs")...))
+			t.Log(runTool(t, dir, cli, append(args, source)...))
 
 			converted, err := os.ReadFile(filepath.Join(dir, "msi.yaml"))
 			if err != nil {
