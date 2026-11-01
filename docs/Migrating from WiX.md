@@ -288,11 +288,15 @@ upgrade:
 - A package that chooses its context without `ALLUSERS=2`, such as a
   per-user package that a bootstrapper installs per machine with
   `ALLUSERS=1`, or one that sets `ALLUSERS` or `MSIINSTALLPERUSER` with
-  its own actions, becomes a dual scope: `perUserOrMachine` for a per-user
-  package, `perMachineOrUser` otherwise. `convert` does this when a
-  component's condition names the context or an action sets one of the two
-  properties; it turns the conditions into `components[].scope` and drops
-  the setters with a note. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the
+  its own actions, becomes a dual scope. `convert` makes a per-user
+  package (also a WiX v3 one without `InstallScope` and `ALLUSERS`)
+  `perUserOrMachine` when a component's condition names the context or an
+  action sets one of the two properties; choose `perMachineOrUser` if the
+  install should default to all users. It turns the conditions into
+  `components[].scope` and drops the setters with a note, also in a
+  package that already has `ALLUSERS=2`, and moves actions placed after a
+  dropped setter to its place. A per-machine package keeps its scope and
+  its conditions, since `ALLUSERS=1` always holds there. `ALLUSERS=1` and `MSIINSTALLPERUSER` on the
   command line still pick the context (INST-07).
 - WiX sets `WIX_UPGRADE_DETECTED` during an upgrade, msi-builder sets
   `OLDERVERSIONBEINGUPGRADED`. If your conditions use the WiX name, keep it

@@ -51,14 +51,14 @@ func TestConvertPerUserPackageForMachine(t *testing.T) {
       <Component Id="PathUser" Directory="INSTALLFOLDER" Guid="*">
         <Condition>NOT ALLUSERS=1</Condition>
         <RegistryValue Root="HKCU" Key="Software\Example\Hello" Name="PathUser" Value="1" Type="string" KeyPath="yes" />
-        <Environment Id="PathA" Action="set" Name="PATH" Part="last" Value="[INSTALLFOLDER]" />
-        <Environment Id="PathB" Action="set" Name="PATH" Part="last" Value="[INSTALLFOLDER]bin" />
+        <Environment Id="UserDir" Action="set" Name="PATH" Part="last" Value="[INSTALLFOLDER]" />
+        <Environment Id="UserBin" Action="set" Name="PATH" Part="last" Value="[INSTALLFOLDER]bin" />
       </Component>
       <Component Id="PathMachine" Directory="INSTALLFOLDER" Guid="*">
         <Condition>ALLUSERS = 1</Condition>
         <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="PathMachine" Value="1" Type="string" KeyPath="yes" />
-        <Environment Id="PathC" Action="set" Name="PATH" Part="first" Value="[INSTALLFOLDER]" System="yes" />
-        <Environment Id="PathD" Action="set" Name="PATH" Part="first" Value="[INSTALLFOLDER]bin" System="yes" />
+        <Environment Id="MachineDir" Action="set" Name="PATH" Part="first" Value="[INSTALLFOLDER]" System="yes" />
+        <Environment Id="MachineBin" Action="set" Name="PATH" Part="first" Value="[INSTALLFOLDER]bin" System="yes" />
       </Component>
     </Feature>
   </Product>
@@ -68,7 +68,7 @@ func TestConvertPerUserPackageForMachine(t *testing.T) {
 
 	for _, want := range []string{
 		"  scope: perUserOrMachine\n", `installerVersion: "5.0"`, "    scope: perUser\n", "    scope: perMachine\n",
-		"the package chooses its install context itself",
+		"the per-user package chooses its install context itself",
 	} {
 		if !strings.Contains(yaml, want) {
 			t.Errorf("no %q in:\n%s", want, yaml)
@@ -82,8 +82,8 @@ func TestConvertPerUserPackageForMachine(t *testing.T) {
 
 // TestConvertContextSetters checks a WiX v3 package without a scope that
 // sets ALLUSERS and MSIINSTALLPERUSER with SetProperty and conditions its
-// components and its firewall rule on MSIINSTALLPERUSER: it becomes
-// perMachineOrUser, the setters are left out with a note, the conditions
+// components and its firewall rule on MSIINSTALLPERUSER: it is per user,
+// so it becomes perUserOrMachine, the setters are left out with a note, the conditions
 // become components[].scope and the firewall rule stays on its perMachine
 // component (INST-07, INST-08). A SetProperty keeps the condition WiX v3
 // writes as its text.
@@ -96,7 +96,7 @@ func TestConvertContextSetters(t *testing.T) {
     <MajorUpgrade DowngradeErrorMessage="newer" />
     <SetProperty Id="ALLUSERS" Sequence="both" After="ValidateProductID" Value="1">NOT PICKED AND NOT Installed</SetProperty>
     <SetProperty Id="MSIINSTALLPERUSER" Sequence="first" After="ValidateProductID" Value="0">NOT PICKED</SetProperty>
-    <SetProperty Id="GREETING" After="CostFinalize" Value="hi">NOT Installed</SetProperty>
+    <SetProperty Id="GREETING" After="SetALLUSERS" Value="hi">NOT Installed</SetProperty>
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Hello">
@@ -109,7 +109,7 @@ func TestConvertContextSetters(t *testing.T) {
     <Component Id="PathUser" Directory="INSTALLFOLDER" Guid="*">
       <Condition>MSIINSTALLPERUSER = 1</Condition>
       <RegistryValue Root="HKCU" Key="Software\Example\Hello" Name="PathUser" Value="1" Type="string" KeyPath="yes" />
-      <Environment Id="PathA" Action="set" Name="PATH" Part="last" Value="[INSTALLFOLDER]" />
+      <Environment Id="UserDir" Action="set" Name="PATH" Part="last" Value="[INSTALLFOLDER]" />
     </Component>
     <Component Id="AdminFirewall" Directory="INSTALLFOLDER" Guid="B03D3C75-F835-47A9-8224-1D1238B4F74F" KeyPath="yes">
       <Condition><![CDATA[MSIINSTALLPERUSER <> 1]]></Condition>
@@ -126,10 +126,10 @@ func TestConvertContextSetters(t *testing.T) {
 	yaml := convertValid(t, src)
 
 	for _, want := range []string{
-		"  scope: perMachineOrUser\n", "    scope: perUser\n", "    scope: perMachine\n", "component: AdminFirewall",
+		"  scope: perUserOrMachine\n", "    scope: perUser\n", "    scope: perMachine\n", "component: AdminFirewall",
 		"the action SetALLUSERS, which sets ALLUSERS, was left out",
 		"the action SetMSIINSTALLPERUSER, which sets MSIINSTALLPERUSER, was left out",
-		"setProperty: {name: GREETING, value: hi}", "condition: NOT Installed",
+		"setProperty: {name: GREETING, value: hi}", "after: ValidateProductID, condition: NOT Installed",
 	} {
 		if !strings.Contains(yaml, want) {
 			t.Errorf("no %q in:\n%s", want, yaml)
@@ -138,5 +138,52 @@ func TestConvertContextSetters(t *testing.T) {
 
 	if strings.Contains(yaml, "name: ALLUSERS") || strings.Contains(yaml, "name: MSIINSTALLPERUSER") || strings.Contains(yaml, "MSIINSTALLPERUSER <>") {
 		t.Errorf("a context setter or condition was kept:\n%s", yaml)
+	}
+}
+
+// TestConvertContextConditions checks the context conditions in other
+// forms: an explicit per-machine package keeps its conditions and its
+// scope, since ALLUSERS=1 always holds there; NOT in another case and
+// spaces still name the context; and a dual package drops its own setters.
+func TestConvertContextConditions(t *testing.T) {
+	t.Parallel()
+
+	component := func(id, cond string) string {
+		return `<Component Id="` + id + `" Directory="INSTALLFOLDER" Guid="*"><Condition>` + cond + `</Condition>` +
+			`<RegistryValue Root="HKCU" Key="Software\Example\Hello" Name="` + id + `" Value="1" Type="string" KeyPath="yes" /></Component>`
+	}
+	src := func(pkg, extra string, components ...string) string {
+		return `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" ` + pkg + ` />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    ` + extra + `
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder"><Directory Id="INSTALLFOLDER" Name="Hello" /></Directory>
+    </Directory>
+    <Feature Id="Main">` + strings.Join(components, "") + `</Feature>
+  </Product>
+</Wix>`
+	}
+
+	machine := convertValid(t, src(`InstallScope="perMachine"`, "", component("Always", "ALLUSERS"),
+		`<Component Id="Machine" Directory="INSTALLFOLDER" Guid="*"><RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="M" Value="1" Type="string" KeyPath="yes" /></Component>`))
+	if strings.Contains(machine, "scope:") || !strings.Contains(machine, "condition: ALLUSERS") {
+		t.Errorf("the per-machine package changed:\n%s", machine)
+	}
+
+	forms := convertValid(t, src(`InstallScope="perUser"`, "", component("A", "Not ALLUSERS"), component("B", "not MSIINSTALLPERUSER"),
+		component("C", "ALLUSERS &lt;&gt; 1"), component("D", "MSIINSTALLPERUSER  =  1")))
+	if strings.Count(forms, "    scope: perUser\n") != 3 || strings.Count(forms, "    scope: perMachine\n") != 1 || strings.Contains(forms, "condition:") {
+		t.Errorf("want A, C and D per user and B per machine, without conditions:\n%s", forms)
+	}
+
+	dual := convertValid(t, src(``, `<Property Id="ALLUSERS" Value="2" /><Property Id="MSIINSTALLPERUSER" Value="1" />
+    <CustomAction Id="ForceMachine" Property="ALLUSERS" Value="1" />
+    <InstallExecuteSequence><Custom Action="ForceMachine" After="ValidateProductID">NOT Installed</Custom></InstallExecuteSequence>`,
+		component("A", "NOT ALLUSERS")))
+	if !strings.Contains(dual, "  scope: perUserOrMachine\n") || !strings.Contains(dual, "the action ForceMachine, which sets ALLUSERS, was left out") ||
+		strings.Contains(dual, "id: ForceMachine") {
+		t.Errorf("want the dual package without its setter:\n%s", dual)
 	}
 }

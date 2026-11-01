@@ -201,7 +201,7 @@ func (c *converter) emitScope(pkgOut *omap) {
 	}
 
 	scope, allUsers := c.allUsers(pkgOut, scope)
-	if dual := c.contextScope(pkgOut, scope); dual != scope {
+	if dual := c.contextScope(pkgOut, scope, allUsers); dual != scope {
 		scope = dual
 	} else if c.v3 && scope == "" && !allUsers {
 		c.perUserNote(pkgOut)

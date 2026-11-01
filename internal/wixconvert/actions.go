@@ -736,7 +736,7 @@ func (c *converter) sourceAnchors(byAction map[string][]any) (map[anchorKey]*oma
 	anchors := make(map[anchorKey]*omap)
 	sources := make(map[string]*elem)
 
-	for _, src := range append(c.consumedSources(), c.perMachineSources()...) {
+	for _, src := range slices.Concat(c.consumedSources(), c.perMachineSources(), c.contextSources()) {
 		sources[src.id] = src.e
 
 		schedule := byAction[src.id]

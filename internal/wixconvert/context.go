@@ -37,10 +37,16 @@ var contextConditions = map[string]string{ //nolint:gochecknoglobals // lookup t
 // operatorSpace matches the spaces around a comparison operator.
 var operatorSpace = regexp.MustCompile(`\s*(<>|=)\s*`)
 
-// normalizeCondition collapses the spaces of a condition and removes them
-// around = and <>.
+// notKeyword matches the NOT operator in any case; property names stay
+// case-sensitive.
+var notKeyword = regexp.MustCompile(`(?i)\bnot\b`)
+
+// normalizeCondition collapses the spaces of a condition, removes them
+// around = and <>, and writes NOT in upper case.
 func normalizeCondition(cond string) string {
-	return operatorSpace.ReplaceAllString(strings.Join(strings.Fields(cond), " "), "$1")
+	cond = notKeyword.ReplaceAllString(strings.Join(strings.Fields(cond), " "), "NOT")
+
+	return operatorSpace.ReplaceAllString(cond, "$1")
 }
 
 // contextCondition returns the scope a component condition limits the
@@ -115,11 +121,14 @@ func (c *converter) choosesContext() int {
 	return line
 }
 
-// contextScope makes a package that chooses its context itself a dual
-// scope: perUserOrMachine for a per-user package, which a bootstrapper's
-// ALLUSERS=1 still installs per machine, else perMachineOrUser.
-func (c *converter) contextScope(pkgOut *omap, scope string) string {
-	if scope == scopeUserOrMachine || scope == scopeMachineOrUser {
+// contextScope makes a per-user package that chooses its context itself
+// the dual scope perUserOrMachine, which still installs per user by
+// default and per machine with a bootstrapper's ALLUSERS=1 (INST-07). A
+// WiX v3 package without a scope and without ALLUSERS is per user too. A
+// per-machine package stays: there a condition on ALLUSERS=1 always holds.
+func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) string {
+	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers
+	if !perUser {
 		return scope
 	}
 
@@ -128,17 +137,13 @@ func (c *converter) contextScope(pkgOut *omap, scope string) string {
 		return scope
 	}
 
-	dual := scopeMachineOrUser
-	if scope == scopeUser {
-		dual = scopeUserOrMachine
-	}
+	c.todof(pkgOut, "scope", line, "the per-user package chooses its install context itself, with components "+
+		"conditioned on ALLUSERS or MSIINSTALLPERUSER or actions that set them; it became scope %s, whose "+
+		"components[].scope keeps machine and user data in their context, and ALLUSERS=1 or MSIINSTALLPERUSER on "+
+		"the command line still picks the context (INST-07); use %s if the install should default to all users; "+
+		"it needs installerVersion 5.0", scopeUserOrMachine, scopeMachineOrUser)
 
-	c.todof(pkgOut, "scope", line, "the package chooses its install context itself, with components conditioned on "+
-		"ALLUSERS or MSIINSTALLPERUSER or actions that set them; it became scope %s, whose components[].scope keeps "+
-		"machine and user data in their context, and ALLUSERS=1 or MSIINSTALLPERUSER on the command line still picks "+
-		"the context (INST-07); it needs installerVersion 5.0", dual)
-
-	return dual
+	return scopeUserOrMachine
 }
 
 // skipContextSetter leaves out an action that sets ALLUSERS or
@@ -162,4 +167,23 @@ func (c *converter) skipContextSetter(action *elem, byAction map[string][]any) b
 		"keeps components in one context (INST-07)", actionID, property, c.scope)
 
 	return true
+}
+
+// contextSources returns the setters of ALLUSERS and MSIINSTALLPERUSER
+// that skipContextSetter leaves out, so that actions placed on them move
+// to their anchors.
+func (c *converter) contextSources() []commandSource {
+	if !c.dualScope() {
+		return nil
+	}
+
+	var sources []commandSource
+
+	for _, src := range c.commandSources() {
+		if contextSetter(src.e) != "" {
+			sources = append(sources, src)
+		}
+	}
+
+	return sources
 }

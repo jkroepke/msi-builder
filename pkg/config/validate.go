@@ -522,10 +522,11 @@ func (v *validator) contextSetter(actionPath, name string) {
 		return
 	}
 
-	v.warnf(actionPath+".setProperty.name", "setting %s in a sequence does not move the install to another context: "+
-		"set ALLUSERS=1 in the execute sequence registered the product per machine in the per-user folders (INST-07); "+
-		"use scope perUserOrMachine or perMachineOrUser, whose scope page and command line pick the context, and "+
-		"components[].scope", name)
+	v.warnf(actionPath+".setProperty.name", "an action that sets %s leaves the install inconsistent: in a dual "+
+		"package, ALLUSERS=1 set in the execute sequence registered the product per machine but kept the per-user "+
+		"folders and MSIINSTALLPERUSER, and MSIINSTALLPERUSER=1 kept the context but made conditions on it hold "+
+		"(INST-07); use scope perUserOrMachine or perMachineOrUser, whose scope page and command line pick the "+
+		"context, and components[].scope", name)
 }
 
 // installPerUser warns about MSIINSTALLPERUSER outside a dual package: it
@@ -2601,7 +2602,8 @@ func (v *validator) firewallScope(rulePath string, comp *Component) {
 			"since netsh needs an elevated per-machine install", v.scope)
 	case v.scope == ScopePerUserOrMachine:
 		// ICE105 reads only the CustomAction type (CA-09).
-		v.warnf(rulePath, "ICE105 warns about the netsh actions without impersonation, although they run only per machine")
+		v.warnf(rulePath, "ICE105 warns about the netsh actions without impersonation and their System64Folder or "+
+			"SystemFolder working directory, although they run only per machine")
 	}
 }
 
