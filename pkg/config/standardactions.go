@@ -198,8 +198,8 @@ func (v *validator) movedNumbers(cfg *Config, table string, numbered []sequence.
 	cost := sequence.Find(numbered, "CostInitialize")
 
 	for _, name := range movableActions {
-		_, path, moved := cfg.StandardPlacement(table, name)
-		if n := sequence.Find(numbered, name); moved && cost != 0 && n > cost {
+		place, path, moved := cfg.StandardPlacement(table, name)
+		if n := sequence.Find(numbered, name); moved && cost != 0 && n > cost && !scopePageRefuses(cfg, name, place) {
 			v.errorf(path, "%s at %d must run before CostInitialize (%d)", name, n, cost)
 		}
 	}
@@ -273,22 +273,29 @@ func (v *validator) standardActions(cfg *Config) {
 // AppSearch next to them: the scope page runs them after the context is
 // chosen, after costing (UI-11).
 func (v *validator) scopePageMove(cfg *Config, placePath, action string, place Placement) {
-	if place.Sequence != "ui" || !scopePage(cfg) {
-		return
-	}
-
-	if action != actAppSearch {
+	switch {
+	case !scopePageRefuses(cfg, action, place):
+	case action != actAppSearch:
 		v.errorf(placePath+".sequence", "the scope page of a dual-scope wizard runs %s of the ui sequence after it, "+
 			"where it sees the chosen context; move it in the execute sequence only", action)
-
-		return
-	}
-
-	// AppSearch stays before costing, away from them.
-	if anchor := place.Before + place.After; anchor != action && slices.Contains(movableActions, anchor) {
+	default:
 		v.errorf(placePath, "the scope page of a dual-scope wizard runs %s of the ui sequence after costing, "+
-			"so %s cannot be placed next to it there", anchor, action)
+			"so %s cannot be placed next to it there", place.Before+place.After, action)
 	}
+}
+
+// scopePageRefuses reports whether the scope page refuses a placement of a
+// moved standard action: a ui move of FindRelatedProducts or
+// LaunchConditions, or a ui AppSearch next to them, which stays before
+// costing.
+func scopePageRefuses(cfg *Config, action string, place Placement) bool {
+	if place.Sequence != "ui" || !scopePage(cfg) {
+		return false
+	}
+
+	anchor := place.Before + place.After
+
+	return action != actAppSearch || anchor != action && slices.Contains(movableActions, anchor)
 }
 
 // scopePage reports whether the package has the wizard's scope page, which

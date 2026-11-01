@@ -16,6 +16,9 @@ import (
 // numbers.
 var placedByBuilder = set("RemoveExistingProducts", "LaunchConditions", "ScheduleReboot") //nolint:gochecknoglobals // lookup table
 
+// dlgInstallScope is the scope page of a dual-scope wizard.
+const dlgInstallScope = "InstallScopeDlg"
+
 // schedules numbers each sequence as far as the configuration decides it, so
 // that validate reports the cycles, overlapping chains and numbers out of
 // range that would fail the build, at the placement that causes them. A
@@ -46,7 +49,11 @@ func (v *validator) schedules(cfg *Config) {
 		var serr *sequence.Error
 		if !errors.As(err, &serr) {
 			v.movedNumbers(cfg, table, numbered)
-			v.launchBeforeFind(cfg, table, numbered)
+
+			// The scope page runs them in order.
+			if !scopePageIn(cfg, table) {
+				v.launchBeforeFind(cfg, table, numbered)
+			}
 
 			continue
 		}
@@ -128,6 +135,15 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 
 	actions = append(actions, movedActions(cfg, sequenceTables[name], paths)...)
 
+	// The scope page of a dual-scope wizard follows CostFinalize, and
+	// FindRelatedProducts and LaunchConditions follow the page.
+	if scopePageIn(cfg, sequenceTables[name]) {
+		actions = append(actions,
+			sequence.Action{Name: dlgInstallScope, After: "CostFinalize"},
+			sequence.Action{Name: actFindRelatedProducts, After: dlgInstallScope},
+			sequence.Action{Name: actLaunchConditions, After: actFindRelatedProducts})
+	}
+
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.
 	for _, id := range runs {
@@ -154,6 +170,13 @@ func wellPlaced(place Placement) bool {
 	termination := place.Sequence == "ui" || place.Sequence == sequenceAdminUI
 
 	return count == 1 && place.At >= minSequenceNumber && place.At <= maxSequenceNumber && (place.At >= 0 || termination)
+}
+
+// scopePageIn reports whether a table holds the scope page of a dual-scope
+// wizard, which the builder runs FindRelatedProducts and LaunchConditions
+// after.
+func scopePageIn(cfg *Config, table string) bool {
+	return table == sequenceTables["ui"] && scopePage(cfg)
 }
 
 // movesIn reports whether standardActions moves an action in a table.
@@ -190,7 +213,7 @@ func movedActions(cfg *Config, table string, paths map[string]string) []sequence
 
 	// The builder puts LaunchConditions after a moved AppSearch, unless it
 	// is moved itself.
-	if _, _, searchMoved := cfg.StandardPlacement(table, actAppSearch); searchMoved && paths[actAppSearch] != "" &&
+	if _, _, searchMoved := cfg.StandardPlacement(table, actAppSearch); searchMoved && paths[actAppSearch] != "" && !scopePageIn(cfg, table) &&
 		paths[actLaunchConditions] == "" && hasLaunchConditions(cfg) {
 		paths[actLaunchConditions] = paths[actAppSearch]
 		extra = append(extra, sequence.Action{Name: actLaunchConditions, After: actAppSearch})
@@ -212,7 +235,7 @@ func unmovedSiblings(cfg *Config, table string, paths map[string]string) []seque
 	for _, sibling := range []struct {
 		action string
 		runs   bool
-	}{{actFindRelatedProducts, upgrades(cfg)}, {actAppSearch, searches(cfg)}} {
+	}{{actFindRelatedProducts, upgrades(cfg) && !scopePageIn(cfg, table)}, {actAppSearch, searches(cfg)}} {
 		action := sibling.action
 		if _, _, moved := cfg.StandardPlacement(table, action); sibling.runs && !moved && paths[action] == "" {
 			std, _ := sequence.LookupStandard(action)
@@ -226,7 +249,8 @@ func unmovedSiblings(cfg *Config, table string, paths map[string]string) []seque
 // wellMoved reports whether a moved standard action's placement passed
 // standardPlacement, so that its errors are not reported twice.
 func wellMoved(cfg *Config, action string, place Placement) bool {
-	if !slices.Contains(movableActions, action) || !wellPlaced(place) || idle(cfg, action, place.Sequence) != "" {
+	if !slices.Contains(movableActions, action) || !wellPlaced(place) || idle(cfg, action, place.Sequence) != "" ||
+		scopePageRefuses(cfg, action, place) {
 		return false
 	}
 

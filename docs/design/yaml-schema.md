@@ -2466,7 +2466,10 @@ warning, and without the upgrade section, where FindRelatedProducts runs
 only as an anchor and sets nothing, it is neither. Validate reports these cases where the configuration decides them,
 together with the cycles and collisions a move causes, counting the
 LaunchConditions the builder puts after a moved AppSearch and the
-unmoved FindRelatedProducts (25) and AppSearch (50). An unmoved
+unmoved FindRelatedProducts (25) and AppSearch (50); in the `ui` sequence
+of a dual-scope wizard it counts FindRelatedProducts and LaunchConditions
+after the scope page, after CostFinalize, so an AppSearch chained to them
+there is an error. An unmoved
 LaunchConditions counts as 100 there, so a FindRelatedProducts moved past
 100 is treated as running after it even when a long chain of search actions
 would push LaunchConditions further; one moved to exactly 100 collides with
