@@ -747,7 +747,7 @@ func (cc *compConv) eventSource(elm *elem) {
 // the component. program is the file the rule is nested in, if any.
 func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:cyclop // a flat list of independent WiX attributes
 	rule := newMap()
-	rule.order("name", "description", "component", "program", "protocol", "port", "remoteAddresses", "profiles")
+	rule.order("name", "description", "component", "program", "protocol", "port", "remoteAddresses", "profiles", "ignoreFailure")
 	rule.head = comments(elm)
 	rule.set("name", c.value(elm, "Name"))
 	rule.set("description", c.value(elm, "Description"))
@@ -808,7 +808,11 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 		rule.set("profiles", profile)
 	}
 
-	for _, a := range []string{"IgnoreFailure", "Outbound", "Interface", "InterfaceType", "LocalScope", "EdgeTraversal", "Grouping"} {
+	if elm.yes("IgnoreFailure") {
+		rule.set("ignoreFailure", true)
+	}
+
+	for _, a := range []string{"Outbound", "Interface", "InterfaceType", "LocalScope", "EdgeTraversal", "Grouping"} {
 		if elm.has(a) && !elm.no(a) {
 			c.todof(rule, "", elm.line, "firewall %s has no counterpart; msi-builder writes inbound rules", a)
 		}
@@ -818,9 +822,8 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 }
 
 // firewallProtocol sets the protocol and port of a firewall rule. A WiX
-// exception without Protocol is not limited to TCP, msi-builder's default:
-// without a port it becomes any, and with one it needs a choice, because a
-// Windows firewall rule with a port must name TCP or UDP.
+// exception without Protocol is any protocol without a port and TCP with
+// one, as a WiX 5 package installs it (CA-10).
 func (c *converter) firewallProtocol(rule *omap, elm *elem) {
 	protocol, port := c.value(elm, "Protocol"), c.value(elm, "Port")
 
@@ -830,9 +833,6 @@ func (c *converter) firewallProtocol(rule *omap, elm *elem) {
 		protocol = valueAny
 	default:
 		protocol = "tcp"
-
-		c.todof(rule, "protocol", elm.line, "the firewall exception sets no Protocol; msi-builder opens port %s for tcp only, "+
-			"add a udp rule if the program needs it", port)
 	}
 
 	rule.set("protocol", protocol)

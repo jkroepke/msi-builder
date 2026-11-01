@@ -320,6 +320,11 @@ for one user or for all users the rule's component needs `scope:
 perMachine` (see the install scope below): an install for all users adds
 the rule, and one for a single user leaves it out.
 
+`protocol: any` with a `port` opens the port for TCP and UDP. If the rule
+cannot be added, the install fails; `ignoreFailure: true` installs without
+the rule instead, or, for `any` with a port, possibly with only one of the
+two protocols.
+
 ### Register a file type
 
 ```yaml

@@ -779,6 +779,10 @@ firewall:
 - In a dual-scope package a rule's component needs `scope: perMachine`,
   which `convert` writes for a component conditioned on the context
   (INST-08); a per-user install then adds no rule.
+- An exception without `Protocol` becomes `protocol: any`, or `protocol:
+  tcp` when it has a `Port`, which is the rule WiX installs.
+  `IgnoreFailure="yes"` becomes `ignoreFailure: true`. To open a port for
+  TCP and UDP, write `protocol: any` with the `port`.
 
 ## Properties and searches
 

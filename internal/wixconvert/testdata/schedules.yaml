@@ -98,7 +98,7 @@ customActions:
       - {sequence: ui, after: CostFinalize}
       - {sequence: execute, after: CostFinalize}
 firewall:
-  # No Protocol: the rule is not limited to TCP.
+  # No Protocol: any protocol without a port, TCP with one (CA-10).
   - name: Hello
     component: HelloExe
     program: '[#hello.exe]'
@@ -107,10 +107,10 @@ firewall:
   - name: Hello port
     component: HelloExe
     program: '[#hello.exe]'
-    # TODO(line 23): the firewall exception sets no Protocol; msi-builder opens port 8080 for tcp only, add a udp rule if the program needs it
     protocol: tcp
     port: "8080"
     profiles: all
+    ignoreFailure: true
 ui:
   enabled: true
   chooseDirectory: true
