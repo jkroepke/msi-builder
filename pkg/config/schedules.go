@@ -76,7 +76,8 @@ func (v *validator) unscheduledAnchors(byID map[string]*CustomAction, name strin
 }
 
 // scheduleOf returns the actions of one sequence, the YAML path of the
-// placement behind each custom action, as described at schedules, and an
+// placement behind each custom action and moved standard action, as
+// described at schedules, and an
 // error for each further placement of an action in the same sequence.
 //
 //nolint:cyclop // a flat filter over the placements
@@ -122,6 +123,16 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 		}
 	}
 
+	// A moved standard action takes its placement instead of its default
+	// number.
+	for _, moved := range cfg.StandardActions {
+		table := sequenceTables[name]
+		if place, path, ok := cfg.StandardPlacement(table, moved.Action); ok && wellMoved(moved.Action, place) && paths[moved.Action] == "" {
+			paths[moved.Action] = path
+			actions = append(actions, sequence.Action{Name: moved.Action, Before: place.Before, After: place.After, Sequence: place.At})
+		}
+	}
+
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.
 	for _, id := range runs {
@@ -148,6 +159,13 @@ func wellPlaced(place Placement) bool {
 	termination := place.Sequence == "ui" || place.Sequence == sequenceAdminUI
 
 	return count == 1 && place.At >= minSequenceNumber && place.At <= maxSequenceNumber && (place.At >= 0 || termination)
+}
+
+// wellMoved reports whether a moved standard action's placement passed
+// standardPlacement, so that its errors are not reported twice.
+func wellMoved(action string, place Placement) bool {
+	return slices.Contains(movableActions, action) && wellPlaced(place) && place.At < costInitialize() &&
+		place.Before != action && place.After != action
 }
 
 // withAnchors adds the standard actions every product gets and those the

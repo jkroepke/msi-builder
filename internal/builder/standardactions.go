@@ -1,0 +1,117 @@
+package builder
+
+import (
+	"fmt"
+	"slices"
+
+	"github.com/jkroepke/msi-builder/internal/sequence"
+	"github.com/jkroepke/msi-builder/pkg/config"
+)
+
+// movedLast puts the standard actions that standardActions moves behind
+// every action scheduled so far, so that one placed after an anchor follows
+// the actions the builder and the custom actions already put there (after
+// AppSearch: the actions that apply the search results), and one placed
+// before an anchor directly precedes it. The builder places LaunchConditions
+// after AppSearch later, so it still follows a FindRelatedProducts moved
+// behind AppSearch.
+func (b *build) movedLast() {
+	for _, table := range sequenceTables {
+		schedule := b.schedules[table]
+
+		var moved []sequence.Action
+
+		schedule = slices.DeleteFunc(schedule, func(a sequence.Action) bool {
+			if _, _, ok := b.cfg.StandardPlacement(table, a.Name); ok {
+				moved = append(moved, a)
+
+				return true
+			}
+
+			return false
+		})
+
+		b.schedules[table] = append(schedule, moved...)
+	}
+}
+
+// checkMoved checks the numbered sequences against standardActions: a
+// moved action must be one the package runs, it must still run before
+// CostInitialize, and FindRelatedProducts must run before the launch
+// conditions, which may test the properties it sets.
+func (b *build) checkMoved() {
+	for actionIndex, moved := range b.cfg.StandardActions {
+		for placeIndex, place := range moved.Schedule {
+			table, ok := config.SequenceTable(place.Sequence)
+			if !ok {
+				continue
+			}
+
+			path := fmt.Sprintf("standardActions[%d].schedule[%d]", actionIndex, placeIndex)
+			seq := b.numbered[table]
+			number := sequence.Find(seq, moved.Action)
+
+			if number == 0 {
+				b.errorf(path, "%s: %s does not run in this package (%s), so there is nothing to move", table, moved.Action, notNeeded(moved.Action))
+
+				continue
+			}
+
+			if cost := sequence.Find(seq, actCostInitialize); cost != 0 && number > cost {
+				b.errorf(path, "%s: %s at %d must run before CostInitialize (%d)", table, moved.Action, number, cost)
+			}
+		}
+	}
+
+	b.checkLaunchAfterFind()
+}
+
+// checkLaunchAfterFind reports launch conditions that run before
+// FindRelatedProducts because one of them was moved: a launch condition
+// that tests an upgrade property sees it unset. The downgrade check of
+// upgrade.downgrade: error is such a condition, so it is an error there.
+func (b *build) checkLaunchAfterFind() {
+	if !b.hasRows("LaunchCondition") {
+		return
+	}
+
+	for _, table := range []string{seqInstallExecute, seqInstallUI} {
+		find := sequence.Find(b.numbered[table], "FindRelatedProducts")
+		launch := sequence.Find(b.numbered[table], "LaunchConditions")
+
+		if find == 0 || launch == 0 || launch > find {
+			continue
+		}
+
+		_, path, ok := b.cfg.StandardPlacement(table, "LaunchConditions")
+		if !ok {
+			_, path, _ = b.cfg.StandardPlacement(table, "FindRelatedProducts")
+		}
+
+		if path == "" {
+			continue
+		}
+
+		if b.cfg.Upgrade != nil && b.cfg.Upgrade.Downgrade == "error" {
+			b.errorf(path, "%s: LaunchConditions (%d) runs before FindRelatedProducts (%d), "+
+				"so the downgrade check of upgrade.downgrade: error never sees a newer version", table, launch, find)
+
+			continue
+		}
+
+		b.warnf(path, "%s: LaunchConditions (%d) runs before FindRelatedProducts (%d): a launch condition sees the upgrade properties unset",
+			table, launch, find)
+	}
+}
+
+// notNeeded says why a movable standard action is missing from a package.
+func notNeeded(action string) string {
+	switch action {
+	case "FindRelatedProducts":
+		return "it needs the upgrade section"
+	case "AppSearch":
+		return "it searches for nothing"
+	default:
+		return "it has no launch conditions"
+	}
+}

@@ -177,8 +177,8 @@ func (b *build) anchoredTo(table, name string) int {
 	return count
 }
 
-// standardAt adds a standard action at its default number for the table
-// unless it is already scheduled there. It panics on an action without a
+// standardAt adds a standard action at its default number for the table,
+// or where standardActions moves it, unless it is already scheduled there. It panics on an action without a
 // default in that table, which is a builder bug.
 func (b *build) standardAt(table, name string) {
 	if b.scheduled(table, name) {
@@ -188,6 +188,12 @@ func (b *build) standardAt(table, name string) {
 	s, ok := sequence.LookupStandard(name)
 	if !ok || s.Number(table) == 0 {
 		panic(fmt.Sprintf("builder: %s has no default number in %s", name, table))
+	}
+
+	if place, _, moved := b.cfg.StandardPlacement(table, name); moved {
+		b.schedule(table, name, s.Condition, place.Before, place.After, place.At)
+
+		return
 	}
 
 	b.schedule(table, name, s.Condition, "", "", s.Number(table))
@@ -538,13 +544,20 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 		}
 	}
 
+	b.movedLast()
+
 	if b.hasRows("LaunchCondition") {
 		for _, table := range []string{seqInstallExecute, seqInstallUI} {
 			// After AppSearch and the actions that apply its results when
 			// they do not fit between 50 and 100, so that the gap does not
-			// limit how many properties a package can search.
-			if b.scheduled(table, "AppSearch") && !b.scheduled(table, "LaunchConditions") &&
-				standardNumber(table, "AppSearch")+b.anchoredTo(table, "AppSearch") >= standardNumber(table, "LaunchConditions") {
+			// limit how many properties a package can search, or when
+			// AppSearch was moved, so that the launch conditions still see
+			// what it found.
+			_, _, searchMoved := b.cfg.StandardPlacement(table, "AppSearch")
+			_, _, launchMoved := b.cfg.StandardPlacement(table, "LaunchConditions")
+
+			if b.scheduled(table, "AppSearch") && !b.scheduled(table, "LaunchConditions") && !launchMoved &&
+				(searchMoved || standardNumber(table, "AppSearch")+b.anchoredTo(table, "AppSearch") >= standardNumber(table, "LaunchConditions")) {
 				b.schedule(table, "LaunchConditions", standardCondition("LaunchConditions"), "", "AppSearch", 0)
 			}
 
@@ -619,6 +632,7 @@ func (b *build) sequences() error { //nolint:cyclop,gocognit // one pass over th
 	}
 
 	b.checkSequences()
+	b.checkMoved()
 	b.checkWhen()
 	b.checkPerUserRollback()
 
@@ -771,6 +785,10 @@ func (c *chainRoots) root(name string) string {
 func (b *build) placementPath(table, action string) string {
 	if action == "" {
 		return ""
+	}
+
+	if _, path, moved := b.cfg.StandardPlacement(table, action); moved {
+		return path
 	}
 
 	id, isData := strings.CutSuffix(action, ".Data")

@@ -2483,3 +2483,67 @@ func TestConvertRawRegistryFolderSearch(t *testing.T) {
 		}
 	}
 }
+
+// TestConvertMovedStandardActions takes the places that the sequences give
+// AppSearch, LaunchConditions and FindRelatedProducts into standardActions,
+// and leaves a note for a condition and for an administrative sequence.
+func TestConvertMovedStandardActions(t *testing.T) {
+	t.Parallel()
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Hello">
+        <Component><File Source="hello.exe" /></Component>
+      </Directory>
+    </StandardDirectory>
+    <Property Id="RUNTIME">
+      <RegistrySearch Id="Runtime" Root="HKLM" Key="Software\Example\Runtime" Name="Version" Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR RUNTIME" Message="Needs the runtime." />
+    <InstallExecuteSequence>
+      <AppSearch Sequence="1" />
+      <LaunchConditions After="AppSearch" />
+      <FindRelatedProducts Before="LaunchConditions" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <AppSearch />
+    </InstallUISequence>
+    <AdminUISequence>
+      <LaunchConditions Sequence="5" />
+    </AdminUISequence>
+  </Package>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := string(res.YAML)
+	for _, want := range []string{
+		"standardActions:\n  - action: FindRelatedProducts\n    schedule:\n      - {sequence: execute, before: LaunchConditions}\n" +
+			"  - action: AppSearch\n    schedule:\n      - {sequence: execute, at: 1}\n" +
+			"  - action: LaunchConditions\n    schedule:\n      - {sequence: execute, after: AppSearch}\n",
+		"the standard action FindRelatedProducts in execute runs only when NOT Installed; msi-builder schedules the standard actions without conditions",
+		"rescheduling the standard action LaunchConditions in AdminUISequence has no counterpart",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the YAML lacks %q:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "sequence: ui") {
+		t.Errorf("an AppSearch without a place was moved:\n%s", out)
+	}
+
+	cfg, err := config.Parse(res.YAML, config.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.Validate(cfg).Err(); err != nil {
+		t.Errorf("the converted file does not validate: %v\n%s", err, out)
+	}
+}

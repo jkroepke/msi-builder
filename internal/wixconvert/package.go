@@ -48,7 +48,7 @@ func (c *converter) literal(text string) string {
 func (c *converter) emit() {
 	c.out.set("schema", "msi-builder/v1")
 	c.out.order("vars", "product", "package", "upgrade", "installDir", "directories", "features", "components",
-		"properties", "launchConditions", "customActions", "icons", "binaries", "firewall", "scheduleReboot", "ui")
+		"properties", "launchConditions", "customActions", "standardActions", "icons", "binaries", "firewall", "scheduleReboot", "ui")
 
 	c.emitVars()
 

@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/jkroepke/msi-builder/main/pkg/config/schema.json
 # Converted from dualscope.wxs by msi-builder convert.
 # Review it, resolve the TODO comments, then run msi-builder validate.
-# TODO(line 53): the standard action RemoveExistingProducts in InstallExecuteSequence runs only when NOT UPGRADINGPRODUCTCODE; msi-builder schedules the standard actions itself, without conditions
+# TODO(line 60): the standard action RemoveExistingProducts in InstallExecuteSequence runs only when NOT UPGRADINGPRODUCTCODE; msi-builder schedules the standard actions itself, without conditions
 # TODO(line 27): the action OverridePerMachineFolder, which sets WixPerMachineFolder for WixUI_Advanced, was left out: msi-builder sets the install folder of each scope itself
 # TODO(line 31): the action OverrideAgain, which sets WixPerMachineFolder for WixUI_Advanced, was left out: msi-builder sets the install folder of each scope itself
 vars:
@@ -64,6 +64,15 @@ components:
         action: append
         scope: user
     scope: perUser
+properties:
+  # Look for older versions in the context of the previous install:
+  # FindRelatedProducts only finds products in the current one.
+  PREVMACHINE:
+    search:
+      registry:
+        root: HKLM
+        key: Software\Example\Hello
+        name: Machine
 customActions:
   # Elevated actions run only per machine in msi-builder (CA-09).
   - id: RegisterMachine
@@ -125,6 +134,16 @@ customActions:
       # TODO(line 31): SetUIMODE was scheduled next to OverrideAgain, which is not in the ui sequence; convert placed it after CostFinalize, check that place
       - {sequence: ui, after: CostFinalize}
       - {sequence: execute, after: CostFinalize}
+  - id: SetAllUsersFromPrevious
+    setProperty: {name: ALLUSERS, value: "1"}
+    schedule:
+      - {sequence: ui, after: AppSearch, condition: PREVMACHINE}
+      - {sequence: execute, after: AppSearch, condition: PREVMACHINE}
+standardActions:
+  - action: FindRelatedProducts
+    schedule:
+      - {sequence: ui, after: SetAllUsersFromPrevious}
+      - {sequence: execute, after: SetAllUsersFromPrevious}
 ui:
   enabled: true
   chooseFeatures: true

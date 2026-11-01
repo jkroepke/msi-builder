@@ -104,8 +104,64 @@ func (c *converter) standardAction(entry, seq *elem) {
 		}
 	case entry.is("Show"):
 		c.todof(nil, "", entry.line, "<Show Dialog=%q> schedules a dialog; use the ui keys", entry.attr("Dialog"))
+	case movableActions[entry.name] && !entry.has("Suppress") && (seq.name == "InstallExecuteSequence" || seq.name == "InstallUISequence"):
+		c.moveStandard(entry, sequenceNames[seq.name])
 	default:
 		c.standardActionNote(entry, seq)
+	}
+}
+
+// movableActions are the standard actions that standardActions can move in
+// the execute and UI sequences.
+var movableActions = map[string]bool{"FindRelatedProducts": true, "AppSearch": true, "LaunchConditions": true} //nolint:gochecknoglobals // lookup table
+
+// moveStandard takes the place a sequence gives FindRelatedProducts,
+// AppSearch or LaunchConditions into standardActions. An entry without a
+// place keeps the default number; a condition has no counterpart.
+func (c *converter) moveStandard(entry *elem, sequence string) {
+	placement := flowMap()
+	placement.order("sequence", "before", "after", "at")
+	placement.set("sequence", sequence)
+	placement.set("before", entry.attr("Before"))
+	placement.set("after", entry.attr("After"))
+
+	if at, err := strconv.Atoi(entry.attr("Sequence")); err == nil {
+		placement.set("at", at)
+	}
+
+	if cond := c.condition(entry); cond != "" {
+		c.todof(nil, "", entry.line, "the standard action %s in %s runs only when %s; msi-builder schedules the standard "+
+			"actions without conditions", entry.name, sequence, cond)
+	}
+
+	if placement.str("before") == "" && placement.str("after") == "" && placement.get("at") == nil {
+		return
+	}
+
+	if c.moved == nil {
+		c.moved = make(map[string][]any)
+	}
+
+	c.moved[entry.name] = append(c.moved[entry.name], placement)
+}
+
+// emitMoved writes standardActions, in the order of the actions' default
+// numbers, with each placement on a left-out setter moved to the setter's
+// anchor, as for custom actions.
+func (c *converter) emitMoved(reanchor func(string, []any)) {
+	for _, name := range []string{"FindRelatedProducts", "AppSearch", "LaunchConditions"} {
+		placements := c.moved[name]
+		if len(placements) == 0 {
+			continue
+		}
+
+		reanchor(name, placements)
+
+		moved := newMap()
+		moved.order("action", "schedule")
+		moved.set("action", name)
+		moved.set("schedule", placements)
+		c.out.add("standardActions", moved)
 	}
 }
 
@@ -216,6 +272,8 @@ func (c *converter) emitActions() {
 		c.extensionAnchors(action, setter, byAction, sides)
 		c.out.add("customActions", action)
 	}
+
+	c.emitMoved(reanchor)
 
 	for _, id := range slices.Sorted(maps.Keys(byAction)) {
 		if c.actions[id] == nil && id != c.launchAction {

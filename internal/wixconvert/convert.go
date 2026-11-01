@@ -125,17 +125,20 @@ type converter struct {
 	dirs          map[string]*dir
 	wixUI         *elem
 	out           *omap
-	pkg           *elem
-	major         *elem
-	summary       *elem
-	usedVars      map[string]bool
-	groups        map[string]*group
-	actions       map[string]*elem
-	needDirs      map[string]bool
-	renames       map[string]string
-	installDir    *dir
-	uiSet         string
-	platform      string
+	// moved holds the placements of the standard actions that the
+	// sequences move and standardActions takes, by action.
+	moved      map[string][]any
+	pkg        *elem
+	major      *elem
+	summary    *elem
+	usedVars   map[string]bool
+	groups     map[string]*group
+	actions    map[string]*elem
+	needDirs   map[string]bool
+	renames    map[string]string
+	installDir *dir
+	uiSet      string
+	platform   string
 	// scope is the package's install scope, as package.scope names it.
 	scope        string
 	launchAction string
