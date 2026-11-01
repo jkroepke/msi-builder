@@ -501,8 +501,10 @@ go test ./... -shuffle=on -race
   presets) are modelled in `builderChains` (`pkg/config/chains.go`) under the
   builder's action names, so that `at: 51` next to a search fails validate
   with a note on where the action comes from. Add a chain there only when
-  validate can count it exactly or fewer; `TestBuilderChainsMatchValidate`
-  checks the counts against a build.
+  validate can count it exactly or fewer, and keep the builder's order:
+  the chains come before every placement that shares their anchor, because
+  `launchBeforeFind` compares positions inside a block, not only its size.
+  `TestBuilderChainsMatchValidate` checks the counts against a build.
 - A null list entry decodes to a nil pointer. `nullEntries`
   (`pkg/config/nulls.go`) finds them by reflection over the YAML keys, in
   `Parse` and in `Validate`, before the defaults dereference anything, so a

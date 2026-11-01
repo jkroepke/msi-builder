@@ -40,6 +40,8 @@ func (v *validator) schedules(cfg *Config) {
 		}
 	}
 
+	v.takenChainNames(cfg, byID)
+
 	for _, name := range slices.Sorted(maps.Keys(sequenceTables)) {
 		table := sequenceTables[name]
 		actions, paths, notes, dups := scheduleOf(cfg, byID, name)
@@ -68,6 +70,29 @@ func (v *validator) schedules(cfg *Config) {
 
 		if path != "" {
 			v.errorf(path, "%s", explain(serr, paths, notes))
+		}
+	}
+}
+
+// takenChainNames reports a custom action whose id is the name of an
+// action the builder chains after CostFinalize or AppSearch: the build
+// finds the name twice.
+func (v *validator) takenChainNames(cfg *Config, byID map[string]*CustomAction) {
+	notes := make(map[string]string)
+
+	for _, table := range []string{sequenceTables[sequenceExecute], sequenceTables["ui"]} {
+		_, tableNotes := builderChains(cfg, table)
+		maps.Copy(notes, tableNotes)
+	}
+
+	for i, action := range cfg.CustomActions {
+		if note := notes[action.ID]; note != "" && byID[action.ID] == action {
+			path := fmt.Sprintf("customActions[%d].id", i)
+			if action.origin != "" {
+				path = action.origin
+			}
+
+			v.errorf(path, "%s is the name of an action the build adds: %s", action.ID, note)
 		}
 	}
 }
@@ -156,14 +181,26 @@ func scheduleOf(cfg *Config, byID map[string]*CustomAction, name string) ([]sequ
 
 	// The chains the builder adds after CostFinalize and AppSearch, such
 	// as the scope page of a dual-scope wizard with FindRelatedProducts
-	// and LaunchConditions after it. A name a placement already took is
-	// reported elsewhere.
+	// and LaunchConditions after it. The builder adds them before every
+	// placement, which keeps the order of actions that share an anchor
+	// (launchBeforeFind compares two of them). A chain whose name a
+	// custom action took is reported by takenChainNames and left out from
+	// there on.
 	chained, notes := builderChains(cfg, sequenceTables[name])
+
+	var taken []string
+
+	children := make(map[string][]string)
+
 	for _, action := range chained {
-		if _, taken := paths[action.Name]; !taken {
-			actions = append(actions, action)
+		children[action.After] = append(children[action.After], action.Name)
+
+		if _, used := paths[action.Name]; used || byID[action.Name] != nil {
+			taken = append(taken, action.Name)
 		}
 	}
+
+	actions = append(dropChains(chained, taken, children), actions...)
 
 	// The builder schedules each run action's data action right before
 	// it, after every other placement.

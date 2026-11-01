@@ -113,6 +113,14 @@ func TestScheduleAccepted(t *testing.T) {
 		"after a dialog": "properties: {OPT: {}}\nui:\n  enabled: true\n  dialogs:\n    - {id: ExtraDlg, title: x, after: WelcomeDlg, fields: [{property: OPT}]}\n" +
 			"customActions:\n  - id: AfterDlg\n    setProperty: {name: Q, value: x}\n    schedule: [{sequence: ui, after: ExtraDlg}]\n",
 		"next to a service argument": setProps("after: InstallServices", "before: InstallServices"),
+		// The builder's search chain comes first under AppSearch, so a
+		// FindRelatedProducts after it still runs before LaunchConditions.
+		"FindRelatedProducts after a search result": "properties: {Q: {search: {registry: {root: HKLM, key: X, name: V}}}}\n" +
+			"launchConditions: [{condition: VersionNT, message: x}]\n" +
+			"standardActions:\n  - {action: LaunchConditions, schedule: [{sequence: ui, after: AppSearch}]}\n" +
+			"  - {action: FindRelatedProducts, schedule: [{sequence: ui, after: SearchApply_Q}]}\n",
+		"right after the chains": "properties: {Q: {search: {registry: {root: HKLM, key: X, name: V}}}}\n" +
+			setProps("at: 52") + "  - id: UISet\n    setProperty: {name: U, value: x}\n    schedule: [{sequence: ui, at: 52}]\n",
 	} {
 		ds := validate(t, base+serviceComponent()+doc)
 		if errorCount(ds) != 0 {
@@ -206,7 +214,7 @@ func TestScheduleBuilderChains(t *testing.T) {
 			"RestoreInstallDir comes from installDir.remember",
 		},
 		"search behind a moved AppSearch": {
-			base + appComponent + search + "standardActions: [{action: AppSearch, schedule: [{sequence: execute, at: 30}]}]\n" + setProps("at: 32"),
+			base + appComponent + search + "standardActions: [{action: AppSearch, schedule: [{sequence: execute, at: 30}]}]\n" + setProps("at: 31"),
 			"SearchApply_Q comes from properties.Q.search",
 		},
 		"arp install location in execute": {
@@ -238,5 +246,17 @@ func TestScheduleBuilderChains(t *testing.T) {
 		if !find(ds, config.SeverityError, "customActions[0].schedule[0]", test.msg) || errorCount(ds) != 1 {
 			t.Errorf("%s: want one error at customActions[0].schedule[0] with %q: %v", name, test.msg, ds)
 		}
+	}
+}
+
+// A custom action named like an action the builder chains is reported at
+// its id, once.
+func TestScheduleBuilderChainName(t *testing.T) {
+	t.Parallel()
+
+	ds := validate(t, base+appComponent+"properties: {Q: {value: d, search: {registry: {root: HKLM, key: X, name: V}}}}\n"+
+		"customActions:\n  - id: SearchApply_Q\n    setProperty: {name: P, value: x}\n    schedule: [{sequence: ui, at: 1500}]\n")
+	if !find(ds, config.SeverityError, "customActions[0].id", "SearchApply_Q is the name of an action the build adds") || errorCount(ds) != 1 {
+		t.Error(ds)
 	}
 }
