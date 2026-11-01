@@ -350,8 +350,8 @@ func (c *converter) featureConditions(out *omap, elm *elem) {
 }
 
 // conditionalLevelProblem says why a conditional level cannot become a
-// conditions entry, or returns "". A condition with ${NAME} references is
-// only checked once the variables are substituted.
+// conditions entry, or returns "". A condition with {{ }} actions is only
+// checked once the template is rendered.
 func conditionalLevelProblem(level, cond string) string {
 	if !validLevel(level) {
 		return fmt.Sprintf("the level is not a number from 0 to %d", maxLevel)
@@ -369,7 +369,7 @@ func conditionalLevelProblem(level, cond string) string {
 		return "msi-builder adds the Installed checks of feature conditions itself (NOT Installed for first installs, INST-05/INST-06)"
 	}
 
-	if strings.Contains(cond, "${") {
+	if strings.Contains(cond, "{{") {
 		return ""
 	}
 

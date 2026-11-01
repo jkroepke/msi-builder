@@ -2,6 +2,9 @@ package config_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -97,7 +100,7 @@ func TestParseErrors(t *testing.T) {
 		"unknown nested":    {"schema: msi-builder/v1\nproperties: {A: {valeu: x}}\n", "valeu"},
 		"schema":            {"schema: msi-builder/v2\n", "msi-builder/v1"},
 		"former schema":     {"schema: go-msi/v1\n", "before the rename to msi-builder; write \"msi-builder/v1\""},
-		"undefined var":     {"schema: msi-builder/v1\nproduct: {version: \"${NOPE}\"}\n", "undefined variable ${NOPE}"},
+		"undefined var":     {"schema: msi-builder/v1\nproduct: {version: \"{{ .NOPE }}\"}\n", "variable NOPE is not set"},
 		"platform":          {"schema: msi-builder/v1\npackage: {platform: ia64}\n", "unknown platform"},
 		"scope":             {"schema: msi-builder/v1\npackage: {scope: global}\n", "unknown scope"},
 		"property list":     {"schema: msi-builder/v1\nproperties: {A: [1]}\n", "value or a mapping"},
@@ -146,13 +149,14 @@ func TestChoiceOptionForms(t *testing.T) {
 func TestVariables(t *testing.T) {
 	t.Parallel()
 
-	doc := `schema: msi-builder/v1
-vars: {NAME: fromFile, PORT: "1"}
-product: {name: "${NAME}", version: "$${LITERAL}"}
+	doc := `vars: {NAME: fromFile, PORT: "1"}
+---
+schema: msi-builder/v1
+product: {name: "{{ .NAME }}", version: '{{ "{{" }} LITERAL }}'}
 package:
   platform: x64
-  codepage: ${CP}
-properties: {P: "${PORT}"}
+  codepage: {{ .CP }}
+properties: {P: "{{ .PORT }}"}
 `
 	env := func(k string) (string, bool) {
 		if k == "CP" {
@@ -175,16 +179,20 @@ properties: {P: "${PORT}"}
 		t.Errorf("name = %q: the environment overrides the file", cfg.Product.Name)
 	}
 
-	if cfg.Product.Version != "${LITERAL}" {
-		t.Errorf("version = %q: $${ is a literal", cfg.Product.Version)
+	if cfg.Product.Version != "{{ LITERAL }}" {
+		t.Errorf("version = %q: {{ \"{{\" }} writes a literal", cfg.Product.Version)
 	}
 
 	if cfg.Package.Codepage != 65001 {
-		t.Errorf("codepage = %d: a substituted integer decodes into an int field", cfg.Package.Codepage)
+		t.Errorf("codepage = %d: a variable decodes into an int field", cfg.Package.Codepage)
 	}
 
 	if cfg.Properties["P"].Value != "9" {
 		t.Errorf("P = %q: --var overrides everything", cfg.Properties["P"].Value)
+	}
+
+	if cfg.Vars["PORT"] != "9" || cfg.Vars["NAME"] != "fromEnv" {
+		t.Errorf("vars = %v, want the values the template saw", cfg.Vars)
 	}
 }
 
@@ -193,14 +201,15 @@ properties: {P: "${PORT}"}
 func TestNestedVariables(t *testing.T) {
 	t.Parallel()
 
-	doc := `schema: msi-builder/v1
-vars: {SHORT: Hello, NAME: "${SHORT} App", FULL: "${NAME} ${VERSION}", RAW: "$${KEEP}"}
-product: {name: "${FULL}", manufacturer: "${RAW}", version: "${VERSION}"}
+	doc := `vars: {SHORT: Hello, NAME: "{{ .SHORT }} App", FULL: "{{ .NAME }} {{ .VERSION }}"}
+---
+schema: msi-builder/v1
+product: {name: "{{ .FULL }}", version: "{{ .VERSION }}"}
 package: {platform: x64}
-properties: {P: "${CLI}"}
+properties: {P: '{{ .CLI }}'}
 `
 
-	cfg, err := config.Parse([]byte(doc), config.Options{Vars: map[string]string{"VERSION": "1.2.3", "CLI": "${SHORT}"}})
+	cfg, err := config.Parse([]byte(doc), config.Options{Vars: map[string]string{"VERSION": "1.2.3", "CLI": "{{ .SHORT }}"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,24 +218,20 @@ properties: {P: "${CLI}"}
 		t.Errorf("name = %q, want the nested vars and the --var expanded", cfg.Product.Name)
 	}
 
-	if cfg.Product.Manufacturer != "${KEEP}" {
-		t.Errorf("manufacturer = %q: $${ in a vars value is a literal", cfg.Product.Manufacturer)
-	}
-
-	if cfg.Properties["P"].Value != "${SHORT}" {
+	if cfg.Properties["P"].Value != "{{ .SHORT }}" {
 		t.Errorf("P = %q: a --var value is taken as it is", cfg.Properties["P"].Value)
 	}
 
 	for _, tc := range []struct{ name, vars, want string }{
-		{"self", `{A: "x${A}"}`, "line 2: vars.A: ${A} -> ${A} is a cycle"},
-		{"cycle", `{A: "${B}", B: "${A}"}`, "line 2: vars.B: ${A} -> ${B} -> ${A} is a cycle"},
-		{"three", `{A: "${B}", B: "${C}", C: "${A}"}`, "line 2: vars.C: ${A} -> ${B} -> ${C} -> ${A} is a cycle"},
-		{"undefined", `{A: "${NOPE}"}`, "line 2: vars.A: undefined variable ${NOPE}"},
+		{"self", `{A: "x{{ .A }}"}`, "line 1: vars.A: A -> A is a cycle"},
+		{"cycle", `{A: "{{ .B }}", B: "{{ .A }}"}`, "line 1: vars.B: A -> B -> A is a cycle"},
+		{"three", `{A: "{{ .B }}", B: "{{ .C }}", C: "{{ .A }}"}`, "line 1: vars.C: A -> B -> C -> A is a cycle"},
+		{"undefined", `{A: "{{ .NOPE }}"}`, "line 1: vars.A: line 1:3: at <.NOPE>: variable NOPE is not set; pass --var NOPE=VALUE, add it to the vars header, or pass --env to read it from the environment"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := config.Parse([]byte("schema: msi-builder/v1\nvars: "+tc.vars+"\nproduct: {name: \"${A}\", manufacturer: \"${A}\"}\n"), config.Options{})
+			_, err := config.Parse([]byte("vars: "+tc.vars+"\n---\nschema: msi-builder/v1\nproduct: {name: \"{{ .A }}\", manufacturer: \"{{ .A }}\"}\n"), config.Options{})
 			if err == nil || err.Error() != tc.want {
 				t.Errorf("err = %v, want exactly %q", err, tc.want)
 			}
@@ -239,14 +244,15 @@ properties: {P: "${CLI}"}
 func TestNestedVariablePrecedence(t *testing.T) {
 	t.Parallel()
 
-	doc := `schema: msi-builder/v1
-vars: {A: "x${B}", B: vb, C: "${D}", SELF: "${SELF}", BROKEN: "${NOPE}"}
-product: {name: "${A}", manufacturer: "${C}", version: "${SELF}"}
+	doc := `vars: {A: "x{{ .B }}", B: vb, C: "{{ .D }}", SELF: "{{ .SELF }}", BROKEN: "{{ .NOPE }}"}
+---
+schema: msi-builder/v1
+product: {name: "{{ .A }}", manufacturer: "{{ .C }}", version: "{{ .SELF }}"}
 `
 	env := map[string]string{"D": "from-env"}
 
 	cfg, err := config.Parse([]byte(doc), config.Options{
-		Vars:      map[string]string{"B": "cli", "SELF": "1.0.0"},
+		Vars: map[string]string{"B": "cli", "SELF": "1.0.0"},
 		LookupEnv: func(name string) (string, bool) {
 			v, ok := env[name]
 
@@ -262,38 +268,33 @@ product: {name: "${A}", manufacturer: "${C}", version: "${SELF}"}
 	}
 }
 
-// Doubling vars cannot grow a document without bound.
+// Doubling vars cannot grow without bound.
 func TestNestedVariableBomb(t *testing.T) {
 	t.Parallel()
 
 	var doc strings.Builder
 
-	doc.WriteString("schema: msi-builder/v1\nvars:\n")
+	doc.WriteString("vars:\n")
 
 	for i := range 40 {
-		fmt.Fprintf(&doc, "  V%d: \"${V%d}${V%d}\"\n", i, i+1, i+1)
+		fmt.Fprintf(&doc, "  V%d: \"{{ .V%d }}{{ .V%d }}\"\n", i, i+1, i+1)
 	}
 
-	doc.WriteString("  V40: xx\nproduct: {name: \"${V0}\"}\n")
+	doc.WriteString("  V40: xx\n---\nschema: msi-builder/v1\nproduct: {name: \"{{ .V0 }}\"}\n")
 
 	_, err := config.Parse([]byte(doc.String()), config.Options{})
-	if err == nil || !strings.Contains(err.Error(), ": vars.V") || !strings.Contains(err.Error(), "variables insert more than") {
-		t.Fatalf("err = %v, want the size limit on a vars entry", err)
-	}
-
-	if n := strings.Count(err.Error(), "\n") + 1; n != 1 {
-		t.Errorf("%d errors, want 1: %v", n, err)
+	if err == nil || !strings.Contains(err.Error(), "writes more than") {
+		t.Fatalf("err = %v, want the size limit", err)
 	}
 }
 
-// Text passing through one vars entry is charged once to vars and once to
-// the document, so a large --var used through vars still fits.
+// A large --var used through vars still fits.
 func TestNestedVariableLargeValue(t *testing.T) {
 	t.Parallel()
 
 	big := strings.Repeat("x", 9<<20)
 
-	cfg, err := config.Parse([]byte("schema: msi-builder/v1\nvars: {X: \"${BIG}\"}\nproduct: {name: \"${X}\"}\n"),
+	cfg, err := config.Parse([]byte("vars: {X: \"{{ .BIG }}\"}\n---\nschema: msi-builder/v1\nproduct: {name: \"{{ .X }}\"}\n"),
 		config.Options{Vars: map[string]string{"BIG": big}})
 	if err != nil {
 		t.Fatal(err)
@@ -308,21 +309,21 @@ func TestNestedVariableLargeValue(t *testing.T) {
 func TestNestedVariableMergeKeyLine(t *testing.T) {
 	t.Parallel()
 
-	doc := "schema: msi-builder/v1\nbase: &b {M: \"${NOPE}\"}\nvars:\n  <<: *b\nproduct: {name: \"${M}\"}\n"
+	doc := "vars:\n  <<: {M: \"{{ .NOPE }}\"}\n---\nschema: msi-builder/v1\nproduct: {name: \"{{ .M }}\"}\n"
 
 	_, err := config.Parse([]byte(doc), config.Options{})
-	if err == nil || !strings.Contains(err.Error(), "line 4: vars.M: undefined variable ${NOPE}") {
+	if err == nil || !strings.Contains(err.Error(), "line 2: vars.M: ") {
 		t.Errorf("err = %v, want the line of the vars mapping", err)
 	}
 }
 
-// An invalid --var used through a vars entry is reported once.
+// An invalid --var used through a vars entry is reported on the entry.
 func TestNestedVariableInvalidUTF8(t *testing.T) {
 	t.Parallel()
 
-	_, err := config.Parse([]byte("schema: msi-builder/v1\nvars: {A: \"${C}\"}\nproduct: {name: \"${A}\"}\n"),
+	_, err := config.Parse([]byte("vars: {A: \"x{{ .C }}\"}\n---\nschema: msi-builder/v1\nproduct: {name: \"{{ .A }}\"}\n"),
 		config.Options{Vars: map[string]string{"C": "\xff"}})
-	if err == nil || err.Error() != "line 2: vars.A: variable ${C} is not valid UTF-8" {
+	if err == nil || err.Error() != "line 1: vars.A: the value is not valid UTF-8" {
 		t.Errorf("err = %v, want one error on the vars entry", err)
 	}
 }
@@ -384,7 +385,7 @@ func TestRecoveryActionsMarshal(t *testing.T) {
 func TestVariableValues(t *testing.T) {
 	t.Parallel()
 
-	doc := "schema: msi-builder/v1\nproduct:\n  name: ${V}\n  manufacturer: '${V}'\npackage: {platform: x64}\n"
+	doc := "schema: msi-builder/v1\nproduct:\n  name: {{ .V | quote }}\npackage: {platform: x64}\n"
 
 	for _, value := range []string{"null", "Null", "NULL", "~"} {
 		cfg, err := config.Parse([]byte(doc), config.Options{Vars: map[string]string{"V": value}})
@@ -392,12 +393,58 @@ func TestVariableValues(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if cfg.Product.Name != value || cfg.Product.Manufacturer != value {
-			t.Errorf("${V} = %q gives name %q and manufacturer %q", value, cfg.Product.Name, cfg.Product.Manufacturer)
+		if cfg.Product.Name != value {
+			t.Errorf("{{ .V | quote }} = %q gives name %q", value, cfg.Product.Name)
 		}
 	}
 
 	if _, err := config.Parse([]byte(doc), config.Options{Vars: map[string]string{"V": "\xff"}}); err == nil {
 		t.Error("a variable that is not valid UTF-8 was accepted")
+	}
+}
+
+// TestRepoConfigs parses the msi.yaml files of the spec probes and test
+// data, which no other Linux test reads.
+func TestRepoConfigs(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"../../docs/spec/msitest/inst02/probe.yaml",
+		"../../docs/spec/msitest/reg05/probe.yaml",
+		"../../docs/spec/msitest/reg05/baseline.yaml",
+		"../../internal/cadll/testdata/probe/msi.yaml",
+	} {
+		if _, err := config.Load(path, config.Options{}); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// TestWindowsTestConfigs renders the msi.yaml texts of the Windows-only
+// tests, which no Linux test reads, so that a template error such as a
+// literal "{{" shows here and not only in the Windows CI. Every variable
+// is set to "1".
+func TestWindowsTestConfigs(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob("../../internal/builder/nativetest/*_windows_test.go")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no Windows tests: %v", err)
+	}
+
+	raw := regexp.MustCompile("(?s)`([^`]*schema: msi-builder/v1[^`]*)`")
+	everything := func(string) (string, bool) { return "1", true }
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, m := range raw.FindAllSubmatch(data, -1) {
+			if _, err := config.Render(m[1], config.Options{LookupEnv: everything}); err != nil {
+				t.Errorf("%s: %v", filepath.Base(path), err)
+			}
+		}
 	}
 }

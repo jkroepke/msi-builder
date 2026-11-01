@@ -65,13 +65,13 @@ flowchart LR
 | `internal/condition` | Parser for the condition grammar, used to reject conditions the engine would ignore | §8.8 | stdlib |
 | `internal/sequence` | Numbering of sequence tables: fixed standard actions plus before/after chains, overlap and window checks | §9.2, §11.7 | stdlib |
 | `internal/builder` | The config-to-tables layer: identities, directories and short names, components and GUIDs, files, media and cabinets, registry, services, environment, upgrades, custom actions, helpers, `_Validation`, summary; then the package bytes and a verification pass | §6–§11 | everything above, plus `config`, `internal/artwork`, `internal/cadll`, `internal/rtf` and `go.yaml.in/yaml/v3` |
-| `pkg/config` | YAML decoding, defaults and validation into a `*config.Config` | | `internal/condition`, `go.yaml.in/yaml/v3` |
+| `pkg/config` | Template rendering (`config.Render`: the vars header and Go `text/template` with sprig's functions), YAML decoding, defaults and validation into a `*config.Config` | | `internal/condition`, `go.yaml.in/yaml/v3`, `github.com/Masterminds/sprig/v3` |
 | `internal/codepage` | ANSI code page encoders for the string pool and summary, from tables dumped from Windows | §3, §4 | none |
 | `internal/cadll` | The custom action DLL of `run` actions and permission grants: freestanding C (`src/builderrun.c`), cross-built by `build.sh` (`go generate`) with clang 18 and lld for x86, x64 and arm64, committed, pinned by `SHA256SUMS` and embedded with `go:embed`; the builder copies the platform's DLL into the `Binary` table | §9.4 | stdlib |
 | `internal/artwork` | Draws the wizard bitmaps (our own artwork, generated in code) and decodes a theme's BMP, PNG or JPEG pictures | | stdlib |
 | `internal/rtf` | Converts a plain-text license to RTF and checks an RTF license for the ScrollableText control | | stdlib |
 | `pkg/builder` | Public build API: `Build`, `Options`, `Result`, `File`, converted to and from `internal/builder` | | `internal/builder`, `config` |
-| `cmd/msi-builder` | CLI: `build`, `validate`, `inspect`, `sign`, `verify`, `completion`, `version` | | `builder`, `config`, `msidb`, `cfb`, `sign`, `spf13/cobra` |
+| `cmd/msi-builder` | CLI: `build`, `validate`, `render`, `inspect`, `convert`, `sign`, `verify`, `completion`, `version` | | `builder`, `config`, `msidb`, `cfb`, `sign`, `spf13/cobra` |
 
 `pkg/config` (PR #2) stays as it is: the builder consumes a validated `*config.Config`
 and never reads YAML.

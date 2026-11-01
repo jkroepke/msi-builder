@@ -541,7 +541,7 @@ func (c *converter) onDisk(cands []candidate) []candidate {
 
 	for _, cand := range cands {
 		folder := strings.TrimSuffix(cand.src.comp.folder.str("source"), "/")
-		if !strings.Contains(folder, "${") && c.exists(path.Join(folder, cand.rel)) {
+		if !strings.Contains(folder, "{{") && c.exists(path.Join(folder, cand.rel)) {
 			held = append(held, cand)
 		}
 	}

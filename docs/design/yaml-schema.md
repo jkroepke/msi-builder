@@ -82,7 +82,7 @@ closes each one.
 | Corrupted cabinet data (MSZIP-01, CAB-04) | Wrong DEFLATE history, or a bit flip without a checksum, installs a corrupted file | Writer: every cabinet data block gets a checksum, and the builder re-extracts every cabinet after writing it and compares each file's SHA-256 with the source. Neither can be turned off, so the schema has no field for them. |
 | Script custom actions (CA-02) | Inline JScript/VBScript actions (types 37/38) report success whatever they return; a Binary script returning 5 ends the install with 0 and leaves files unregistered | There are no script custom actions. Actions run an executable (`exec`, `execProperty`, `exe`), a command through msi-builder's DLL (`run`), a DLL (`dll`), set a property or directory, or fail with an error. |
 | EXE exit codes (CA-02) | Any non-zero exit fails the install unless the action ignores it | `customActions[].return` is required for `exec`, `execProperty`, `exe` and `run` actions (`check` or `ignore`), so the author decides. |
-| Same ProductCode, new package (UPG-03) | Installing a rebuilt package over the installed one fails with 1638 | `product.productCode: auto` derives the code from the upgrade code, version, platform and a digest of every input, including the contents of the wizard's licenses and theme pictures; the release that added these derives a new code once for every configuration that uses them. Changed content gives a new ProductCode (a major upgrade); unchanged content gives the same package byte for byte. Keys whose value means the same as a missing key (null, `""`, `[]`, `{}`) are left out of the digest, so a key a later version adds to the schema (as a pointer, string, list or mapping, or left out when empty) does not change the code of a configuration that does not use it; `false` and `0` stay in, since an explicit `secure: false` is not the default. The release that introduced this pruning derives a new code once for every configuration, unchanged ones included. So did renaming `ui.installDirPage` to `chooseDirectory` (its `false` was in every digest), and renaming `ui.wizard` to `enabled` does for every configuration with `wizard: true`. The release that writes HKCU key paths for components in the user profile (INST-04) derives a new code once for every configuration with such a component. A pinned ProductCode makes the validator warn. |
+| Same ProductCode, new package (UPG-03) | Installing a rebuilt package over the installed one fails with 1638 | `product.productCode: auto` derives the code from the upgrade code, version, platform and a digest of every input, including the contents of the wizard's licenses and theme pictures; the release that added these derives a new code once for every configuration that uses them. Changed content gives a new ProductCode (a major upgrade); unchanged content gives the same package byte for byte. Keys whose value means the same as a missing key (null, `""`, `[]`, `{}`) are left out of the digest, so a key a later version adds to the schema (as a pointer, string, list or mapping, or left out when empty) does not change the code of a configuration that does not use it; `false` and `0` stay in, since an explicit `secure: false` is not the default. The release that introduced this pruning derives a new code once for every configuration, unchanged ones included. So did renaming `ui.installDirPage` to `chooseDirectory` (its `false` was in every digest), and renaming `ui.wizard` to `enabled` does for every configuration with `wizard: true`. The release that writes HKCU key paths for components in the user profile (INST-04) derives a new code once for every configuration with such a component. The variables are left out of the digest, since the template has already written the ones it reads into the configuration; the release that made msi.yaml a template derives a new code once for every configuration with a `vars` header. A pinned ProductCode makes the validator warn. |
 | Quote in a firewall rule description (CA-04) | netsh drops the quote and stores the rest of the description | `firewall[].name` and `firewall[].description` must not contain a double quote. |
 | Firewall rule named `all` (CA-06) | `add rule` refuses the name, `delete rule name=all dir=in` deletes every inbound rule, in lower or upper case and with or without double quotes (also `\"all\"` through `cmd`) | `firewall[].name` must not be `all` in any case (spaces around it included) and must not contain `[` or `]`. |
 | Versions that differ in the fourth field only (UPG-01) | Without an inclusive maximum both products stay installed side by side | `upgrade.allowSameVersion` defaults to `true` (maximum inclusive), so `0.32.0.5` replaces `0.32.0.4`. Four-field versions get a warning that Windows compares only three. |
@@ -107,7 +107,6 @@ closes each one.
 ```yaml
 schema: msi-builder/v1   # required, selects this document;
                          # go-msi/v1 (the former name) fails with a hint
-vars: {}                 # defaults for ${NAME} substitution
 product: {}              # identity
 package: {}              # platform, scope, compression, summary information
 upgrade: {}              # major upgrade policy (on by default)
@@ -126,36 +125,94 @@ ui: {}                   # wizard (off by default), its pages and added dialogs
 tables: []               # escape hatch: custom tables
 ```
 
-### 3.1 Variables
+### 3.1 Variables and templates
 
-`${NAME}` anywhere in a string value is replaced before parsing the rest of
-the file. Values come, in order of precedence, from the command line
+The file is a Go `text/template` with the [sprig](https://masterminds.github.io/sprig/) functions, rendered before it is read
+as YAML, for what WiX does with preprocessor variables, `<?if?>` and
+`<?foreach?>`. `{{ .NAME }}` reads a variable; it is the only variable
+syntax. Variables come, in order of precedence, from the command line
 (`--var NAME=value`), from the environment when the CLI is started with
-`--env`, and from `vars`. A value in `vars` may itself use variables,
-which are expanded the same way; a value from the command line or the
-environment is taken as it is, and a `vars` entry it overrides is not
-expanded at all. A cycle (`A: ${B}`, `B: ${A}`, or `A: ${A}`) is an error,
-reported on the entry that closes it. An undefined variable is an error
-where it is used, so a `vars` entry that nothing uses is not checked.
-`$${` writes a literal `${`, also inside `vars`. The text that variables
-insert into the document is capped at 16 MiB, and so is the text they
-insert into `vars` values (a value nested through several entries counts at
-each one), so doubling `vars` cannot blow up a document.
-Windows Installer's own `[Property]` syntax is left alone, so
-`[INSTALLDIR]` and `${VERSION}` never collide. Inside a flow mapping
-(`{ … }`) a value that starts with `${` must be quoted, as YAML reads `{` as
-the start of a mapping.
+`--env`, and from the vars header. A variable that is not set is an
+error that says how to set it; `{{ if has "NAME" }}` tests whether it is
+set, for `<?ifdef?>`.
 
-```yaml
+The vars header is a first YAML document that holds nothing but `vars` and
+ends with a `---` line, as GitLab CI does with `spec: inputs`. It is read
+before rendering, so it is plain YAML; a value in it may itself be a
+template that reads other variables (`NAME: Acme {{ .ARCH }}`, rendered
+once, when it is first needed). A value from the command line or the
+environment is taken as it is. A cycle (`A: '{{ .B }}'`, `B: '{{ .A }}'`)
+is an error, reported on the entry that closes it; a broken entry is an
+error only where the template reads it. A `vars` key in the document
+itself is an error that points to the header. `config.Config.Vars` holds
+the header's values as the template saw them.
+
+```text
 vars:
   ARCH: x64
-  NAME: Acme ${ARCH}
+  NAME: Acme {{ .ARCH }}
+---
+schema: msi-builder/v1
 product:
-  name: ${NAME}
-  version: ${VERSION}
+  name: '{{ .NAME }}'
+  version: '{{ .VERSION }}'
 package:
-  platform: ${ARCH}
+  platform: '{{ .ARCH }}'
+components:
+  - files:
+      - source: hello.exe
+{{- if eq .ARCH "arm64" }}
+      - source: hello-arm64.dll
+{{- end }}
 ```
+
+The functions are Go's built-in ones and sprig's
+(<https://masterminds.github.io/sprig/>), as in Helm charts, with these
+changes:
+
+| Function | Result |
+|---|---|
+| `has "NAME"` | Whether the variable is set (sprig's `has` tests a list; `mustHas` still does) |
+| `quote S` | `S` as a double-quoted YAML string, with the characters YAML does not allow escaped, so any value arrives as given (sprig's `quote` writes Go escapes, which YAML reads differently) |
+| `split SEP S` | The parts of `S` between each `SEP` as a list, like sprig's `splitList`, for `{{ range split ";" .LANGS }}`; an empty `S` has none, and an empty `SEP` is an error (sprig's `split` gives a dict) |
+| `indent`, `nindent` | As in sprig, with at most 1024 spaces and 16 MiB of text |
+| `repeat`, `until`, `untilStep`, `seq` | As in sprig, refusing more than 16 MiB of text or 1,048,576 entries, and without wrapping around at the ends of the integer range |
+| `keys`, `values` | As in sprig, in the order of the sorted keys (sprig's order changes from run to run) |
+| `env`, `expandenv` | An error that points to `{{ .NAME }}` with `--env`, so that the environment is read only when the command line says so |
+
+Functions whose result changes from run to run are left out, so that the
+same file and variables build the same package and the same
+`productCode: auto`: sprig's own non-hermetic ones (`now`, `date` and the
+other clock functions, `randAlpha` and the other random strings,
+`uuidv4`, `getHostByName`), and `ago`, `toDate` (the machine's time
+zone), `randInt`, `shuffle`, `bcrypt`, `htpasswd`, `encryptAES` and the
+`gen…` key and certificate functions, and `osBase`, `osClean`, `osDir`, `osExt` and `osIsAbs`, whose result depends on the operating system that builds (`base`, `dir` and the others work the same everywhere). The caps keep one call from filling the memory; they do not bound a template, which is code. `default` applies to an empty
+value; a variable that is not set is an error before `default` sees it,
+so a default goes into the vars header.
+
+A template writes text, so a value with YAML syntax (`: `, a leading `[`,
+a line break) changes the document unless it is written with `quote`. A
+value that starts with `{{` is put in single quotes
+(`version: '{{ .VERSION }}'`): YAML editors read an unquoted `{{ … }}` as
+a mapping, and double quotes would turn the backslashes of a Windows path
+into escapes. A value that may hold a `'` is written with `quote`. `{{ "{{" }}` writes a
+literal `{{`, also in a comment, which is template text as well.
+Windows Installer's own `[Property]` syntax is left alone. The header is
+copied to the output of `msi-builder render`, which prints the rendered
+file; YAML errors name lines of that output, which match the file up to
+where the template writes or removes lines. Template errors name lines of
+the file. A template and the values of `vars` may each write at most
+16 MiB, but that does not bound the time or memory a template takes: a
+template is code, so build only files from a source you trust, as you
+would run a build script.
+
+Templates are always on, so a file has one variable syntax. Decisions not
+adopted: a `${NAME}` substitution after parsing next to templates (two
+syntaxes for one thing), an opt-in `--template` flag, and a `vars` block
+inside the templated document (the template could only see it after
+rendering it). The sprig library came in at Joe's request: Helm users
+know its functions, and the template stays repeatable with the changes
+above.
 
 ### 3.2 Editor support
 
@@ -170,8 +227,8 @@ schema: msi-builder/v1
 
 The JSON Schema checks keys, types, enums and syntax such as GUIDs, and
 rejects the nil GUID as an upgrade code. Editors see the file before
-variable substitution, so every typed value also accepts a string with a
-`${NAME}` variable. References between sections, lengths that depend on
+rendering, so every typed value also accepts a string with a `{{ }}`
+action, and a document that holds only `vars` is accepted as a header. References between sections, lengths that depend on
 other values and the rules of section 2 are checked only by
 `config.Validate`, which stays the authority. A test keeps the JSON Schema
 in step with the Go types.
@@ -612,7 +669,7 @@ which is the shortest form for a component that only one feature uses:
 ```yaml
 features:
   - id: DefaultFeature
-    title: windows_exporter ${VERSION}
+    title: windows_exporter {{ .VERSION }}
     description: The binary and configuration files for windows_exporter
     default: on                # on | off | disabled
     conditions:                # level changes, mostly at a first install

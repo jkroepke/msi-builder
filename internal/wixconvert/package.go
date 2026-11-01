@@ -10,8 +10,7 @@ import (
 )
 
 // emitVars writes the defines as vars. A define that uses an earlier one
-// takes in its value, as the WiX preprocessor does: msi-builder does not
-// expand a variable inside a vars value.
+// takes in its value, as the WiX preprocessor does.
 func (c *converter) emitVars() {
 	c.resolveDefines()
 
