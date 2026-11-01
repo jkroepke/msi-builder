@@ -175,7 +175,7 @@ msi-builder does the same by default:
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
 | `Environment` | `components[].environment` |
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
-| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`, or a component's own `fileTypes` naming the `file` when the ProgId's component has other features or a condition than the file it opens, so that an optional association stays optional; an icon from another packaged file becomes `iconFile` (an `<Icon>` or a file the source does not define becomes a note). msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
+| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`, or a component's own `fileTypes` naming the `file` when the ProgId's component has other features or a condition than the file it opens, so that an optional association stays optional; an icon from another packaged file becomes `iconFile` (an `<Icon>` or a file the source does not define becomes a note). A ProgId without `Extension` children takes its verbs from `RegistryValue`s of its component that write `<ProgId>\shell\<verb>\command` under the classes root (`HKCR`, or `HKMU` with `Software\Classes`) to run a packaged file, and `openWithOnly` extensions from the values that list it under `.<ext>\OpenWithProgids`; those values are left out, as the file type writes them. One that runs nothing goes on the file its `Icon` names, without verbs, which keeps its description and icon. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
 | `util:RestartResource` in a component | `components[].restartResources`: `Path` becomes `file`, `ServiceName` `service`. `ProcessName` has no counterpart, because `program` takes the program's full path; one outside a component becomes a note |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
@@ -260,12 +260,21 @@ checked against WiX).
 in the vars header, and an `<?error?>` in a block becomes `fail`, which
 stops the build with its message. A block whose branches hold anything but
 components, files, registry values and keys, environment variables, plain
-properties and component references, such as directories or custom
-actions, is converted with its first branch only and a `# TODO`. So is a
+properties, component groups of these and component references, such as
+directories or custom actions, is converted with one branch only and a
+`# TODO`. So is a
 block whose branches define the same component ID or hold a key path, an
 `<?ifdef?>` of a variable that the file defines (`has` is true for every
 variable in the vars header), and a block whose condition reads a
 variable that a block, or a define on the same line, sets again later.
+That branch is the one a build without `-d` variables takes: convert
+follows the file's own defines and defaults, and reads `$(sys.BUILDARCH)` and
+`$(sys.BUILDARCHSHORT)` (`X86`, `X64`, `A64`)
+as the platform `--arch` names. When the branch depends on anything else,
+such as a variable only `-d` sets or `$(sys.BUILDARCH)` without `--arch`,
+it is the first branch not known to be false, and later blocks follow its
+defines. A component group in a `<?foreach?>`, or one that references
+other components, is such a block too.
 
 The vars header holds one value per variable, where WiX reads the value
 a variable has at each place. When a `<?define?>` outside the blocks sets
@@ -1237,4 +1246,9 @@ components:
 
 Files added in a later version need no entry. Without `--msi`, convert
 leaves a `# TODO` on a WiX `Files` glob it turned into a folder source
-under a late removal.
+whose codes it could not compute under a late removal. With `--msi`, it
+leaves one on every glob that kept no code from the WiX package, under any
+removal, as on a component it found no code for: for example a file that
+two globs into the same folder both add, when convert cannot see which
+source folder holds it (a folder written with a `$(var.X)` it cannot
+look into).

@@ -82,7 +82,7 @@ func (c *converter) pinCode(comp *comp, keyFile string) bool {
 // folder of its key file.
 func (c *converter) builtComponent(comp *comp, keyFile string) *BuiltComponent {
 	if id := comp.e.attr("Id"); id != "" {
-		return c.builtByID(id)
+		return c.builtByIDIn(comp, id, keyFile)
 	}
 
 	// WiX gives a component without an Id the Id of its key path, which
@@ -101,7 +101,10 @@ func (c *converter) builtComponent(comp *comp, keyFile string) *BuiltComponent {
 }
 
 // registryRoots are the Root column values of the WiX registry roots.
-var registryRoots = map[string]int{"HKMU": -1, "HKCR": 0, "HKCU": 1, "HKLM": 2, "HKU": 3} //nolint:gochecknoglobals // lookup table
+// rootHKMU is the registry root of the installation context.
+const rootHKMU = "HKMU"
+
+var registryRoots = map[string]int{rootHKMU: -1, "HKCR": 0, "HKCU": 1, "HKLM": 2, "HKU": 3} //nolint:gochecknoglobals // lookup table
 
 // builtByRegistry returns the one free component of the built package
 // whose key path is a registry value of comp: its key path, when the source
@@ -234,6 +237,40 @@ func (c *converter) free(row *BuiltComponent) bool {
 	return row.Code != "" && !named && !c.claimed[row.ID]
 }
 
+// builtByIDIn returns the component of the built package with the Id of
+// comp. For a component in a template block whose Id repeats in branches
+// that never apply together, the row must have its key file in its
+// folder: it belongs to the branch the package was built with.
+func (c *converter) builtByIDIn(comp *comp, id, keyFile string) *BuiltComponent {
+	row := c.builtByID(id)
+	if row == nil || len(comp.e.opens) == 0 || !c.repeatedID(id) || keyFile == "" {
+		return row
+	}
+
+	// Branches that never apply together may share the row: WiX gives
+	// the same key path the same code.
+	want, anyDir := c.keyFileDir(comp)
+	if !strings.EqualFold(row.KeyFile, keyFile) || !anyDir && row.Directory != want {
+		return nil
+	}
+
+	return row
+}
+
+// repeatedID reports whether more than one component of the source has
+// the Id.
+func (c *converter) repeatedID(id string) bool {
+	count := 0
+
+	for _, other := range c.comps {
+		if other.e.attr("Id") == id {
+			count++
+		}
+	}
+
+	return count > 1
+}
+
 // builtByID returns the component of the built package with an Id and a
 // code, or nil.
 func (c *converter) builtByID(id string) *BuiltComponent {
@@ -341,10 +378,12 @@ func (c *converter) noteAdvertised() {
 // noteHarvested notes the folder sources that a WiX Files glob became and
 // that keep no code of the WiX package under a late removal: WiX gave every
 // harvested file a component and code of its own, so the removal of the
-// WiX package deletes the files whose code changed (UPG-11, UPG-12).
+// WiX package deletes the files whose code changed (UPG-11, UPG-12). With
+// --msi it notes them under any removal, as it notes the components it
+// finds no code for, so that a glob never stays without codes unnoticed.
 func (c *converter) noteHarvested() {
-	upgrade := c.out.mapAt("upgrade")
-	if upgrade == nil || !lateRemoval[upgrade.str("removeOld")] {
+	late := c.removesLate()
+	if !late && c.built == nil {
 		return
 	}
 
@@ -357,39 +396,69 @@ func (c *converter) noteHarvested() {
 			slices.Sort(comp.tied)
 			c.todof(comp.folder, "", comp.e.line,
 				"another Files glob into the same folder may add %s too, and convert did not find the files in exactly one "+
-					"of their source folders, so it kept no code for them and the late removeOld deletes them on the first "+
-					"upgrade from the WiX package; add the ComponentId WiX gave each one to the guids of the glob whose source "+
-					"folder holds it",
-				strings.Join(comp.tied, ", "))
+					"of their source folders, so it kept no code for them and %s; add the ComponentId WiX gave each one to "+
+					"the guids of the glob whose source folder holds it",
+				strings.Join(comp.tied, ", "), lostCodes(late))
 		default:
-			c.todof(comp.folder, "", comp.e.line, "%s", c.harvestNote(comp))
+			c.todof(comp.folder, "", comp.e.line, "%s", c.harvestNote(comp, late))
 		}
 	}
 }
 
+// removesLate reports whether the upgrade removes the old version after
+// installing this one.
+func (c *converter) removesLate() bool {
+	upgrade := c.out.mapAt("upgrade")
+
+	return upgrade != nil && lateRemoval[upgrade.str("removeOld")]
+}
+
+// leftOut is the caveat for a folder source in a template block, which the
+// build of the WiX package may have left out.
+func leftOut(comp *comp) string {
+	if len(comp.e.opens) == 0 {
+		return ""
+	}
+
+	return " (unless the build of the WiX package left this glob out: it sits in a template block)"
+}
+
+// lostCodes says what happens to the files of a folder source whose codes
+// differ from the WiX package's.
+func lostCodes(late bool) string {
+	if late {
+		return "the late removeOld deletes them on the first upgrade from the WiX package"
+	}
+
+	return "msi-builder gives them other codes, which an upgrade from the WiX package that removes the old version " +
+		"after installing this one (removeOld afterInstallExecute) would delete"
+}
+
 // harvestNote explains why a folder source that a Files glob became keeps
 // no code of the WiX package.
-func (c *converter) harvestNote(comp *comp) string {
-	const early = "or remove the old version early (afterInstallInitialize)"
+func (c *converter) harvestNote(comp *comp, late bool) string {
+	early := ""
+	if late {
+		early = ", or remove the old version early (afterInstallInitialize)"
+	}
 
 	switch {
 	case c.built == nil && comp.needArch:
 		return "WiX gave each file of this Files glob a component of its own, whose code depends on the platform WiX built " +
-			"for, so the late removeOld deletes these files on the first upgrade from the WiX package; run msi-builder " +
-			"convert again with --arch and that platform, or with --msi and the package WiX built, " + early
+			"for, so " + lostCodes(late) + "; run msi-builder convert again with --arch and that platform, or with --msi " +
+			"and the package WiX built" + early
 	case c.built == nil:
-		return "WiX gave each file of this Files glob a component of its own, so the late removeOld deletes these files on " +
-			"the first upgrade from the WiX package; run msi-builder convert again next to the glob's folder, or with --msi " +
-			"and the package WiX built, which keeps the code of each file in guids, " + early
+		return "WiX gave each file of this Files glob a component of its own, so " + lostCodes(late) + "; run msi-builder " +
+			"convert again next to the glob's folder, or with --msi and the package WiX built, which keeps the code of each " +
+			"file in guids" + early
 	case c.builtDir(c.dirs[comp.dir], comp.dir) == "":
-		return "convert did not find the folder of this Files glob in " + c.built.Name + ", so it kept no code for its " +
-			"files and the late removeOld deletes them on the first upgrade from the WiX package; add the ComponentId WiX " +
-			"gave each file to guids (msi-builder inspect --table Component), " + early
+		return "convert did not find the folder of this Files glob in " + c.built.Name + leftOut(comp) + ", so it kept no code for its " +
+			"files and " + lostCodes(late) + "; add the ComponentId WiX gave each file to guids (msi-builder inspect " +
+			"--table Component)" + early
 	}
 
-	return c.built.Name + " has no component for a file of this Files glob, so the late removeOld deletes these files on " +
-		"the first upgrade from the WiX package; add the ComponentId WiX gave each file to guids (msi-builder inspect " +
-		"--table Component), " + early
+	return c.built.Name + " has no component for a file of this Files glob" + leftOut(comp) + ", so " + lostCodes(late) +
+		"; add the ComponentId WiX gave each file to guids (msi-builder inspect --table Component)" + early
 }
 
 // pinHarvested gives each folder source that a WiX Files glob became the
@@ -468,26 +537,60 @@ func (c *converter) harvestedCodes() map[*comp]map[string]*BuiltComponent {
 			continue
 		}
 
-		src, rel, tied := c.nearestHarvest(sources, row)
+		owners, rel := c.harvestOwners(sources, row)
+
+		for _, owner := range owners {
+			if seen[owner.comp][strings.ToLower(rel)] {
+				// Windows matches names ignoring case, and so does the build.
+				continue
+			}
+
+			if found[owner.comp] == nil {
+				found[owner.comp] = make(map[string]*BuiltComponent)
+				seen[owner.comp] = make(map[string]bool)
+			}
+
+			seen[owner.comp][strings.ToLower(rel)] = true
+			found[owner.comp][rel] = row
+		}
+	}
+
+	return found
+}
+
+// harvestOwners returns the folder sources that take the code of row and
+// the file's path below their folder: the nearest one, or every one of a
+// tie in branches that never apply together, where the file has the same
+// path, so WiX gives it the same code in each. Any other tie takes none
+// and records the file on the tied sources.
+func (c *converter) harvestOwners(sources []harvest, row *BuiltComponent) ([]*harvest, string) {
+	src, rel, tied := c.nearestHarvest(sources, row)
+
+	switch {
+	case len(tied) > 0 && exclusiveHarvests(tied):
+		return tied, rel
+	case len(tied) > 0:
 		for _, other := range tied {
 			other.comp.tied = append(other.comp.tied, rel)
 		}
 
-		if src == nil || seen[src.comp][strings.ToLower(rel)] {
-			// Windows matches names ignoring case, and so does the build.
-			continue
-		}
-
-		if found[src.comp] == nil {
-			found[src.comp] = make(map[string]*BuiltComponent)
-			seen[src.comp] = make(map[string]bool)
-		}
-
-		seen[src.comp][strings.ToLower(rel)] = true
-		found[src.comp][rel] = row
+		return nil, rel
+	case src == nil:
+		return nil, rel
 	}
 
-	return found
+	return []*harvest{src}, rel
+}
+
+// exclusiveHarvests reports whether folder sources sit in branches that
+// never apply together.
+func exclusiveHarvests(sources []*harvest) bool {
+	elems := make([]*elem, len(sources))
+	for i, src := range sources {
+		elems[i] = src.comp.e
+	}
+
+	return exclusive(elems)
 }
 
 // candidate is a folder source that adds a file, with the file's path
