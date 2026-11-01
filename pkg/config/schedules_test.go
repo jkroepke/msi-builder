@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -290,6 +291,14 @@ func TestScheduleFindInLongSearchChain(t *testing.T) {
 
 	if ds := validate(t, fixed+setProps(placements...)); !find(ds, config.SeverityError, "standardActions[0].schedule[0]", "LaunchConditions runs before FindRelatedProducts") {
 		t.Errorf("fixed number: %v", ds)
+	}
+
+	// Before an action of the chain is inside it too.
+	before := strings.Replace(doc, "after: SearchApply_Q}", "before: Set49}", 1)
+
+	chain := slices.Repeat([]string{"after: SearchApply_Q"}, 50)
+	if ds := validate(t, before+setProps(chain...)); len(ds) != 0 {
+		t.Errorf("before a chain action: %v", ds)
 	}
 
 	dual := strings.Replace(base, "  platform: x64\n", "  platform: x64\n  scope: perUserOrMachine\n", 1) + appComponent + "ui: {enabled: true}\n"

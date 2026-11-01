@@ -161,43 +161,54 @@ func (v *validator) launchNumber(cfg *Config, table string, numbered []sequence.
 
 // afterSearch reports whether a moved FindRelatedProducts is chained after
 // AppSearch, through custom actions, moved standard actions or the actions
-// the builder chains there.
+// the builder chains there: whatever the side of the other links, the last
+// one is after AppSearch.
 func afterSearch(cfg *Config, table string) bool {
-	anchors := afterAnchors(cfg, table)
+	anchors := placementAnchors(cfg, table)
 	seen := make(map[string]bool)
 
-	for name := anchors[actFindRelatedProducts]; name != "" && !seen[name]; name = anchors[name] {
-		if name == actAppSearch {
-			return true
+	for link := anchors[actFindRelatedProducts]; link.name != "" && !seen[link.name]; link = anchors[link.name] {
+		if link.name == actAppSearch {
+			return link.after
 		}
 
-		seen[name] = true
+		seen[link.name] = true
 	}
 
 	return false
 }
 
-// afterAnchors maps each action placed after another in a table to that
-// anchor: the builder's chains, custom actions and moved standard actions.
-func afterAnchors(cfg *Config, table string) map[string]string {
-	anchors := make(map[string]string)
+// anchorLink is the anchor of a placement and whether it runs after it.
+type anchorLink struct {
+	name  string
+	after bool
+}
+
+// placementAnchors maps each action placed relative to another in a table
+// to that anchor: the builder's chains, custom actions and moved standard
+// actions.
+func placementAnchors(cfg *Config, table string) map[string]anchorLink {
+	anchors := make(map[string]anchorLink)
+	link := func(place Placement) anchorLink {
+		return anchorLink{name: place.Before + place.After, after: place.After != ""}
+	}
 
 	chained, _ := builderChains(cfg, table)
 	for _, action := range chained {
-		anchors[action.Name] = action.After
+		anchors[action.Name] = anchorLink{name: action.After, after: true}
 	}
 
 	for _, action := range cfg.CustomActions {
 		for _, place := range action.Schedule {
-			if place.Sequence == scheduleName(table) && place.Before == "" {
-				anchors[action.ID] = place.After
+			if place.Sequence == scheduleName(table) {
+				anchors[action.ID] = link(place)
 			}
 		}
 	}
 
 	for _, name := range movableActions {
-		if place, _, ok := cfg.StandardPlacement(table, name); ok && place.Before == "" {
-			anchors[name] = place.After
+		if place, _, ok := cfg.StandardPlacement(table, name); ok {
+			anchors[name] = link(place)
 		}
 	}
 
