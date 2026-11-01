@@ -250,11 +250,18 @@ go test ./... -shuffle=on -race
   custom action fails with 1730 in `InstallInitialize` (`SECREPAIR`,
   `MSI_LUA` credential prompt), after the property decisions are logged,
   so read those from the log rather than from what the repair changed.
-- CI splits Windows into two runners: suite `unit` runs every package but
+- CI splits Windows into runners: suite `unit` runs every package but
   `internal/builder/nativetest` under `-race`, suite `native` runs
   nativetest verbose and without `-race` (msiexec installs one package at a
-  time, so nativetest sets the length of the run). A result test's `t.Log`
-  output is in the `go test (native)` log; do not add a step that reruns
+  time, so nativetest sets the length of the run). Two installs cannot
+  share a machine, because the install snapshots diff its state, so the
+  nativetest tests stay serial within a process and suite `native` is split
+  into three shards on three runners instead: each runs every third
+  top-level test of `go test -list`, so a new test needs no CI change.
+  Linux runs `-race` and coverage as two runs, because `-race` forces
+  atomic coverage counters, which made the combined run eight times as slow.
+  A result test's `t.Log` output is in the `go test (native)` log of the
+  shard that ran it; do not add a step that reruns
   tests with `-v` only to print them. A test that cannot run in either
   suite (it needs a lot of disk, an environment variable or a full-size
   run the race build shrinks) gets its own step. The `TestNonAdmin` tests
