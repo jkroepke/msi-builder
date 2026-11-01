@@ -178,3 +178,10 @@ func (w classWriter) add(key, name string, value any) {
 func (w classWriter) id(key, name string) string {
 	return generatedID("reg", "FileType", w.comp, strconv.Itoa(w.root), strings.ToLower(w.prefix+key), strings.ToLower(name))
 }
+
+// fileTypesOnly reports whether a component writes nothing but its own
+// file types, so that resolveKeyPath keys it on one of their values, as
+// the validator's fileTypesOnly decides it.
+func fileTypesOnly(comp *config.Component) bool {
+	return len(comp.FileTypes) > 0 && comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0
+}

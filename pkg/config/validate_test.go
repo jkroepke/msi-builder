@@ -792,6 +792,14 @@ func TestValidate(t *testing.T) {
 				"  - id: Assoc\n    fileTypes: [{progId: ACME.doc, file: app.exe}]\n",
 			sevError, "components[1].fileTypes[0].progId", "registers",
 		},
+		"component fileTypes folderPermissions": {
+			base + appComponent + "  - id: Assoc\n    folderPermissions: {sddl: 'D:(A;;FA;;;SY)'}\n    fileTypes: [{progId: Acme.Doc, file: app.exe, extensions: [{extension: acme}]}]\n",
+			sevError, "components[1].folderPermissions", "createFolder",
+		},
+		"component fileTypes on a folder source": {
+			base + "components:\n  - id: Tree\n    files: [{source: dist/}]\n    fileTypes: [{progId: Acme.Doc, file: app.exe}]\n  - id: App\n    files: [{source: app.exe}]\n",
+			sevError, "components[0].fileTypes", "folder source",
+		},
 		"component fileTypes no key path": {
 			base + appComponent + "  - id: Assoc\n    fileTypes: [{progId: Acme.Doc, file: app.exe, verbs: [], extensions: [{extension: acme, openWithOnly: true}]}]\n",
 			sevError, "components[1].fileTypes", "key path",

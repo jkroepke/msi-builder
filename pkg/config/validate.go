@@ -1089,7 +1089,7 @@ func (v *validator) componentPermissions(compPath string, comp *Component) {
 		v.permissions(fmt.Sprintf("%s.registry[%d].permissions", compPath, j), value.Permissions, permRegistry)
 	}
 
-	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0
+	directoryKey := comp.KeyPath == KeyPathDirectory || comp.KeyPath == "" && len(comp.Files) == 0 && len(comp.Registry) == 0 && !fileTypesOnly(comp)
 	if v.permissions(compPath+".folderPermissions", comp.FolderPermissions, permFolder) && !comp.CreateFolder && !directoryKey {
 		v.errorf(compPath+".folderPermissions", "the component creates no folder row; set createFolder: true")
 	}
@@ -1164,6 +1164,12 @@ func (v *validator) permissions(field string, perm *Permissions, kind string) bo
 // the builder does, is a registry value under HKCU (HKMU is HKCU in a
 // per-user package).
 func userRegistryKeyPath(c *Component, perUser bool) bool {
+	// A per-user package writes file types to HKCU\Software\Classes, so a
+	// component keyed on one of their values has an HKCU key path.
+	if perUser && fileTypesOnly(c) {
+		return true
+	}
+
 	key := registryKeyPath(c)
 
 	return key != nil && (key.Root == "HKCU" || perUser && key.Root == "HKMU")

@@ -1740,7 +1740,18 @@
                 "type": "array",
                 "description": "File types this file opens: Registry rows under HKEY_CLASSES_ROOT for the ProgID, its verbs and the extensions that point at it.",
                 "items": {
-                  "$ref": "#/$defs/fileType"
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/fileType"
+                    },
+                    {
+                      "not": {
+                        "required": [
+                          "file"
+                        ]
+                      }
+                    }
+                  ]
                 }
               },
               "close": {
@@ -2397,7 +2408,16 @@
           "type": "array",
           "description": "File types that open a file of any component, which each name with file; their Registry rows install with this component's features, so an extension can be optional.",
           "items": {
-            "$ref": "#/$defs/fileType"
+            "allOf": [
+              {
+                "$ref": "#/$defs/fileType"
+              },
+              {
+                "required": [
+                  "file"
+                ]
+              }
+            ]
           }
         }
       },

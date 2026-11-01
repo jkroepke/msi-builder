@@ -57,6 +57,12 @@ func (b *build) profileCandidate(comp *config.Component) bool {
 		return false
 	}
 
+	// A per-user package writes file types to HKCU\Software\Classes, so a
+	// component keyed on one of their values has an HKCU key path.
+	if fileTypesOnly(comp) && b.cfg.Package.Scope == config.ScopePerUser {
+		return false
+	}
+
 	if len(comp.Files) == 0 && len(comp.Registry) > 0 {
 		root := comp.Registry[0].Root
 

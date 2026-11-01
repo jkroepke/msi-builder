@@ -1207,17 +1207,23 @@ They take the keys of a file's `fileTypes`, and `file` is required. When a
 feature of the listing component does not also install the file's
 component, the command and the icon name the file by its folder and long
 name, `"[INSTALLDIR]viewer.exe" "%1"`, instead of `[#id]`, by the rule of
-component shortcuts (ICE69, SHORTCUT-04); with the file's feature as the
-parent, as above, the file is always there. A component with nothing but
+component shortcuts (SHORTCUT-04 observed ICE69 on shortcuts; Microsoft
+lists the `Registry` table for ICE69 too). Like a component shortcut, a
+file in another component of the same feature is named `[#id]`, which
+ICE69 reports as a warning. With the file's feature as the parent, as above,
+the file is always there. A component with nothing but
 file types is keyed on the first value with data they write: the ProgID's
 description, else its `DefaultIcon`, a verb's command or the default of an
 extension it owns (an `openWithOnly` entry alone is not enough, which is an
-error). Adding a feature later writes only its rows, removing it removes
-only those, and the uninstall removes the rest (REG-09). Give each optional
+error). In a per-user package that value is under
+`HKCU\Software\Classes`, so it is the HKCU key path a profile folder needs.
+Adding a feature later should write only its rows and removing it remove
+only those, with the uninstall removing the rest (REG-09, not yet run on
+Windows). Give each optional
 extension its own ProgID, as above: a ProgID is registered once per
-package, and the rows of one ProgID in two components would be removed
-with the first of them, leaving the other extension pointing at nothing
-(specification chapter 16).
+package, and the rows of one ProgID in two components would presumably be
+removed with the first of them, leaving the other extension pointing at
+nothing (inferred, not tested; specification chapter 16).
 
 **Closing running programs.** `close` on a program stops its running
 copies when its component is installed, repaired or removed, so that an
@@ -1794,9 +1800,9 @@ components:
 The folder must be the component's only file. Settings that name one file
 or one component cannot be copied to many: `guid` (other than `auto`),
 `keyPath`, `registry`, `removeRegistry`, `removeFiles`, `removeFolders`, `services`, `serviceControl`, `eventLog`,
-`environment`, `purge`, `createFolder` and `folderPermissions` on the
-component, and `name`, `id`, `version`, `language` and `shortcuts` on the
-file, are errors. Put them on a component of their own and exclude its file
+`environment`, `purge`, `createFolder`, `folderPermissions`, `shortcuts` and
+`fileTypes` on the component, and `name`, `id`, `version`, `language`,
+`shortcuts` and `fileTypes` on the file, are errors. Put them on a component of their own and exclude its file
 from the folder, or, for a GUID, list the file in `guids`. `include`,
 `exclude` and `guids` on a file that is not a folder are errors too, and so is a `firewall` rule whose `component` is a folder
 component. The generated components take the component's place in

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jkroepke/msi-builder/pkg/config"
@@ -264,5 +265,36 @@ features:
 
 	if a == nil || b == nil || a[1] == nil || a[1] == b[1] {
 		t.Errorf("component codes %v and %v, want two different ones", a, b)
+	}
+}
+
+// TestComponentFileTypesPerUser keys a component with nothing but file
+// types on its HKCU\Software\Classes value in a per-user package, which
+// the profile folder needs (ICE38), without an extra HKCU value.
+func TestComponentFileTypesPerUser(t *testing.T) {
+	t.Parallel()
+
+	res := mustBuild(t, scopedShortcutConfig(t, "perUser", `
+  - id: App
+    files: [{ source: app.exe }]
+  - id: Assoc
+    fileTypes: [{ progId: Acme.Doc, file: app.exe, extensions: [{ extension: acmedoc }] }]
+`))
+	database := res.Database
+
+	comp := rowWhere(t, database, "Component", func(r []any) bool { return r[0] == "Assoc" })
+	if comp == nil {
+		t.Fatal("no Assoc component")
+	}
+
+	key := rowWhere(t, database, "Registry", func(r []any) bool { return r[0] == comp[5] })
+	if key == nil || fmt.Sprint(key[1]) != "1" || key[2] != `Software\Classes\Acme.Doc\shell\open\command` {
+		t.Errorf("Assoc key path %v, want the HKCU open command", key)
+	}
+
+	for _, row := range rows(t, database, "Registry") {
+		if row[5] == "Assoc" && !strings.HasPrefix(fmt.Sprint(row[2]), `Software\Classes\`) {
+			t.Errorf("Assoc writes %v outside Software\\Classes", row)
+		}
 	}
 }
