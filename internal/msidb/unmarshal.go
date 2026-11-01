@@ -1,11 +1,15 @@
 package msidb
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/jkroepke/msi-builder/internal/cfb"
 	"github.com/jkroepke/msi-builder/internal/codepage"
@@ -35,7 +39,9 @@ func Unmarshal(data []byte) (*Database, error) {
 // streams, the summary and the binary streams that table cells reference,
 // and lists every other stream (such as a cabinet) in Database.Sources by
 // name with its size and a nil Open, leaving the bytes in the file for
-// cfb.File.Reader. Unmarshal loads those too.
+// cfb.File.Reader. Unmarshal loads those too. Both return the root-level
+// storages, such as embedded language transforms, in Database.Storages
+// with streams that read from the file, and refuse a storage inside one.
 func Decode(file *cfb.File) (*Database, error) {
 	return decodeFile(file, false)
 }
@@ -56,6 +62,128 @@ func streamData(file *cfb.File, name string) ([]byte, error) {
 	return data, nil
 }
 
+// exactName refuses an entry whose stored name does not survive as a Go
+// string, such as one with a lone surrogate, which reads as U+FFFD and
+// would be written back under another name.
+func exactName(ent *cfb.Entry) error {
+	if !bytes.Equal(utf16le(utf16.Encode([]rune(ent.Name))), ent.RawName) {
+		return fmt.Errorf("msidb: entry name %q holds UTF-16 units that do not round-trip", ent.Name)
+	}
+
+	return nil
+}
+
+func utf16le(units []uint16) []byte {
+	out := make([]byte, 0, 2*len(units))
+	for _, u := range units {
+		out = binary.LittleEndian.AppendUint16(out, u)
+	}
+
+	return out
+}
+
+// Limits on Database.Problems, so that a crafted package cannot grow them
+// without bound: the number of problems kept and the length of each.
+const (
+	maxProblems      = 100
+	maxProblemLength = 256
+)
+
+// addProblem records a soft problem, cut to maxProblemLength bytes, and
+// after maxProblems of them one note that further ones were left out.
+func addProblem(database *Database, msg string) {
+	switch {
+	case len(database.Problems) > maxProblems:
+		return
+	case len(database.Problems) == maxProblems:
+		database.Problems = append(database.Problems, "further problems left out")
+
+		return
+	}
+
+	if len(msg) > maxProblemLength {
+		cut := maxProblemLength
+		for cut > 0 && !utf8.RuneStart(msg[cut]) {
+			cut--
+		}
+
+		msg = msg[:cut] + "..."
+	}
+
+	database.Problems = append(database.Problems, msg)
+}
+
+// decodeStorages returns the root-level storages, such as embedded language
+// transforms (MSISPEC section 7.6), with readers over their streams, so that
+// MarshalTo writes them back. A storage inside a storage has no place in
+// cfb.Storage and is refused rather than dropped.
+func decodeStorages(file *cfb.File) ([]cfb.Storage, error) {
+	children := make(map[int][]*cfb.Entry)
+
+	for _, ent := range file.Entries {
+		if ent.Parent > 0 {
+			children[ent.Parent] = append(children[ent.Parent], ent)
+		}
+	}
+
+	var storages []cfb.Storage
+
+	for _, ent := range file.Entries {
+		if ent.Type != 1 || ent.Parent != 0 {
+			continue
+		}
+
+		if err := exactName(ent); err != nil {
+			return nil, err
+		}
+
+		storage := cfb.Storage{Name: ent.Name, CLSID: ent.CLSID}
+
+		for _, child := range children[ent.SID] {
+			stream, err := storageStream(file, ent, child)
+			if err != nil {
+				return nil, err
+			}
+
+			storage.Streams = append(storage.Streams, stream)
+		}
+
+		storages = append(storages, storage)
+	}
+
+	return storages, nil
+}
+
+// storageStream returns a stream of a storage with a reader over the file.
+func storageStream(file *cfb.File, storage, child *cfb.Entry) (cfb.Source, error) {
+	if child.Type != 2 {
+		return cfb.Source{}, fmt.Errorf("msidb: storage %q holds storage %q; nested storages are not supported", storage.Name, child.Name)
+	}
+
+	if err := exactName(child); err != nil {
+		return cfb.Source{}, err
+	}
+
+	// Check the chain now, so that a broken stream fails here and not in
+	// a later MarshalTo.
+	if _, err := file.EntryReader(child); err != nil {
+		return cfb.Source{}, fmt.Errorf("msidb: storage %q: %w", storage.Name, err)
+	}
+
+	return cfb.Source{
+		Name: child.Name,
+		Size: int64(child.Size), //nolint:gosec // checked against the file size
+		Open: func() (io.ReadCloser, error) {
+			reader, err := file.EntryReader(child)
+			if err != nil {
+				return nil, fmt.Errorf("msidb: storage %q: %w", storage.Name, err)
+			}
+
+			return io.NopCloser(reader), nil
+		},
+	}, nil
+}
+
 func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:maintidx,cyclop,gocyclo,gocognit // one pass over the format
 	if file.CLSID != cfb.CLSIDMSI {
 		return nil, fmt.Errorf("msidb: root CLSID %x is not the .msi CLSID", file.CLSID)
@@ -68,12 +196,37 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 
 	var order []string
 
+	type decodedName struct {
+		name  string
+		table bool
+	}
+
+	seenNames := make(map[decodedName]string) // decoded name -> name as stored
+
+	storages, err := decodeStorages(file)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, ent := range file.Entries {
 		if ent.Type != 2 || ent.Parent != 0 {
 			continue
 		}
 
+		if err := exactName(ent); err != nil {
+			return nil, err
+		}
+
 		name, isTable := DecodeStreamName(ent.Name)
+
+		// The encoding is not canonical: an encoded and a literal name can
+		// decode alike, and the maps below would keep only one payload.
+		decoded := decodedName{name: name, table: isTable}
+		if first, dup := seenNames[decoded]; dup {
+			return nil, fmt.Errorf("msidb: streams %q and %q both decode to %q", first, ent.Name, name)
+		}
+
+		seenNames[decoded] = ent.Name
 
 		switch {
 		case isTable:
@@ -149,7 +302,7 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 
 	endian := binary.LittleEndian
 	hdr := endian.Uint32(poolStream)
-	database := &Database{Codepage: int(hdr & 0x7FFFFFFF)}
+	database := &Database{Codepage: int(hdr & 0x7FFFFFFF), Storages: storages}
 	longRefs := hdr&0x80000000 != 0
 
 	if !codepage.Supported(database.Codepage) {
@@ -171,7 +324,15 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 			}
 
 			ent.long = true
-			ent.length = int(endian.Uint32(poolStream[i:]))
+
+			// Compare before converting: on a 32-bit build a length of
+			// 2^31 or more turns negative as an int.
+			length := endian.Uint32(poolStream[i:])
+			if uint64(length) > uint64(len(dataStream)-pos) {
+				return nil, fmt.Errorf("msidb: string pool entry %d overruns _StringData", len(entries))
+			}
+
+			ent.length = int(length)
 			i += 4
 		}
 
@@ -197,7 +358,7 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 	}
 
 	if (len(entries)-1 >= longRefThresh) != longRefs {
-		database.Problems = append(database.Problems, fmt.Sprintf("long-reference flag is %v with highest string ID %d", longRefs, len(entries)-1))
+		addProblem(database, fmt.Sprintf("long-reference flag is %v with highest string ID %d", longRefs, len(entries)-1))
 	}
 
 	str := func(ref uint32) (string, error) {
@@ -320,6 +481,19 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 		tbl.Columns = append(tbl.Columns, col.column)
 	}
 
+	// A table stream that _Tables does not list would be dropped without a
+	// trace on the next write (MSISPEC section 3, lossless serialization).
+	for name := range tableStreams {
+		switch name {
+		case TableStringPool, TableStringData, TableTables, TableColumns:
+			continue
+		}
+
+		if _, listed := tables[name]; !listed {
+			return nil, fmt.Errorf("msidb: table stream %s is not in _Tables", name)
+		}
+	}
+
 	for _, name := range tableOrder {
 		tbl := tables[name]
 		if len(tbl.Columns) == 0 {
@@ -339,7 +513,7 @@ func decodeFile(file *cfb.File, loadAll bool) (*Database, error) { //nolint:main
 		}
 
 		if refs[uint32(strID)] != ent.refcount {
-			database.Problems = append(database.Problems, fmt.Sprintf("string %q has refcount %d but %d references", ent.text, ent.refcount, refs[uint32(strID)]))
+			addProblem(database, fmt.Sprintf("string %q has refcount %d but %d references", ent.text, ent.refcount, refs[uint32(strID)]))
 		}
 	}
 
@@ -418,7 +592,7 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 
 			if value == 0 {
 				if !col.Type.Nullable {
-					database.Problems = append(database.Problems, fmt.Sprintf("table %s row %d: NULL in non-nullable column %s", tbl.Name, rowIdx, col.Name))
+					addProblem(database, fmt.Sprintf("table %s row %d: NULL in non-nullable column %s", tbl.Name, rowIdx, col.Name))
 				}
 
 				continue
@@ -457,9 +631,17 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 
 			name := BinaryStreamName(tbl.Name, rows[rowIdx][:keys])
 
+			// A name no stream can have is not looked up, and the message
+			// leaves it out: key strings can be long.
+			if _, err := EncodeStreamName(name, false); err != nil {
+				addProblem(database, fmt.Sprintf("table %s row %d: the binary stream name of its key cannot be a stream name", tbl.Name, rowIdx))
+
+				continue
+			}
+
 			data, err := binaryStream(name)
 			if err != nil {
-				database.Problems = append(database.Problems, fmt.Sprintf("table %s row %d: binary stream %q %v", tbl.Name, rowIdx, name, err))
+				addProblem(database, fmt.Sprintf("table %s row %d: binary stream %q %v", tbl.Name, rowIdx, name, err))
 
 				continue
 			}
@@ -481,9 +663,9 @@ func decodeRows( //nolint:cyclop,revive,gocognit // one pass over the format
 		}
 
 		if cmp > 0 {
-			database.Problems = append(database.Problems, fmt.Sprintf("table %s: rows %d and %d are not in key order", tbl.Name, rowIdx-1, rowIdx))
+			addProblem(database, fmt.Sprintf("table %s: rows %d and %d are not in key order", tbl.Name, rowIdx-1, rowIdx))
 		} else if cmp == 0 {
-			database.Problems = append(database.Problems, fmt.Sprintf("table %s: rows %d and %d share a primary key", tbl.Name, rowIdx-1, rowIdx))
+			addProblem(database, fmt.Sprintf("table %s: rows %d and %d share a primary key", tbl.Name, rowIdx-1, rowIdx))
 		}
 	}
 

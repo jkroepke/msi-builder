@@ -190,6 +190,14 @@ jobs:
             go test "${pkgs[@]}" -timeout 25m -shuffle=on -race
           fi
 
+      # The package readers once wrapped a 2 GiB string length into a
+      # negative int on 32-bit builds and panicked; they run as 386 too.
+      - name: go test (32-bit readers)
+        if: matrix.suite == 'unit' && runner.os == 'Linux'
+        env:
+          GOARCH: '386'
+        run: go test -short -shuffle=on ./internal/msidb/ ./internal/cfb/ ./internal/codepage/ ./internal/summary/ ./internal/cab/ ./internal/lzx/ ./pkg/sign/
+
       # The native tests open the built packages with msi.dll, run the ICE
       # suite and install them with msiexec; -short skips them. They run
       # without -race, which slows the in-process package builds while

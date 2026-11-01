@@ -37,9 +37,9 @@ type transformRecord struct {
 // MarshalTransform writes the transform that turns base into variant: a
 // compound file with the transform CLSID whose table streams insert, update
 // and delete rows (MSISPEC section 3, "Text archives and transforms"). Both
-// databases must have the same tables and columns; schema changes and
-// binary cells are refused, since no transform that needs them has been
-// observed yet.
+// databases must have the same tables and columns and unique primary keys;
+// schema changes and binary cells in changed or inserted rows are refused,
+// since no transform that needs them has been observed yet.
 func MarshalTransform(base, variant *Database, opts TransformOptions) ([]byte, error) {
 	streams, err := transformAll(base, variant, opts)
 	if err != nil {
@@ -73,9 +73,8 @@ func TransformStorage(name string, base, variant *Database, opts TransformOption
 
 // transformAll returns the streams of the transform from base to variant.
 func transformAll(base, variant *Database, opts TransformOptions) ([]cfb.Stream, error) {
-	// msi.dll applies a code page change to a neutral base only (MSIDB-12).
-	if base.Codepage != 0 && base.Codepage != variant.Codepage {
-		return nil, fmt.Errorf("msidb: transform: code page %d differs from the base's %d; only a neutral base can change it", variant.Codepage, base.Codepage)
+	if err := transformCodepages(base.Codepage, variant.Codepage); err != nil {
+		return nil, err
 	}
 
 	baseTables, variantTables, err := transformTables(base, variant)
@@ -108,6 +107,24 @@ func transformAll(base, variant *Database, opts TransformOptions) ([]cfb.Stream,
 	}
 
 	return streams, nil
+}
+
+// transformCodepages checks both code pages. It runs before any string is
+// encoded: a transform that changes integers alone still writes the code
+// page in its pool header.
+func transformCodepages(base, variant int) error {
+	for _, codePage := range []int{base, variant} {
+		if err := checkCodepage(codePage); err != nil {
+			return fmt.Errorf("msidb: transform: %w", err)
+		}
+	}
+
+	// msi.dll applies a code page change to a neutral base only (MSIDB-12).
+	if base != 0 && base != variant {
+		return fmt.Errorf("msidb: transform: code page %d differs from the base's %d; only a neutral base can change it", variant, base)
+	}
+
+	return nil
 }
 
 // transformStreams encodes the string pool and the changed tables.
@@ -271,7 +288,15 @@ func sameSchema(base, variant map[string]*Table) error {
 func rowKey(tbl *Table, row []any) string {
 	var key strings.Builder
 
+	// Strings are quoted, so a key cell holding a NUL cannot imitate the
+	// separator and make two different keys equal.
 	for i := range tbl.Keys() {
+		if str, ok := row[i].(string); ok {
+			fmt.Fprintf(&key, "s%q\x00", str)
+
+			continue
+		}
+
 		fmt.Fprintf(&key, "%T:%v\x00", row[i], row[i])
 	}
 
@@ -289,8 +314,15 @@ func diffTable(base, variant *Table) ([]transformRecord, error) { //nolint:cyclo
 
 	baseRows := make(map[string][]any, len(base.Rows))
 
+	// A key held by two rows makes the diff ambiguous; Marshal refuses
+	// such a table too.
 	for _, row := range base.Rows {
-		baseRows[rowKey(base, row)] = row
+		key := rowKey(base, row)
+		if _, dup := baseRows[key]; dup {
+			return nil, fmt.Errorf("msidb: transform: base table %s has two rows with the same primary key %v", base.Name, row[:keys])
+		}
+
+		baseRows[key] = row
 	}
 
 	variantKeys := make(map[string]bool, len(variant.Rows))
@@ -299,10 +331,18 @@ func diffTable(base, variant *Table) ([]transformRecord, error) { //nolint:cyclo
 
 	for _, row := range variant.Rows {
 		key := rowKey(variant, row)
+		if variantKeys[key] {
+			return nil, fmt.Errorf("msidb: transform: table %s has two rows with the same primary key %v", variant.Name, row[:keys])
+		}
+
 		variantKeys[key] = true
 
 		old, ok := baseRows[key]
 		if !ok {
+			if err := insertedBinary(variant, row); err != nil {
+				return nil, err
+			}
+
 			out = append(out, transformRecord{cells: row, columns: all, mask: maskInsert | uint16(len(row))<<8}) //nolint:gosec // at most 16 columns
 
 			continue
@@ -339,6 +379,20 @@ func diffTable(base, variant *Table) ([]transformRecord, error) { //nolint:cyclo
 	}
 
 	return out, nil
+}
+
+// insertedBinary refuses a new row with a non-null binary cell: the cell
+// needs its own stream in the transform, which this writer does not emit
+// (MSISPEC section 3).
+func insertedBinary(tbl *Table, row []any) error {
+	for i, col := range tbl.Columns {
+		if col.Type.Kind == KindBinary && row[i] != nil {
+			return fmt.Errorf("msidb: transform: table %s: inserted row %v sets binary column %s; binary cells are not supported",
+				tbl.Name, row[:tbl.Keys()], col.Name)
+		}
+	}
+
+	return nil
 }
 
 func cellEqual(old, cur any) bool {
