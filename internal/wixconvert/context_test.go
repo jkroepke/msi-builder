@@ -242,6 +242,42 @@ func TestConvertChosenMachineSetter(t *testing.T) {
 	}
 }
 
+// TestConvertMachineContent checks a WiX v3 package without a scope whose
+// component without a context condition holds machine data: a
+// bootstrapper installs it per machine, so it stays perMachine with its
+// conditions instead of becoming a dual package that refuses that data.
+func TestConvertMachineContent(t *testing.T) {
+	t.Parallel()
+
+	for name, data := range map[string]string{
+		"hklm":    `<RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="S" Value="1" Type="string" KeyPath="yes" />`,
+		"service": `<File Id="svc.exe" Source="svc.exe" KeyPath="yes" /><ServiceInstall Id="Svc" Name="HelloSvc" Type="ownProcess" Start="auto" ErrorControl="normal" />`,
+	} {
+		src := `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="200" Compressed="yes" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Hello">
+          <Component Id="Svc" Guid="*">` + data + `</Component>
+          <Component Id="M" Guid="*"><Condition>ALLUSERS=1</Condition>
+            <RegistryValue Root="HKLM" Key="Software\Example\Hello" Name="M" Value="1" Type="string" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="Svc" /><ComponentRef Id="M" /></Feature>
+  </Product>
+</Wix>`
+
+		yaml := convertValid(t, src)
+		if strings.Contains(yaml, "scope: perUserOrMachine") || !strings.Contains(yaml, "condition: ALLUSERS=1") {
+			t.Errorf("%s: want a perMachine package with its condition:\n%s", name, yaml)
+		}
+	}
+}
+
 // TestConvertContextConditions checks the context conditions in other
 // forms: an explicit per-machine package keeps its conditions and its
 // scope, since ALLUSERS=1 always holds there; NOT in another case and

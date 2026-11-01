@@ -289,7 +289,9 @@ upgrade:
   per-user package that a bootstrapper installs per machine with
   `ALLUSERS=1`, or one that sets `ALLUSERS` or `MSIINSTALLPERUSER` with
   its own actions, becomes a dual scope. `convert` makes a per-user
-  package (also a WiX v3 one without `InstallScope` and `ALLUSERS`)
+  package (also a WiX v3 one without `InstallScope` and `ALLUSERS`, unless
+  a component without a context condition holds services, HKLM or HKU
+  registry data, machine environment variables or firewall rules)
   `perUserOrMachine` when a component's condition names the context or an
   action sets one of the two properties; choose `perMachineOrUser` if the
   install should default to all users. It turns the conditions into

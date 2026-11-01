@@ -128,7 +128,7 @@ func (c *converter) choosesContext(machineOK bool) int {
 // WiX v3 package without a scope and without ALLUSERS is per user too. A
 // per-machine package stays: there a condition on ALLUSERS=1 always holds.
 func (c *converter) contextScope(pkgOut *omap, scope string, allUsers bool) string {
-	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !c.setsMachine()
+	perUser := scope == scopeUser || c.v3 && scope == "" && !allUsers && !c.setsMachine() && !c.machineContent()
 	if !perUser {
 		return scope
 	}
@@ -269,6 +269,51 @@ func (c *converter) setsMachine() bool {
 	walk = func(elm *elem) {
 		if contextSetter(elm) != "" && c.machineSetter(elm) {
 			found = true
+		}
+
+		for _, kid := range elm.kids {
+			walk(kid)
+		}
+	}
+
+	walk(c.doc.root)
+
+	return found
+}
+
+// machineContent reports whether a component without a context condition
+// holds data that a dual package refuses outside a perMachine component:
+// services, HKLM or HKU registry data, machine environment variables or
+// firewall rules. A WiX v3 package without a scope that has such a
+// component converts to perMachine as before, since a bootstrapper
+// installs it per machine.
+func (c *converter) machineContent() bool {
+	found := false
+
+	var inside func(*elem)
+
+	inside = func(elm *elem) {
+		switch {
+		case elm.is("ServiceInstall"), elm.is("ServiceControl"), elm.name == "FirewallException",
+			elm.is("Environment") && elm.yes("System"),
+			(elm.is("RegistryValue") || elm.is("RegistryKey")) && (elm.attr("Root") == "HKLM" || elm.attr("Root") == "HKU"):
+			found = true
+		}
+
+		for _, kid := range elm.kids {
+			inside(kid)
+		}
+	}
+
+	var walk func(*elem)
+
+	walk = func(elm *elem) {
+		if elm.is("Component") {
+			if contextCondition(c.componentConditionText(elm)) == "" {
+				inside(elm)
+			}
+
+			return
 		}
 
 		for _, kid := range elm.kids {
