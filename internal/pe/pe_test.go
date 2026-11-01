@@ -29,7 +29,7 @@ func TestSyntheticPE(t *testing.T) {
 	}
 
 	// Stored 1033,1031,1033: duplicates dropped, last first, as Windows
-	// lists them (FILE-14).
+	// lists them (FILE-15).
 	if info.Language() != "1031,1033" {
 		t.Errorf("language %q", info.Language())
 	}
@@ -244,7 +244,7 @@ func TestLargeResourceRange(t *testing.T) {
 // before and right after the start of the version data (at 0x58). Windows
 // rounds SizeOfRawData up to FileAlignment (0x200 here), so the version is
 // read either way, but it drops the languages when the data starts past
-// the unrounded raw size (FILE-14).
+// the unrounded raw size (FILE-15).
 func TestRawDataRoundedToFileAlignment(t *testing.T) {
 	t.Parallel()
 
@@ -462,7 +462,7 @@ func TestInvalidFileAlignment(t *testing.T) {
 
 // TestOversizedVersionData declares more version data than the section
 // holds, and a resource directory of size 0. Windows reads only the block
-// VS_VERSIONINFO declares and ignores the directory size (FILE-14).
+// VS_VERSIONINFO declares and ignores the directory size (FILE-15).
 func TestOversizedVersionData(t *testing.T) {
 	t.Parallel()
 
@@ -636,7 +636,7 @@ func versionResources(t *testing.T, entries []resEntry) []byte {
 
 // TestVersionResourceSelection reads RT_VERSION ID 1 only, and refuses
 // language entries that disagree, since Windows picks one by the user's
-// UI language (FILE-14).
+// UI language (FILE-15).
 func TestVersionResourceSelection(t *testing.T) {
 	t.Parallel()
 
@@ -727,7 +727,7 @@ func partialTranslation(t *testing.T, n uint16) []byte {
 
 // TestPartialTranslation counts a partial last Translation entry once its
 // language word fits, as msi.dll 5.0.26100.33648 did for value lengths 4
-// to 7; 5.0.26100.1742 also counted length 5 as two (FILE-14).
+// to 7; 5.0.26100.1742 also counted length 5 as two (FILE-15).
 func TestPartialTranslation(t *testing.T) {
 	t.Parallel()
 
@@ -776,7 +776,7 @@ func twoTranslations(t *testing.T, sameBlock bool) []byte {
 }
 
 // TestFirstTranslationOnly takes the languages of the first Translation
-// in the first VarFileInfo, as Windows did (FILE-14).
+// in the first VarFileInfo, as Windows did (FILE-15).
 func TestFirstTranslationOnly(t *testing.T) {
 	t.Parallel()
 
@@ -812,7 +812,7 @@ func headerResources(t *testing.T) []byte {
 
 // TestResourcesInHeaders reads a version resource that lies in the
 // headers, which Windows maps at RVA 0: the version, but no languages,
-// as Windows reported (FILE-14).
+// as Windows reported (FILE-15).
 func TestResourcesInHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -824,7 +824,7 @@ func TestResourcesInHeaders(t *testing.T) {
 
 // TestNamedEntryPartition counts a directory's only entry as named at each
 // level of the version resource: it is then never matched by its ID, so
-// there is no version, as on Windows (FILE-14).
+// there is no version, as on Windows (FILE-15).
 func TestNamedEntryPartition(t *testing.T) {
 	t.Parallel()
 

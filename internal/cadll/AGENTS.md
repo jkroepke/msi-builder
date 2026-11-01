@@ -54,9 +54,17 @@ the root `AGENTS.md` first.
   or `\r\n`; each is logged through `MsiProcessMessage(INSTALLMESSAGE_INFO)`
   with the fixed template `BuilderRun: [1]`, so brackets in the output are
   not formatted. The buffer is 64 KiB (`LINE_BUFFER`); a longer line is
-  logged in pieces. The overlapped read waits on the child too: once it has
+  logged in pieces, each cut before a UTF-8 character the cut would split
+  (`pieceEnd`), whose bytes start the next piece: a piece is decoded on
+  its own, and half a character fails UTF-8 and sends the whole piece to
+  the OEM code page. The overlapped read waits on the child too: once it has
   exited, another process that keeps the pipe open gets `EXIT_GRACE_MS`
-  (5 s), then the job is ended and the rest is not read; while nothing
+  (5 s), then the job is ended and the rest is not read. The grace period
+  limits only the wait for more output (a read that pends): output already
+  in the pipe is read to its end, since logging a backlog can outlast it
+  after the writers closed the pipe, unless `LATE_OUTPUT` (4 x the pipe
+  buffer) arrives after it, which only a writer that is still alive can
+  send; while nothing
   arrives, a zero progress message every `CANCEL_POLL_MS` (1 s) asks the
   installer about a cancel, which `IDCANCEL` from a logged line also
   signals (that a progress report returns the cancel and stays out of the
@@ -119,15 +127,30 @@ the root `AGENTS.md` first.
   repairs run without the first install's command line properties (observed
   on the CI runner, SEC-02). Wide strings in this part
   are `u"..."` literals, which clang types as `unsigned short` arrays.
+  A file or folder grant never reads or writes a DACL by name:
+  `openGrantObject` opens the object (`READ_CONTROL | WRITE_DAC`, all
+  share modes, never `MAXIMUM_ALLOWED`, or `SetSecurityInfo` does not
+  propagate to children), refuses it unless the handle's final path is
+  the long form of the formatted path (a junction above it reached
+  another tree, SEC-06), and the DACL goes through
+  `GetSecurityInfo`/`SetSecurityInfo` on that handle. Services stay on the
+  named calls.
 - `close` (spec 17.9) uses the exports `BuilderCloseSchedule` (immediate,
   before InstallValidate, as the user: `WM_CLOSE` to the visible unowned
-  top-level windows of every process whose image path equals the file's,
+  top-level windows of every process whose image is the file,
   to its hidden ones only when it has none, then a wait) and `BuilderClose`
   (the deferred `BuilderCloseExec`, LocalSystem, after StopServices:
   `TerminateProcess` with 1602). They are the only user32 imports; keep
-  user32 out of every other path. A process matches by
-  `QueryFullProcessImageNameW` and `CompareStringOrdinal` without case,
-  never by name alone, so copies elsewhere survive. The paths
+  user32 out of every other path. A process matches when its
+  `QueryFullProcessImageNameW` path equals the file's (`CompareStringOrdinal`
+  without case) or, failing that, names the same file
+  (`FileIdInfo`: volume serial and 128-bit ID), never by name alone, so
+  copies elsewhere survive: a process started by the 8.3 path reports
+  that path (CLOSE-02; one started through a junction reported the
+  resolved path, so the text matched there). Every
+  process is opened with `PROCESS_QUERY_LIMITED_INFORMATION` only and a
+  match again with the action's access, so the deferred action does not
+  hold terminate handles to unrelated processes. The paths
   `BuilderCloseExec` ends come from type-51 actions of the engine
   (`[BuilderCloseExec][DIR]file|`), never from the schedule action: the
   impersonated custom action server runs with the user's token, so data it
@@ -192,6 +215,12 @@ the root `AGENTS.md` first.
   fails the installation: a cleanup must not block an uninstall. Test guards only on
   folders the test creates (FILE-11 points `TemplateFolder` into one), so
   a broken guard cannot delete anything that matters.
+  The record is the only tie between a backup folder's random name and
+  the original path: when a restore or a delete fails, `keepLeft` logs
+  the backup path (the one case the log shows the token) and copies the
+  mapping to `HKCU\Software\msi-builder\RemoveFoldersLeft\<token>`
+  before the record goes, and `keepStale` does the same for a stale
+  record before a new removal replaces it. Nothing deletes that key.
 - Never take code from another installer toolkit's custom action library;
   the Windows Installer custom action contract is documented by Microsoft
   and the spec (section 9.4).

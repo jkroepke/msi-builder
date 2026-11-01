@@ -77,7 +77,7 @@ func msiVersion(t *testing.T) string {
 // TestMsiGetFileVersionAgrees parses well-formed and corrupt images with
 // this package and with MsiGetFileVersionW, which fills File.Version and
 // File.Language for Windows toolchains, and checks that both report the
-// same version and languages, or both none (FILE-14).
+// same version and languages, or both none (FILE-15).
 func TestMsiGetFileVersionAgrees(t *testing.T) {
 	t.Parallel()
 
@@ -158,7 +158,7 @@ func TestMsiGetFileVersionAgrees(t *testing.T) {
 		"well formed": func(*testing.T) []byte {
 			return testpe.Build(testpe.Options{FileVersion: "1.2.3.4", ProductVersion: "1.2.0.0", Languages: []int{1033, 1031}})
 		},
-		// The order in which Windows lists the languages (FILE-14).
+		// The order in which Windows lists the languages (FILE-15).
 		"languages 1031,1033":             langs(1031, 1033),
 		"languages 1033,1031,2057":        langs(1033, 1031, 2057),
 		"languages 2057,1033,1031":        langs(2057, 1033, 1031),
@@ -258,7 +258,7 @@ func TestMsiGetFileVersionAgrees(t *testing.T) {
 
 // TestMsiGetFileVersionDisagreeingLanguages records which of two language
 // entries with different versions Windows reports; Parse refuses the file
-// (FILE-14).
+// (FILE-15).
 func TestMsiGetFileVersionDisagreeingLanguages(t *testing.T) {
 	t.Parallel()
 

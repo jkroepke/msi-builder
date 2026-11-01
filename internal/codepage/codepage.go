@@ -2,19 +2,20 @@
 // Windows Installer database may declare. Unmappable text is an error, never
 // a substitution character (docs/spec/MSISPEC.md section 3, "Lossless
 // database serialization").
+//
+// The ANSI code pages use tables dumped from Windows itself
+// (MultiByteToWideChar and WideCharToMultiByte, see tables.go), not a
+// generic implementation of the character sets, because the engine reads a
+// package with the Windows mappings and those differ from the standards in
+// places (private-use areas, vendor rows, duplicates).
 package codepage
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"unicode/utf8"
-
-	"golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/encoding/korean"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/encoding/traditionalchinese"
 )
 
 // Well-known code pages.
@@ -27,29 +28,16 @@ const (
 	Windows1252 = 1252
 )
 
-var ansi = map[int]encoding.Encoding{ //nolint:gochecknoglobals // lookup table
-	874:  charmap.Windows874,
-	932:  japanese.ShiftJIS,
-	936:  simplifiedchinese.GBK,
-	949:  korean.EUCKR,
-	950:  traditionalchinese.Big5,
-	1250: charmap.Windows1250,
-	1251: charmap.Windows1251,
-	1252: charmap.Windows1252,
-	1253: charmap.Windows1253,
-	1254: charmap.Windows1254,
-	1255: charmap.Windows1255,
-	1256: charmap.Windows1256,
-	1257: charmap.Windows1257,
-	1258: charmap.Windows1258,
+// ansi lists the ANSI code pages; each has a table in tables/.
+var ansi = []int{ //nolint:gochecknoglobals // lookup table
+	874, 932, 936, 949, 950,
+	1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258,
 }
 
 // IsANSI reports whether cp is an ANSI code page that the Summary
 // Information stream may declare (SUM-04: 65001 and 1200 fail with 1620).
 func IsANSI(cp int) bool {
-	_, ok := ansi[cp]
-
-	return ok
+	return slices.Contains(ansi, cp)
 }
 
 // Supported reports whether this package can encode cp.
@@ -76,20 +64,34 @@ func Encode(text string, codePage int) ([]byte, error) {
 		return []byte(text), nil
 	}
 
-	enc, ok := ansi[codePage]
-	if !ok {
-		return nil, fmt.Errorf("codepage: code page %d is not supported", codePage)
+	tab, err := lookup(codePage)
+	if err != nil {
+		return nil, err
 	}
 
-	out, err := enc.NewEncoder().Bytes([]byte(text))
-	if err != nil {
-		return nil, fmt.Errorf("codepage: %q cannot be represented in code page %d", text, codePage)
+	return tab.encodeText(text, codePage)
+}
+
+func (t *table) encodeText(text string, codePage int) ([]byte, error) {
+	out := make([]byte, 0, len(text))
+
+	for _, char := range text {
+		if char > 0xFFFF || t.encode[char] == unmapped {
+			return nil, fmt.Errorf("codepage: %q cannot be represented in code page %d", text, codePage)
+		}
+
+		if seq := t.encode[char]; seq > 0xFF {
+			out = binary.BigEndian.AppendUint16(out, seq)
+		} else {
+			out = append(out, byte(seq&0xFF))
+		}
 	}
 
 	return out, nil
 }
 
-// Decode converts bytes in the code page to a string.
+// Decode converts bytes in the code page to a string. A byte or byte pair
+// that Windows refuses to convert (MB_ERR_INVALID_CHARS) is an error.
 func Decode(data []byte, codePage int) (string, error) {
 	switch codePage {
 	case UTF8:
@@ -108,14 +110,37 @@ func Decode(data []byte, codePage int) (string, error) {
 		return string(data), nil
 	}
 
-	enc, ok := ansi[codePage]
-	if !ok {
-		return "", fmt.Errorf("codepage: code page %d is not supported", codePage)
+	tab, err := lookup(codePage)
+	if err != nil {
+		return "", err
 	}
 
-	out, err := enc.NewDecoder().Bytes(data)
-	if err != nil {
-		return "", fmt.Errorf("codepage: invalid bytes for code page %d", codePage)
+	return tab.decodeBytes(data, codePage)
+}
+
+func (t *table) decodeBytes(data []byte, codePage int) (string, error) {
+	out := make([]byte, 0, len(data))
+
+	for pos := 0; pos < len(data); pos++ {
+		unit := t.single[data[pos]]
+
+		switch unit {
+		case unmapped:
+			return "", fmt.Errorf("codepage: invalid byte %#04x for code page %d", data[pos], codePage)
+		case leadByte:
+			if pos+1 == len(data) {
+				return "", fmt.Errorf("codepage: lead byte %#04x at the end of the text in code page %d", data[pos], codePage)
+			}
+
+			pos++
+
+			unit = t.double[data[pos-1]][data[pos]]
+			if unit == unmapped {
+				return "", fmt.Errorf("codepage: invalid bytes %#04x %#04x for code page %d", data[pos-1], data[pos], codePage)
+			}
+		}
+
+		out = utf8.AppendRune(out, rune(unit))
 	}
 
 	return string(out), nil

@@ -497,7 +497,12 @@ func TestDecodeLoadsSharedBinaryStreamOnce(t *testing.T) {
 		}
 	}
 
-	if shared != copies-1 {
-		t.Errorf("%d shared-stream problems, want %d: %v", shared, copies-1, back.Problems[:min(3, len(back.Problems))])
+	// Problems are capped at maxProblems, with a note that more were left out.
+	if want := min(copies-1, maxProblems); shared != want {
+		t.Errorf("%d shared-stream problems, want %d: %v", shared, want, back.Problems[:min(3, len(back.Problems))])
+	}
+
+	if copies-1 > maxProblems && back.Problems[len(back.Problems)-1] != "further problems left out" {
+		t.Errorf("last problem %q, want the note that more were left out", back.Problems[len(back.Problems)-1])
 	}
 }

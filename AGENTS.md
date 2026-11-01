@@ -51,7 +51,10 @@ versioning after 1.0.
   file after it or after a copy start new folders),
   stored, MSZIP or LZX blocks, plus an `fs.FS` view. The LZX encoder and
   decoder are [`internal/lzx`](internal/lzx), written from [MS-PATCH] and
-  [MS-CAB] only.
+  [MS-CAB] only. To test the reader on layouts the writer never
+  produces (other tools' cabinets, empty folders, corrupt blocks, legacy
+  names), build them with `RawCabinet` (`export_test.go`), which the native
+  tests use too to compare with `cabinet.dll`.
 - [`internal/summary`](internal/summary): the summary information stream.
 - [`pkg/sign`](pkg/sign): Authenticode signing and verification of packages
   and of cabinets written with a signature reserve (spec chapter 12), written
@@ -71,7 +74,7 @@ versioning after 1.0.
   standard table definitions, PE version resources, the condition grammar,
   checks of formatted strings,
   sequence numbering, code pages and the wizard bitmaps. `internal/pe` must
-  report a version exactly when `MsiGetFileVersionW` does (FILE-14): add each
+  report a version exactly when `MsiGetFileVersionW` does (FILE-15): add each
   malformed image a parser change handles to `TestMsiGetFileVersionAgrees`,
   which runs on the Windows unit runner.
 - [`cmd/msi-builder`](cmd/msi-builder): CLI with `build`, `validate`, `inspect`, `convert`,

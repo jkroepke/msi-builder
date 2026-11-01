@@ -140,7 +140,7 @@ func (im *image) read(rva, size uint32) ([]byte, error) {
 	// FileAlignment, come from the file; the rest of its VirtualSize reads
 	// as zeros, never as the bytes that follow in the file. Windows did
 	// both: a raw size of 0 gave no version, one that ended inside the
-	// Translation value still gave every language (FILE-14).
+	// Translation value still gave every language (FILE-15).
 	rel := uint64(rva - sec.virtualAddress)
 	rawSize := (uint64(sec.rawSize) + im.fileAlign - 1) / im.fileAlign * im.fileAlign
 	fileBacked := uint64(0)
@@ -261,14 +261,14 @@ func Parse(rdr io.ReaderAt) (*Info, error) { //nolint:cyclop // one pass over th
 	}
 
 	// The headers are mapped at RVA 0 up to SizeOfHeaders, and Windows read
-	// a version resource placed there, without languages (FILE-14). They
+	// a version resource placed there, without languages (FILE-15). They
 	// come after the sections, which win where a corrupt header overlaps
 	// them.
 	headers := order.Uint32(opt[60:])
 	img.sections = append(img.sections, section{virtualSize: headers, rawSize: headers, headers: true})
 
 	// The size is not checked at all: Windows read the version through a
-	// directory declared with size 0 (FILE-14).
+	// directory declared with size 0 (FILE-15).
 	if resRVA == 0 {
 		return info, nil
 	}
@@ -284,7 +284,7 @@ func Parse(rdr io.ReaderAt) (*Info, error) { //nolint:cyclop // one pass over th
 
 // idEntries returns the numeric-ID entries of the resource directory at
 // dir: the named entries come first and are skipped, so an entry counted
-// as named is never matched by its ID, as on Windows (FILE-14).
+// as named is never matched by its ID, as on Windows (FILE-15).
 func idEntries(res *resources, dir uint32) ([]byte, error) {
 	head, err := res.read(dir, 16)
 	if err != nil {
@@ -331,7 +331,7 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 	const (
 		rtVersion = 16
 		// vsVersionInfo is the resource ID Windows reads the version from
-		// (VS_VERSION_INFO); another ID is never used (FILE-14).
+		// (VS_VERSION_INFO); another ID is never used (FILE-15).
 		vsVersionInfo = 1
 	)
 
@@ -354,11 +354,11 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 	// language; the entry used here is the one an English system picks:
 	// language-neutral (0), then en-US (1033), then the first. Entries
 	// whose fixed versions differ make File.Version depend on the machine
-	// (FILE-14: English 9.8.7.6 won over German 1.2.3.4 on an English
+	// (FILE-15: English 9.8.7.6 won over German 1.2.3.4 on an English
 	// system), so such a file is refused, which the builder reports like an
 	// unversioned one. The languages are those of every entry, in directory
 	// order, without duplicates, last first: German [1031] and English
-	// [1033] gave 1033,1031 (FILE-14). Each entry costs two small record
+	// [1033] gave 1033,1031 (FILE-15). Each entry costs two small record
 	// reads; a block, by RVA and wLength, is parsed once.
 	pick, ok := pickLanguage(langs)
 	if !ok {
@@ -426,7 +426,7 @@ func parseVersion(res *resources, info *Info) error { //nolint:cyclop // one pas
 	}
 
 	// MsiGetFileVersionW lists the languages last first: stored
-	// 1033,1031,2057 came back as 2057,1031,1033 (FILE-14). The picked
+	// 1033,1031,2057 came back as 2057,1031,1033 (FILE-15). The picked
 	// entry's own languages are among all.
 	slices.Reverse(all)
 	info.Languages = all
@@ -519,7 +519,7 @@ func versionEntry(res *resources, dataEntry uint32, info *Info) error {
 	// Windows reported the version but no languages when the version data
 	// started at or past the section's SizeOfRawData, inside the part that
 	// rounding to FileAlignment adds: raw sizes 1 to 0x58 with the data at
-	// 0x58 gave no languages, 0x60 and up gave all of them (FILE-14).
+	// 0x58 gave no languages, 0x60 and up gave all of them (FILE-15).
 	if !rawStart {
 		info.Languages = nil
 	}
@@ -542,7 +542,7 @@ func versionData(res *resources, dataEntry uint32) ([]byte, bool, error) {
 
 	// Only the block VS_VERSIONINFO's wLength declares is read, and it must
 	// lie in a section; the declared size only has to hold it. Windows read
-	// a version whose data entry claimed more than its section (FILE-14).
+	// a version whose data entry claimed more than its section (FILE-15).
 	if dataSize < 6 {
 		return nil, false, errors.New("pe: version resource too short")
 	}
@@ -565,7 +565,7 @@ func versionData(res *resources, dataEntry uint32) ([]byte, bool, error) {
 	sec, _ := res.img.section(dataRVA, length)
 
 	// Version data in the headers gave the version but no languages on
-	// Windows, as data past a section's raw size does (FILE-14).
+	// Windows, as data past a section's raw size does (FILE-15).
 	return data, !sec.headers && dataRVA-sec.virtualAddress < sec.rawSize, nil
 }
 
@@ -647,7 +647,7 @@ func parseVersionInfo(data []byte, info *Info) error { //nolint:cyclop // one pa
 		block := data[off : off+blockLen]
 		blockKey, koff := utf16At(block, 6)
 
-		// Only the first VarFileInfo counts, as on Windows (FILE-14).
+		// Only the first VarFileInfo counts, as on Windows (FILE-15).
 		if blockKey == "VarFileInfo" {
 			parseVarFileInfo(block, align4(koff), info)
 
@@ -679,20 +679,20 @@ func parseVarFileInfo(data []byte, off int, info *Info) {
 		koff = align4(koff)
 
 		// A value that runs past its Var is invalid as a whole: Windows
-		// then reports no languages, not the ones that fit (FILE-14).
+		// then reports no languages, not the ones that fit (FILE-15).
 		if key == "Translation" && koff+valueLen > end {
 			return
 		}
 
 		// Only the first Translation counts: Windows ignored a second one
-		// (FILE-14).
+		// (FILE-15).
 		if key == "Translation" {
 			langs := make([]int, 0, valueLen/4+1)
 
 			// An entry counts once its language word fits the value
 			// length: lengths 6 and 7 gave two languages on Windows, 5
 			// one with msi.dll 5.0.26100.33648; 5.0.26100.1742 gave two for
-			// 5 (FILE-14).
+			// 5 (FILE-15).
 			for p := koff; p+2 <= koff+valueLen; p += 4 {
 				langs = append(langs, int(order.Uint16(data[p:])))
 			}
