@@ -1385,12 +1385,13 @@ properties:
 
 `DisableShutdown` is documented to keep Restart Manager for finding the processes but
 shut nothing down. Microsoft documents that a custom action cannot change
-the property, and `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
-line of a `/fomus` repair was dropped like the repair's other public
-properties and left Restart Manager on; the same repair written as
-`/i <package> REINSTALL=ALL REINSTALLMODE=omus` passed it and turned
-Restart Manager off (CLOSE-04). So the package itself sets it. The `windows_exporter` example turns it off, because its service
-and `close` already stop everything it installs.
+the property. `MSIRESTARTMANAGERCONTROL=Disable` on the msiexec command
+line turned Restart Manager off for a repair written as
+`/i <package> REINSTALL=ALL REINSTALLMODE=omus`, but a `/fomus` repair
+dropped it like its other public properties and left Restart Manager on
+(CLOSE-04), so the package itself sets it. The `windows_exporter` example
+turns it off, because its service and `close` already stop everything it
+installs.
 
 The value is case-sensitive: `disable` behaved like `0` (PROP-04). With
 `Disable`, a file that a program `close` does not end still holds is

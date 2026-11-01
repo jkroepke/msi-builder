@@ -52,8 +52,8 @@ func restartLines(log string) string {
 // install Restart Manager shuts down the holder and the program, and that a
 // copy of the program in another folder, which is not registered, keeps
 // running. A repair with MSIRESTARTMANAGERCONTROL=Disable on the command
-// line still has a session (observed); the same package with the property
-// in its Property table starts none, so the action registers nothing and
+// line, run as /i REINSTALL=ALL, and the same package with the property in
+// its Property table start no session, so the action registers nothing and
 // the programs keep running.
 //
 //nolint:paralleltest // msiexec runs one installation at a time
