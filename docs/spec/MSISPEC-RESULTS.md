@@ -171,6 +171,9 @@ Silent-failure cases a producer has to guard against itself:
 | CFB-07 | Not run | P2, needs multi-GiB fixtures |
 | CFB-08 | Not run | msi-rs regression case; test a candidate writer |
 | CFB-09 | Not run | msi-rs regression case; test a candidate writer |
+| CFB-10 | Confirmed | `TestNativeCaseAliasesCFB10` (`internal/cfb`, windows-latest CI, 2026-10-31): `IStorage::OpenStream` returns the same stream for `Ébcd` and `ébcd`; the control `Ábcd`/`Ébcd` holds two streams. Which of `ÿ`/`Ÿ`, `Σ`/`ς`, `Ａ`/`ａ` and `I`/`ı` Windows folds is only logged, and the unit suite prints no logs of passing tests; the reader rejects all of them |
+| CFB-11 | Confirmed | `TestNativeNameTerminatorCFB11` (`internal/cfb`) and `TestSignatureNameTerminatorCFB11` (nativetest), windows-latest CI, 2026-10-31: a stream whose name terminator is overwritten is not found by its name (the test accepts `OpenStream` failing or `StgOpenStorage` refusing the file; which one is only logged), and a signed package whose signature stream's terminator is overwritten gets `TRUST_E_NOSIGNATURE` from WinVerifyTrust. A NUL inside a name is only logged |
+| CFB-12 | Confirmed | `TestNativeHeaderCountsCFB12` (`internal/cfb`, windows-latest CI, 2026-10-31): `StgOpenStorage` refuses, on v3 and v4, a MiniFAT start with a MiniFAT count of 0 and a MiniFAT count of 1 without a start, and a v4 header with 0 directory sectors. Off-by-one counts and a FREESECT MiniFAT start are only logged; the reader accepts them |
 | MSIDB-01 | Confirmed | [log](msitest/results/MSIDB-01/native-written-catalog/log.md); raw decode equals native query for every table |
 | MSIDB-02 | Confirmed | [log](msitest/results/MSIDB-02/nullable-integers/log.md); out-of-range minimum stored as NULL |
 | MSIDB-03 | Confirmed | [log](msitest/results/MSIDB-03/property-row-order/log.md); API 1615, `msiexec` 1605 with Note 2211 |

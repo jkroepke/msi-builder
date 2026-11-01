@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -160,7 +159,7 @@ func checkStoredRunes(name string) error {
 		switch {
 		case strings.ContainsRune("\x00/\\:!", r):
 			return fmt.Errorf("msidb: stream name %q contains %q", name, r)
-		case r > 0x7F && r <= 0xFFFF && (unicode.ToUpper(r) != r || unicode.ToLower(r) != r):
+		case cfb.Cased(r):
 			return fmt.Errorf("msidb: stream name %q contains the cased character %q", name, r)
 		}
 	}
