@@ -1220,10 +1220,9 @@ func (v *validator) componentEvents(compPath string, comp *Component, perUser bo
 
 	// Two entries with the same name, action and scope set the variable
 	// twice, which only append and prepend can do with different values:
-	// each adds its own part (ENVVAR-04). The builder then keys the second
-	// row by its value too. Names are compared without case to be safe;
-	// how the engine treats FOO and foo in two Environment rows is not
-	// tested.
+	// each adds its own part (ENVVAR-04), in YAML order. Names are
+	// compared without case to be safe; how the engine treats FOO and foo
+	// in two Environment rows is not tested.
 	seen := make(map[[3]string]bool)
 	values := make(map[[4]string]bool)
 

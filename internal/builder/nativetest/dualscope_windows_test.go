@@ -20,8 +20,8 @@ const (
 )
 
 // environmentPartsConfig is a dual package whose component adds two parts
-// to the end and two to the front of PATH, following the context
-// (ENVVAR-04).
+// to the end and two to the front of PATH, following the context, and
+// whose second component adds a fifth part to the end (ENVVAR-04).
 const environmentPartsConfig = `schema: msi-builder/v1
 product: { name: MsiBuilderEnvParts, manufacturer: msi-builder tests, version: 1.0.0, upgradeCode: d7714381-0ecb-45c7-8ddf-8c92b2ba4c8e }
 package: { platform: x64, scope: perUserOrMachine }
@@ -32,6 +32,10 @@ components:
       - { name: PATH, value: 'C:\MsiBuilderEnv04\append2', action: append }
       - { name: PATH, value: 'C:\MsiBuilderEnv04\prepend1', action: prepend }
       - { name: PATH, value: 'C:\MsiBuilderEnv04\prepend2', action: prepend }
+  - id: Extra
+    directory: INSTALLDIR
+    environment:
+      - { name: PATH, value: 'C:\MsiBuilderEnv04\append3', action: append }
 `
 
 // envParts returns the MsiBuilderEnv04 entries of a PATH value in order.
@@ -61,9 +65,9 @@ func entries(value string) string {
 }
 
 // TestMsiexecEnvironmentParts installs the ENVVAR-04 package per machine
-// and per user: each of the four Environment rows adds its part to PATH in
-// the context's environment, and the uninstall removes all four and leaves
-// the rest of PATH as it was.
+// and per user: each of the five Environment rows adds its part to PATH in
+// the context's environment, one after the other in YAML order, and the
+// uninstall removes all five and leaves the rest of PATH as it was.
 func TestMsiexecEnvironmentParts(t *testing.T) { //nolint:paralleltest // msiexec runs one installation at a time
 	if testing.Short() {
 		t.Skip("installing needs msiexec time and elevation")
@@ -90,9 +94,9 @@ func TestMsiexecEnvironmentParts(t *testing.T) { //nolint:paralleltest // msiexe
 			parts := envParts(installed)
 			t.Logf("ENVVAR-04 %s: PATH parts after the install %v", tc.context, parts)
 
-			slices.Sort(parts)
-
-			if want := []string{"append1", "append2", "prepend1", "prepend2"}; !slices.Equal(parts, want) {
+			// Applied in YAML order: the later prepend goes in front, the
+			// later appends behind, also from the second component.
+			if want := []string{"prepend2", "prepend1", "append1", "append2", "append3"}; !slices.Equal(parts, want) {
 				t.Errorf("parts %v, want %v in %s", parts, want, installed)
 			}
 

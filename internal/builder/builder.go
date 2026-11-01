@@ -141,6 +141,9 @@ type build struct { //nolint:govet // grouped by build step
 	// with it: the one that holds the shortcuts to its files and those that
 	// start its services under a condition.
 	carriers map[string][]string
+	// environments counts the environment variables written so far; it
+	// numbers their Environment keys (writeEnvironment).
+	environments int
 	// removedFolders are the folders that generated RemoveFile rows remove
 	// on uninstall.
 	removedFolders map[string]bool

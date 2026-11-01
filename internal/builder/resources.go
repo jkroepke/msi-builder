@@ -170,22 +170,22 @@ func eventLogID(comp *config.Component, e *config.EventSource) string {
 // writeEnvironment emits Environment rows. The removal flag is always
 // written explicitly, because the machine-scope flag does not imply it
 // (MSISPEC-RESULTS ENVVAR-01).
+//
+// msiexec applies the rows in table order, which is the order of their
+// keys (ENVVAR-04), so that two parts of one variable come out in the
+// order the rows are applied in. The keys number the variables of the
+// package in config order, padded to one width, so that the table keeps
+// the YAML order across components too: a later append goes behind an
+// earlier one and a later prepend in front of it.
 func (b *build) writeEnvironment(info *componentInfo) {
 	// Every package has the table, also without rows.
 	b.table("Environment")
 
 	comp := info.cfg
-	used := make(map[string]bool, len(comp.Environment))
 
 	for _, env := range comp.Environment {
-		key := generatedID("env", "Environment", comp.ID, env.Name, env.Action, env.Scope)
-		// A second part of the same variable (append or prepend, ENVVAR-04)
-		// is keyed by its value too; the first keeps the key it always had.
-		if used[key] {
-			key = generatedID("env", "Environment", comp.ID, env.Name, env.Action, env.Scope, env.Value)
-		}
-
-		used[key] = true
+		key := environmentKey(b.environments, b.cfg.Components)
+		b.environments++
 
 		if env.Scope != envAuto {
 			b.environmentRow(key, env, env.Scope, comp.ID)
@@ -200,6 +200,18 @@ func (b *build) writeEnvironment(info *componentInfo) {
 			b.environmentRow(key+scope[:1], env, scope, b.environmentCarrier(info, scope))
 		}
 	}
+}
+
+// environmentKey returns the Environment key of the variable with index i
+// of components, in config order: env and i, padded to the digits of the
+// number of variables, so that the keys sort like the indexes.
+func environmentKey(i int, components []*config.Component) string {
+	total := 0
+	for _, comp := range components {
+		total += len(comp.Environment)
+	}
+
+	return fmt.Sprintf("env%0*d", len(strconv.Itoa(total)), i)
 }
 
 // environmentRow writes the Environment row key of env in scope for
