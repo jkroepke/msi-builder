@@ -1458,7 +1458,8 @@ func (c *converter) pivotAnchor(actionID string, placement *omap, gone string, s
 	target := fallbackAnchor(placement.str("sequence") == seqExecute)
 	moved := moveAnchor(placement, flowMap().set(key, target))
 	c.todof(moved, "", src.line, "%s was scheduled %s %s, which convert left out and which has actions on both sides; "+
-		"convert placed it %s %s to keep their order, check that place", actionID, key, gone, key, target)
+		"convert placed it %s %s to keep their order; actions with the same place run in the order of customActions, so "+
+		"check the order of all actions placed there", actionID, key, gone, key, target)
 
 	return moved
 }
