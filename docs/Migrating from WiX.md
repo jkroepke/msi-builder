@@ -749,6 +749,10 @@ firewall:
   key becomes an SDDL string too.
 - `Scope="any"` is the default; `remoteAddresses` limits the rule and
   `profiles` the networks.
+- An exception without `Protocol` becomes `protocol: any`, or `protocol:
+  tcp` when it has a `Port`, which is the rule WiX installs.
+  `IgnoreFailure="yes"` becomes `ignoreFailure: true`. To open a port for
+  TCP and UDP, write `protocol: any` with the `port`.
 
 ## Properties and searches
 
