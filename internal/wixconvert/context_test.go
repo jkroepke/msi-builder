@@ -94,7 +94,7 @@ func TestConvertPerUserPackageForMachine(t *testing.T) {
 
 	for _, want := range []string{
 		"  scope: perUserOrMachine\n", `installerVersion: "5.0"`, "    scope: perUser\n", "    scope: perMachine\n",
-		"the per-user package chooses its install context itself",
+		"the package chooses its install context itself",
 	} {
 		if !strings.Contains(yaml, want) {
 			t.Errorf("no %q in:\n%s", want, yaml)

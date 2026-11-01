@@ -612,7 +612,7 @@ func (c *converter) aliasTarget(folder *dir, setters []*elem) string {
 		folder.name = config.AliasName
 
 		return ""
-	case len(setters) == 0 && parent != nil && parent.id != folderTargetDir:
+	case len(setters) == 0 && parent != nil:
 		return parent.id
 	case len(setters) == 1:
 		return c.setterFolder(setters[0])

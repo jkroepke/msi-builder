@@ -175,7 +175,7 @@ msi-builder does the same by default:
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
 | `Environment` | `components[].environment` |
 | `Shortcut`, `util:InternetShortcut` | `files[].shortcuts`, `components[].shortcuts` |
-| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`, or a component's own `fileTypes` naming the `file` when the ProgId's component has other features or a condition than the file it opens, so that an optional association stays optional; an icon from another packaged file becomes `iconFile` (an `<Icon>` or a file the source does not define becomes a note). msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
+| `ProgId`, `Extension`, `Verb` | `files[].fileTypes`, or a component's own `fileTypes` naming the `file` when the ProgId's component has other features or a condition than the file it opens, so that an optional association stays optional; an icon from another packaged file becomes `iconFile` (an `<Icon>` or a file the source does not define becomes a note). A ProgId without `Extension` children takes its verbs from `RegistryValue`s of its component that write `<ProgId>\shell\<verb>\command` under the classes root (`HKCR`, or `HKMU` with `Software\Classes`) to run a packaged file, and `openWithOnly` extensions from the values that list it under `.<ext>\OpenWithProgids`; those values are left out, as the file type writes them. One that runs nothing goes on the file its `Icon` names, without verbs, which keeps its description and icon. msi-builder writes file type texts as they are, so convert fills in `[PROPERTY]` references to properties that nothing in the source changes, assuming none is set on the command line. msi-builder registers each ProgId once: convert merges the extensions of a ProgId declared again for the same file into the first one, and leaves a declaration for another file out with a note |
 | `util:CloseApplication` | `files[].close` on the program's file; it matches the installed path, not the filename, and ends the program only with `TerminateProcess` (`terminate: false` otherwise). One that only sets its `Property` has no counterpart |
 | `util:RestartResource` in a component | `components[].restartResources`: `Path` becomes `file`, `ServiceName` `service`. `ProcessName` has no counterpart, because `program` takes the program's full path; one outside a component becomes a note |
 | `ServiceInstall`, `ServiceConfig`, `util:ServiceConfig` | `components[].services` |
@@ -260,12 +260,21 @@ checked against WiX).
 in the vars header, and an `<?error?>` in a block becomes `fail`, which
 stops the build with its message. A block whose branches hold anything but
 components, files, registry values and keys, environment variables, plain
-properties and component references, such as directories or custom
-actions, is converted with its first branch only and a `# TODO`. So is a
+properties, component groups of these and component references, such as
+directories or custom actions, is converted with one branch only and a
+`# TODO`. So is a
 block whose branches define the same component ID or hold a key path, an
 `<?ifdef?>` of a variable that the file defines (`has` is true for every
 variable in the vars header), and a block whose condition reads a
 variable that a block, or a define on the same line, sets again later.
+That branch is the one a build without `-d` variables takes: convert
+follows the file's own defines and defaults, and reads `$(sys.BUILDARCH)` and
+`$(sys.BUILDARCHSHORT)` (`X86`, `X64`, `A64`)
+as the platform `--arch` names. When the branch depends on anything else,
+such as a variable only `-d` sets or `$(sys.BUILDARCH)` without `--arch`,
+it is the first branch not known to be false, and later blocks follow its
+defines. A component group in a `<?foreach?>`, or one that references
+other components, is such a block too.
 
 The vars header holds one value per variable, where WiX reads the value
 a variable has at each place. When a `<?define?>` outside the blocks sets
@@ -367,7 +376,12 @@ upgrade:
   its own actions, becomes a dual scope. `convert` makes a per-user
   package `perUserOrMachine` when a component's condition names the
   context or an action sets one of the two properties; choose
-  `perMachineOrUser` if the install should default to all users. It turns
+  `perMachineOrUser` if the install should default to all users.
+  One with an `ALLUSERS=1` property row already installs per machine by
+  default, so it becomes `perMachineOrUser`. A condition that joins
+  context conditions with `AND` or `OR`, or negates one with `NOT (...)`,
+  counts too: `NOT (ALLUSERS <> 1 AND MSIINSTALLPERUSER = 1)` is per
+  machine. It turns
   the conditions into `components[].scope` and drops the setters with a
   note, also in a package that already has `ALLUSERS=2`, and moves actions
   placed after a dropped setter to its place. A per-machine package keeps
@@ -444,7 +458,9 @@ components:
   `msiexec /i hello.msi INSTALLFOLDER=D:\Hello` works without
   `ConfigurableDirectory`.
 - `ProgramFiles6432Folder` is not needed: `installDir` picks the Program
-  Files folder of `package.platform`.
+  Files folder of `package.platform`. `msi-builder convert` writes other
+  references to a 6432 folder, such as a custom action's `Directory`, as
+  the folder of the platform.
 - A `SetDirectory` that points a folder somewhere else at install time
   becomes a `setDirectory` custom action. Often a standard folder does the
   same: `[%SYSTEMROOT]\Temp\Hello` is `WindowsFolder/Temp/Hello`.
@@ -457,7 +473,9 @@ components:
   a second ID for its parent folder. Write it in `directories` with
   `name: .`. Setting it on the command line moves only its own components,
   and it follows the parent otherwise (tested on Windows). One directly in a
-  standard folder is that folder: use the standard folder's ID.
+  standard folder is that folder: use the standard folder's ID. One
+  directly in `TARGETDIR` that nothing sets is `TARGETDIR` itself, so
+  `msi-builder convert` writes `TARGETDIR` for it.
 - A WiX `RegistrySearch` that restores the install folder from the last
   install is `installDir.remember: true`. It writes its own value,
   `InstallDir` under `HKLM\Software\<manufacturer>\<product name>`, so the
@@ -467,7 +485,9 @@ components:
   property, such as `properties.INSTALLFOLDER.search` (see
   [Properties and searches](#properties-and-searches)). Use one of the two,
   not both. With `remember`, drop an `InstallDir` value that your WiX
-  package wrote under that same key from `registry`.
+  package wrote under that same key from `registry`. `msi-builder convert`
+  keeps the WiX search when the file has one, and writes `remember` for a
+  `util:RemoveFolderEx` on the install folder only when it has none.
 
 ## Components, files and features
 
@@ -633,7 +653,11 @@ nested keys, only deletes the key, so convert writes it as such a
 Several `Environment` elements of one variable in one component, such
 as a program folder and its `Scripts` folder both appended to `PATH`,
 stay separate entries: each adds its own part and the uninstall removes
-each (ENVVAR-04).
+each (ENVVAR-04). They are applied in the order of the YAML, which
+`convert` keeps from the source. The engine applies `Environment` rows in
+key order (ENVVAR-04), so a WiX package whose `Environment` `Id` values sort differently from
+its elements probably applied the parts in `Id` order; check the variable
+after installing the converted package (inferred, not run).
 
 Drop the `BroadcastEnvironmentChange` custom action reference that WiX
 packages often carry. Windows Installer itself tells running programs that
@@ -783,6 +807,10 @@ firewall:
   gives SYSTEM full access to every object it locks through
   `Permission`, which a WiX package reads back as
   `D:P(A;OICI;FA;;;WD)(A;OICI;FA;;;SY)` for `User="Everyone"`.
+  The condition of a `PermissionEx` (its `Condition` attribute, or its
+  `Condition` child in WiX v3) becomes the block's `condition`, which
+  covers `sddl` and `grant`; a block has one, so convert notes a second
+  permission with another condition.
   Registry values take only `sddl`, so a `util:PermissionEx` on a registry
   key becomes an SDDL string too.
 - `Scope="any"` is the default; `remoteAddresses` limits the rule and
@@ -794,6 +822,9 @@ firewall:
   tcp` when it has a `Port`, which is the rule WiX installs.
   `IgnoreFailure="yes"` becomes `ignoreFailure: true`. To open a port for
   TCP and UDP, write `protocol: any` with the `port`.
+- Each rule needs its own `name`. Of two exceptions with one name,
+  `convert` adds the second one's `Id` in parentheses to its name and
+  notes it; rename it or merge the rules.
 
 ## Properties and searches
 
@@ -965,7 +996,22 @@ number of another of the three actions that keeps its place, such as
 FindRelatedProducts at 50). A move that puts LaunchConditions
 before FindRelatedProducts (FindRelatedProducts at Microsoft's 200, for
 example) gets a note, because the downgrade check then sees no newer
-version and the build refuses it.
+version and the build refuses it. When the WiX package has no downgrade
+check, or runs LaunchConditions before FindRelatedProducts in both
+sequences so that its check never saw a newer version, convert sets
+`upgrade.downgrade: ignore`, which installs next to a newer version as
+the WiX package did. When one sequence keeps the order, the WiX check
+still worked there, so convert keeps the note and leaves the choice to
+you. In a package without launch conditions of its own, where
+LaunchConditions holds only the downgrade check, convert leaves the move
+of LaunchConditions out instead.
+
+An action placed next to a custom action that convert leaves out (a
+script, a call into a WiX extension, or an action of another source
+file) moves to that action's place, with a note, so that the output
+builds. When actions sit on both sides of the left-out action, they keep
+their sides of CostFinalize (InstallFiles for a deferred one) instead, so
+that their order stays.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where
@@ -1237,4 +1283,9 @@ components:
 
 Files added in a later version need no entry. Without `--msi`, convert
 leaves a `# TODO` on a WiX `Files` glob it turned into a folder source
-under a late removal.
+whose codes it could not compute under a late removal. With `--msi`, it
+leaves one on every glob that kept no code from the WiX package, under any
+removal, as on a component it found no code for: for example a file that
+two globs into the same folder both add, when convert cannot see which
+source folder holds it (a folder written with a `$(var.X)` it cannot
+look into).

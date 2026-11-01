@@ -3088,7 +3088,8 @@ func TestConvertMovedStandardActions(t *testing.T) {
 
 // TestConvertMovesThatDoNothing leaves out a move to the default number and
 // a move of an action the converted package does not run, and notes a
-// FindRelatedProducts placed after LaunchConditions.
+// FindRelatedProducts placed after LaunchConditions; the UI sequence still
+// checks for downgrades, so the check stays.
 func TestConvertMovesThatDoNothing(t *testing.T) {
 	t.Parallel()
 
@@ -3127,11 +3128,18 @@ func TestConvertMovesThatDoNothing(t *testing.T) {
 	if strings.Contains(out, "action: AppSearch") || strings.Contains(out, "action: LaunchConditions") {
 		t.Errorf("a move that does nothing was kept:\n%s", out)
 	}
+
+	// The UI sequence keeps FindRelatedProducts first, so WiX's downgrade
+	// check still works there: convert does not turn it off.
+	if strings.Contains(out, "downgrade: ignore") {
+		t.Errorf("the downgrade check was turned off:\n%s", out)
+	}
 }
 
 // TestConvertMovesMsiBuilderRefuses leaves out moves to places the build
-// refuses, keeps a LaunchConditions move that the downgrade check needs,
-// and notes launch conditions moved before FindRelatedProducts.
+// refuses, and a LaunchConditions move before FindRelatedProducts in a
+// package whose only launch condition would be the downgrade check, which
+// the build refuses there.
 func TestConvertMovesMsiBuilderRefuses(t *testing.T) {
 	t.Parallel()
 
@@ -3162,17 +3170,18 @@ func TestConvertMovesMsiBuilderRefuses(t *testing.T) {
 	for _, want := range []string{
 		"the sequence moves the standard action FindRelatedProducts in execute, which msi-builder cannot take (it would run after CostFinalize, not before CostInitialize)",
 		"the sequence moves the standard action FindRelatedProducts in ui, which msi-builder cannot take (WelcomeDlg is not a converted custom action)",
-		"standardActions:\n  - action: LaunchConditions\n    schedule:\n",
-		"LaunchConditions runs before FindRelatedProducts here",
+		"the sequence moves LaunchConditions before FindRelatedProducts in execute, where it holds only the downgrade check",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the YAML lacks %q:\n%s", want, out)
 		}
 	}
 
-	if strings.Contains(out, "action: FindRelatedProducts") {
+	if strings.Contains(out, "standardActions") || strings.Contains(out, "downgrade: ignore") {
 		t.Errorf("a refused move was kept:\n%s", out)
 	}
+
+	validConfig(t, res.YAML)
 }
 
 // AppSearch next to an unmoved LaunchConditions: before it is the default

@@ -52,7 +52,9 @@ versioning after 1.0.
   upgrades, custom actions, sequences, the setup wizard (`ui*.go`),
   `_Validation`, summary information, then the streaming write and a
   verification pass (`finish.go`). `internal/builder/nativetest` holds the Windows
-  msi.dll and msiexec tests.
+  msi.dll and msiexec tests. msiexec applies `Environment` rows in key order
+  (ENVVAR-04), so their keys are numbered in config order
+  (`environmentKey`), not hashed.
   A component's own `fileTypes` (and `shortcuts`) name a file of any
   component through `fileTarget`, which falls back to `[DIR]name` across
   features (ICE69). A component with nothing but file types is keyed on
@@ -151,13 +153,27 @@ versioning after 1.0.
   A WiX v3 package without a scope only does when it reads
   `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
   per-machine packages per-user in review, so they stay perMachine.
+  A ProgId without `Extension` children takes its verbs and `openWithOnly`
+  extensions from the `RegistryValue`s of its component that write
+  `<ProgId>\shell\<verb>\command` (running `[#file]`) and
+  `.<ext>\OpenWithProgids` under HKCR or `HKMU\Software\Classes`
+  (`progidreg.go`, marked `consumed`, which `compConv.child` skips); one
+  that runs nothing goes on its `Icon` file without verbs. With `--msi`,
+  a glob that kept no code gets a todo under any removal (`noteHarvested`).
   The fixtures are our own sample app: never copy
   third-party `.wxs` files in, and never read WiX source code (clean room).
   Nameless and `.` Directories are settled before the directories link
   (`foldAliasDirs`, `dirs.go`): below a named folder they stay aliases
   (`name: .`), directly in a standard folder they become it, and in
   TARGETDIR they become the standard folder an unconditioned SetDirectory
-  sets (`[WindowsVolume]`), which is then `consumed` and left out.
+  sets (`[WindowsVolume]`), which is then `consumed` and left out, or
+  TARGETDIR itself when nothing sets them.
+  `convertActions` (`actions.go`) converts every custom action before any
+  is written and hands the scheduled ones it leaves out (scripts, extension
+  calls, actions of another source file) to `reanchor`'s drop function, so
+  that placements anchored on them move to their anchors like those on
+  left-out setters. Converted output must build or carry a todo that says
+  why not: check new cases with `validConfig` (`rerun_test.go`).
   Preprocessor blocks (`preprocess.go`, `ppexpr.go`): the parser reads every
   branch and records each element's blocks (`elem.pos`); `planBlocks` keeps
   a block only when every element directly in it is one whose output stays
@@ -170,7 +186,28 @@ versioning after 1.0.
   block is also unkept when a file or component in it is referenced from
   outside its branch (`checkReferences`); when the converter needs one
   value of a variable a kept block defines (`literal` calls `needFixed`),
-  `Convert` runs again with those blocks forced to their first branch.
+  `Convert` runs again with those blocks forced to one branch. A block
+  that is not kept converts the branch a build without `-d` takes
+  (`ppeval.go`, `chooseBranches`, run first in `planBlocks` because the
+  checks read `pruned`): `ppSim` replays the instructions with the file's
+  defines and `$(sys.BUILDARCH)`/`BUILDARCHSHORT` from `--arch`, and
+  evaluates conditions as the template `ppCondition` writes would. A
+  condition that reads anything else (a variable only `-d` sets, an
+  `<?ifdef?>` of a variable no define sets) takes the first branch not
+  known to be false as a guess, and the simulation follows that branch's
+  defines so later blocks agree with the output; guessed blocks keep the
+  "not evaluated" note. Loop bodies are unknown.
+  `ppBlock.chosen` is that branch (`noBranch` for none) and `pruned`
+  drops the others. A `ComponentGroup` of contained components, `File`s
+  and `Files`, outside loops and without references, stays in a kept
+  block (`groupAllowed`); `--msi` pins a component in a kept block whose
+  ID repeats only to the row with its key file and folder, which
+  branches that never apply together share, and globs in such branches
+  share the code of a file both add (`exclusiveHarvests`). `and`/`or`
+  decide on one known operand (three-valued). A
+  membership's actions are the reference's plus the component's, and
+  `unionOpens`
+  drops an `if` that repeats one already there.
   Defines follow WiX order through `defineEval`: a define takes the value
   each variable has at that point, one that reads a variable no define has
   set yet reads `{{ .X }}` (--var stands in for -d), and a header var

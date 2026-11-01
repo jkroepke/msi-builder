@@ -478,7 +478,9 @@ actions.
   cabinet, so a package of one large binary would not get faster (MSISPEC
   section 16).
 - **Identifiers are deterministic.** Generated keys hash their content
-  (§11.2 identity), short names hash parent and long name (§11.3), GUIDs are
+  (§11.2 identity), except `Environment` keys, which number the variables
+  in config order because the engine applies the rows in key order
+  (ENVVAR-04); short names hash parent and long name (§11.3), GUIDs are
   UUIDv5. Nothing depends on map iteration order or time.
 - **The builder verifies its own output** by re-reading it with the
   independent readers in `msidb` and `cab`, cell by cell. This catches the

@@ -1029,69 +1029,84 @@ features:
 
 // TestEnvironmentParts checks that several parts of one variable in a
 // component get Environment rows of their own (ENVVAR-04), and that the
-// first keeps the key it had before.
+// table, which msiexec applies in key order, keeps the YAML order of the
+// variables within a component and across components, also past ten
+// variables.
 func TestEnvironmentParts(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 
 	exe := testpe.Build(testpe.Options{FileVersion: "1.0.0.0", Languages: []int{1033}})
-	if err := os.WriteFile(filepath.Join(dir, "hello.exe"), exe, 0o600); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"hello.exe", "tool.exe"} {
+		if err := os.WriteFile(filepath.Join(dir, name), exe, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	build := func(environment string) map[string]string {
-		t.Helper()
+	// Values sorted the other way round than the YAML order, so that no
+	// key derived from them keeps it by chance.
+	first := make([]string, 0, 6)
+	second := make([]string, 0, 6)
 
-		cfg, err := config.Parse([]byte(`schema: msi-builder/v1
+	for i := range 6 {
+		first = append(first, fmt.Sprintf("{ name: PATH, value: 'z%d', action: %s }", 9-i, []string{"append", "prepend"}[i%2]))
+		second = append(second, fmt.Sprintf("{ name: PATHEXT, value: 'y%d', action: append, scope: user }", 9-i))
+	}
+
+	cfg, err := config.Parse([]byte(`schema: msi-builder/v1
 product: { name: Hello, manufacturer: Example, version: 1.0.0, upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301 }
 package: { platform: x64, scope: perUserOrMachine }
 components:
   - files: [{ source: hello.exe }]
-    environment: [`+environment+`]
+    environment: [`+strings.Join(first, ", ")+`]
+  - files: [{ source: tool.exe }]
+    environment: [`+strings.Join(second, ", ")+`]
 `), config.Options{})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		cfg.BaseDir = dir
-
-		database, err := msidb.Unmarshal(mustBuild(t, cfg).Package)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		values := map[string]string{}
-		for _, row := range rows(t, database, "Environment") {
-			values[fmt.Sprint(row[0])] = fmt.Sprint(row[1], " ", row[2])
-		}
-
-		return values
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	one := build("{ name: PATH, value: '[INSTALLDIR]', action: append }")
-	both := build("{ name: PATH, value: '[INSTALLDIR]', action: append }, { name: PATH, value: '[INSTALLDIR]bin', action: append }")
+	cfg.BaseDir = dir
 
-	// scope auto: one row per context and part.
-	if len(one) != 2 || len(both) != 4 {
-		t.Fatalf("rows %v and %v, want 2 and 4", one, both)
+	database, err := msidb.Unmarshal(mustBuild(t, cfg).Package)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	for key, value := range one {
-		if both[key] != value {
-			t.Errorf("row %s changed from %q to %q", key, value, both[key])
+	// The rows as stored, which is the order of their keys.
+	table := map[string][]string{}
+
+	for _, row := range rows(t, database, "Environment") {
+		name := fmt.Sprint(row[1])
+		table[name] = append(table[name], fmt.Sprint(row[2]))
+	}
+
+	want := map[string][]string{
+		"=-*PATH":   {"[~];z9", "z8;[~]", "[~];z7", "z6;[~]", "[~];z5", "z4;[~]"},
+		"=-PATH":    {"[~];z9", "z8;[~]", "[~];z7", "z6;[~]", "[~];z5", "z4;[~]"},
+		"=-PATHEXT": {"[~];y9", "[~];y8", "[~];y7", "[~];y6", "[~];y5", "[~];y4"},
+	}
+
+	if len(table) != len(want) {
+		t.Fatalf("variables %v, want %v", table, want)
+	}
+
+	for name, values := range want {
+		if !slices.Equal(table[name], values) {
+			t.Errorf("%s rows in table order %v, want %v", name, table[name], values)
 		}
 	}
 
-	parts := map[string]int{}
-	for _, value := range both {
-		parts[value]++
+	keys := make([]string, 0, len(database.Table("Environment").Rows))
+	for _, row := range rows(t, database, "Environment") {
+		keys = append(keys, fmt.Sprint(row[0]))
 	}
 
-	for _, want := range []string{`=-*PATH [~];[INSTALLDIR]bin`, `=-PATH [~];[INSTALLDIR]bin`} {
-		if parts[want] != 1 {
-			t.Errorf("no row %q in %v", want, both)
-		}
+	// Twelve variables: two digits, and the second component's after the
+	// first's.
+	if keys[0] != "env00m" || keys[len(keys)-1] != "env11" {
+		t.Errorf("keys %v, want env00m to env11", keys)
 	}
 }
 

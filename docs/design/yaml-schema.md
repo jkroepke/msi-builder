@@ -1945,9 +1945,23 @@ list the same variable (names compared without case) with the same action
 and scope more than once only to add several parts with `append` or
 `prepend`, each with its own value, such as a program folder and its
 `Scripts` folder: each entry is an `Environment` row of its own, which the
-install adds and the uninstall removes (ENVVAR-04). The first row keeps the
-key it would have alone; the later ones are keyed by their value too. Any
-other repeat, and the same part twice, is an error.
+install adds and the uninstall removes (ENVVAR-04). Any other repeat, and
+the same part twice, is an error.
+
+One installation applies the parts one after the other in config order:
+the entries of a component in YAML order, the top-level `components` in
+YAML order and then the components defined inside `features`, in feature
+order, a feature's components before those of its sub-features. A later `append` goes behind an earlier one, and a later
+`prepend` in front of it, so `prepend` entries `[INSTALLDIR]` and
+`[INSTALLDIR]Scripts` give `[INSTALLDIR]Scripts;[INSTALLDIR];…`. The
+engine applies `Environment` rows in key order (ENVVAR-04), so the builder
+numbers the keys (`env0`, `env1`, …, padded to one width, with `m` and `u`
+for the two rows of a `scope: auto` variable in a dual package) in that
+order.
+A part that a later installation adds, such as a feature installed
+afterwards, goes to the front or the end of the variable as it is then, and
+an append of a part already present is skipped (MSISPEC section 8.13;
+inferred for the later installation, not run).
 
 **Top-level `files` shorthand.** Not in version 1. Every listed file belongs
 to an explicit component, so that its GUID and key path are visible in
