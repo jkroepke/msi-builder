@@ -1013,12 +1013,14 @@ stays behind after a late removal and the uninstall; convert names it in a
 Without `--msi`, convert computes the GUID WiX generates for a component
 from its key file or key registry value, as WiX does (section 8.10 of the
 spec; UPG-14 upgraded a WiX package this way), for the platform `--arch`
-names, which is `package.platform` by default; pass the `-arch` WiX built
-with, and `--bcgg` when WiX 6 or later built with `-bcgg`. It leaves one
+names (`package.platform` follows it); pass the `-arch` WiX built with,
+and `--bcgg` when WiX 6 or later built with `-bcgg`. A WiX 3 `Package
+Platform` names it too. Without either, codes that depend on the platform
+(below a 6432 folder, or a registry value of default bitness) stay open. It leaves one
 `# TODO` at `upgrade.removeOld` that names the components whose GUID it
 cannot compute, such as ones whose folder or filename comes from an
-undefined variable, or ones below `ProgramFiles6432Folder` without
-`--arch` when nothing in the source names the platform.
+undefined variable, or ones that depend on the platform without
+`--arch`.
 Advertised WiX shortcuts are lost in that upgrade even with every GUID
 kept: msi-builder installs plain shortcuts at the same paths, and the late
 removal of the WiX package then deletes them (seen in a real-world port).

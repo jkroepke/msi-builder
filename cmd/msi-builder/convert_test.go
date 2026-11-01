@@ -194,9 +194,9 @@ components:
 	stdout.Reset()
 	stderr.Reset()
 
-	// Without --msi, convert computes the codes as WiX does, so the late
-	// removal needs no note.
-	if code := run([]string{"convert", wxs}, &stdout, &stderr); code != 0 {
+	// Without --msi, convert computes the codes as WiX does for the --arch
+	// given, so the late removal needs no note.
+	if code := run([]string{"convert", "--arch", "x64", wxs}, &stdout, &stderr); code != 0 {
 		t.Fatalf("convert: exit %d: %s", code, stderr.String())
 	}
 

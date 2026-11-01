@@ -323,9 +323,10 @@ func TestConvertBuiltCodes(t *testing.T) {
 		t.Errorf("unmatched components in lines %v, want [17 20 27]", lines)
 	}
 
-	// Without the package, convert computes the code of every component,
-	// also of the shortcut components, and the late removal needs no note.
-	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{})
+	// Without the package but with --arch, convert computes the code of
+	// every component, also of the shortcut components, and the late
+	// removal needs no note.
+	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{Arch: "x64"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,8 +339,22 @@ func TestConvertBuiltCodes(t *testing.T) {
 		t.Errorf("notes %v name a component without a code", res.Notes)
 	}
 
-	// Without the platform, the HKCU key paths of the shortcut components
-	// stay open, since their bitness follows -arch.
+	// The 64-bit folder makes package.platform x64, but does not tell the
+	// -arch WiX built with, so the HKCU key paths, whose bitness follows
+	// it, stay open.
+	res, err = wixconvert.Convert(strings.NewReader(codesSource), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	open := wixconvert.Note{Line: 38, Message: "WiX generated the Guid of Menu, the component in line 27, which convert cannot compute"}
+	if !slices.ContainsFunc(res.Notes, func(n wixconvert.Note) bool {
+		return n.Line == open.Line && strings.HasPrefix(n.Message, open.Message)
+	}) {
+		t.Errorf("notes %v lack %v", res.Notes, open)
+	}
+
+	// Below a 6432 folder, the files need the platform too.
 	src := strings.Replace(codesSource, "ProgramFiles64Folder", "ProgramFiles6432Folder", 1)
 
 	res, err = wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})

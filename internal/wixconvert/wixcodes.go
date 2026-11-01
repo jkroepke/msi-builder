@@ -204,7 +204,7 @@ func (c *converter) wixBitness(elm *elem) (string, error) {
 		return "", nil
 	}
 
-	switch c.platform {
+	switch c.codeArch() {
 	case platformX86:
 		return "", nil
 	case platformX64, platformArm64:
@@ -284,7 +284,7 @@ func (c *converter) platformFolder(dirID string) (string, error) {
 		return dirID, nil
 	}
 
-	switch c.platform {
+	switch c.codeArch() {
 	case platformX86:
 		return pair[0], nil
 	case platformX64, platformArm64:
@@ -400,9 +400,9 @@ func (c *converter) computedHeader() {
 		return
 	}
 
-	build := "wix build"
-	if c.platform != "" {
-		build += " -arch " + c.platform
+	build := "wix build for any -arch"
+	if arch := c.codeArch(); arch != "" {
+		build = "wix build -arch " + arch
 	}
 
 	if c.bcgg {
@@ -449,4 +449,15 @@ func plural(n int, thing string) string {
 	}
 
 	return strconv.Itoa(n) + " " + thing + "s"
+}
+
+// codeArch returns the platform WiX built for when --arch or a WiX 3
+// Package Platform names it, else "": the folders a source uses do not
+// tell which -arch it was built with, and WiX builds for x86 without one.
+func (c *converter) codeArch() string {
+	if !c.platformNamed {
+		return ""
+	}
+
+	return c.platform
 }

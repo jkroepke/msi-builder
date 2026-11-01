@@ -202,6 +202,8 @@ const v3ProbeSource = `<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 func TestConvertComputedCodesV3(t *testing.T) {
 	t.Parallel()
 
+	// The Package Platform names the platform, so the default bitness of
+	// Reg64 needs no --arch.
 	got, res := convertCodes(t, v3ProbeSource, wixconvert.Options{})
 	checkCodes(t, got, map[string]string{
 		"AppExe": "{1C2DB505-EC99-5268-95D7-15C86F1C7D04}",
@@ -334,5 +336,31 @@ func TestConvertComputedCodesUPG12(t *testing.T) {
 
 	if len(res.Notes) > 0 {
 		t.Errorf("notes %v, want none", res.Notes)
+	}
+}
+
+// TestConvertComputedCodesGroupSubdirectory puts the components of a
+// ComponentGroup with a Subdirectory in that folder, also in their code.
+func TestConvertComputedCodesGroupSubdirectory(t *testing.T) {
+	t.Parallel()
+
+	const source = `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="GuidProbe" Manufacturer="Example" Version="1.0.0" UpgradeCode="11111111-2222-3333-4444-555555555555">
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Example Co\GuidProbe" />
+    </StandardDirectory>
+    <ComponentGroup Id="Bin" Directory="INSTALLFOLDER" Subdirectory="bin">
+      <Component Id="Tool"><File Source="Tool.dll" /></Component>
+    </ComponentGroup>
+    <Feature Id="Main"><ComponentGroupRef Id="Bin" /></Feature>
+  </Package>
+</Wix>
+`
+
+	got, res := convertCodes(t, source, wixconvert.Options{})
+	checkCodes(t, got, map[string]string{"Tool": "{20007141-C4E9-58E7-B4D4-0056BA9F182C}"}, res.YAML)
+
+	if !strings.Contains(string(res.YAML), "directory: bin") {
+		t.Errorf("Tool is not in bin:\n%s", res.YAML)
 	}
 }

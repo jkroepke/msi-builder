@@ -13,7 +13,7 @@
 # TODO(line 52): the progress text of LaunchHello is dropped: the action was not converted to a customActions entry of its own
 # TODO(line 185): drop Wix4BroadcastEnvironmentChange_X64: Windows Installer announces environment changes itself
 # TODO(line 186): Wix4BroadcastSettingChange_X64 has no counterpart; if the package writes a setting that Windows reads only on WM_SETTINGCHANGE, send it from a run action
-# convert computed the guids of 2 components whose code WiX generates from their key paths, as wix build -arch x64 does; with --msi and the package WiX built, it takes them from that package instead.
+# convert computed the guids of 2 components whose code WiX generates from their key paths, as wix build for any -arch does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 vars:
   Port: "8080"

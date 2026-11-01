@@ -68,8 +68,9 @@ type Options struct {
 	// Source names the input in the header comment, such as app.wxs.
 	Source string
 	// Arch is the platform WiX built the package for (wix build -arch):
-	// x86, x64 or arm64. Empty takes package.platform from the source, as
-	// a WiX 3 Package Platform or the folders name it.
+	// x86, x64 or arm64; package.platform follows it. Empty leaves the
+	// codes that depend on it to a todo, unless a WiX 3 Package Platform
+	// names it.
 	Arch string
 	// BCGG is set when WiX 6 or later built the package with -bcgg, which
 	// computes the codes of registry key paths as WiX 3 did.
@@ -219,6 +220,9 @@ type converter struct {
 	v3            bool
 	// bcgg makes registry key path codes those of WiX 3.
 	bcgg bool
+	// platformNamed is set when --arch or a WiX 3 Package Platform names
+	// the platform, not the folders the source uses.
+	platformNamed bool
 	// floorSeen is set once a hand-made major upgrade became
 	// upgrade.minVersion.
 	floorSeen bool
@@ -406,7 +410,7 @@ func (c *converter) index() error {
 	c.chooseInstallDir()
 
 	if c.arch != "" {
-		c.platform = c.arch
+		c.platform, c.platformNamed = c.arch, true
 	} else {
 		c.choosePlatform()
 	}
@@ -503,6 +507,15 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 			inner := scope{dir: sc.dir, files: sc.files, group: conv.group(elm.attr("Id"))}
 			if folder := elm.attr(attrDirectory); folder != "" {
 				inner.dir, inner.files = folder, fileSource{}
+			}
+
+			// WiX 4 puts the group's components in a Subdirectory of its
+			// folder too.
+			if sub := conv.expand(elm, elm.attr("Subdirectory")); sub != "" {
+				inner.dir = conv.subdir(inner.dir, sub, elm.attr("Subdirectory"), elm.line)
+				for _, part := range strings.FieldsFunc(sub, func(r rune) bool { return r == '\\' || r == '/' }) {
+					inner.files = inner.files.below(part)
+				}
 			}
 
 			conv.walk(elm, inner)

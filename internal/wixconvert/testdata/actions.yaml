@@ -3,7 +3,7 @@
 # Review it, resolve the TODO comments, then run msi-builder validate.
 # TODO(line 5): the WiX package has no MajorUpgrade; msi-builder adds the standard major upgrade (set upgrade: false to leave it out)
 # TODO(line 91): the Error row 1316 has no counterpart; only error actions take in their message
-# convert computed the guids of 7 components whose code WiX generates from their key paths, as wix build -arch x64 does; with --msi and the package WiX built, it takes them from that package instead.
+# convert computed the guids of 6 components whose code WiX generates from their key paths, as wix build for any -arch does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 product:
   name: Hello
@@ -96,7 +96,6 @@ components:
   # msi-builder writes both for every shortcut.
   - id: ConsoleLink
     directory: ProgramMenuFolder/Hello
-    guid: '{EE86C846-C4EF-57A4-B715-295E2CEDE531}'
     registry:
       - root: HKCU
         key: Software\Example\Hello\Handlers

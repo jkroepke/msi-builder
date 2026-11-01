@@ -11,9 +11,9 @@ becomes a "# TODO" comment in the YAML file and a line on stderr.
 
 A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
 gives it: convert computes it from the key file or key registry value as
-WiX does, for the platform --arch names (default: package.platform, from a
-WiX 3 Package Platform or the folders) and, with --bcgg, as WiX 6 and later
-do with -bcgg. Each file a WiX Files glob harvests keeps its code in the
+WiX does, for the platform --arch or a WiX 3 Package Platform names (without either,
+codes that depend on the platform keep a "# TODO") and, with --bcgg, as
+WiX 6 and later do with -bcgg. Each file a WiX Files glob harvests keeps its code in the
 guids of the folder source the glob became, when the folder is next to the
 source file. With --msi and the package WiX built from the source file,
 convert takes the codes from that package instead, finding each component
@@ -45,7 +45,7 @@ msi-builder convert [flags] app.wxs
 ## Flags
 
 ```text
-      --arch string     the platform WiX built for (wix build -arch): x86, x64 or arm64; default package.platform
+      --arch string     the platform WiX built for (wix build -arch): x86, x64 or arm64; also sets package.platform
       --bcgg            WiX 6 or later built the package with -bcgg (WiX 3 codes for registry key paths)
       --force           overwrite an existing output file
   -h, --help            help for convert

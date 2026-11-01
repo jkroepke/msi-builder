@@ -132,11 +132,11 @@ func (c *converter) choosePlatform() { //nolint:cyclop // the fallbacks in their
 	if c.summary != nil && c.v3 {
 		switch p := strings.ToLower(c.summary.attr("Platform")); p {
 		case "x64", "arm64", platformX86:
-			c.platform = p
+			c.platform, c.platformNamed = p, true
 
 			return
 		case "intel":
-			c.platform = platformX86
+			c.platform, c.platformNamed = platformX86, true
 
 			return
 		}

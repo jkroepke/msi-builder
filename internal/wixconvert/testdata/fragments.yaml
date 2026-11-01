@@ -9,7 +9,7 @@
 # TODO(line 51): the extension attributes util:Extra on <Component> have no counterpart
 # TODO(line 65): advertised shortcuts are never supported; this one is a plain shortcut
 # TODO(line 65): the shortcut "Hello Help" has no Target: advertised shortcuts are never supported; point it at a file
-# convert computed the guids of 4 components whose code WiX generates from their key paths, as wix build -arch x64 does; with --msi and the package WiX built, it takes them from that package instead.
+# convert computed the guids of 4 components whose code WiX generates from their key paths, as wix build for any -arch does; with --msi and the package WiX built, it takes them from that package instead.
 schema: msi-builder/v1
 vars:
   Greeting: Hello

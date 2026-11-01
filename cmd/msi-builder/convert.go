@@ -34,9 +34,9 @@ becomes a "# TODO" comment in the YAML file and a line on stderr.
 
 A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
 gives it: convert computes it from the key file or key registry value as
-WiX does, for the platform --arch names (default: package.platform, from a
-WiX 3 Package Platform or the folders) and, with --bcgg, as WiX 6 and later
-do with -bcgg. Each file a WiX Files glob harvests keeps its code in the
+WiX does, for the platform --arch or a WiX 3 Package Platform names (without either,
+codes that depend on the platform keep a "# TODO") and, with --bcgg, as
+WiX 6 and later do with -bcgg. Each file a WiX Files glob harvests keeps its code in the
 guids of the folder source the glob became, when the folder is next to the
 source file. With --msi and the package WiX built from the source file,
 convert takes the codes from that package instead, finding each component
@@ -66,7 +66,7 @@ check it with msi-builder validate.`,
 
 	cmd.Flags().StringVarP(&out, "output", "o", "", "write the YAML file here instead of stdout")
 	cmd.Flags().StringVar(&flags.built, "msi", "", "keep the component codes of this package, built by WiX from app.wxs")
-	cmd.Flags().StringVar(&flags.arch, "arch", "", "the platform WiX built for (wix build -arch): x86, x64 or arm64; default package.platform")
+	cmd.Flags().StringVar(&flags.arch, "arch", "", "the platform WiX built for (wix build -arch): x86, x64 or arm64; also sets package.platform")
 	cmd.Flags().BoolVar(&flags.bcgg, "bcgg", false, "WiX 6 or later built the package with -bcgg (WiX 3 codes for registry key paths)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing output file")
 	mustComplete(cmd.MarkFlagFilename("output", "yaml", "yml"))

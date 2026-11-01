@@ -373,10 +373,14 @@ func (c *converter) harvestNote(comp *comp) string {
 	const early = "or remove the old version early (afterInstallInitialize)"
 
 	switch {
+	case c.built == nil && comp.needArch:
+		return "WiX gave each file of this Files glob a component of its own, whose code depends on the platform WiX built " +
+			"for, so the late removeOld deletes these files on the first upgrade from the WiX package; run msi-builder " +
+			"convert again with --arch and that platform, or with --msi and the package WiX built, " + early
 	case c.built == nil:
 		return "WiX gave each file of this Files glob a component of its own, so the late removeOld deletes these files on " +
-			"the first upgrade from the WiX package; run msi-builder convert again with --msi and the package WiX built, " +
-			"which keeps the code of each file in guids, " + early
+			"the first upgrade from the WiX package; run msi-builder convert again next to the glob's folder, or with --msi " +
+			"and the package WiX built, which keeps the code of each file in guids, " + early
 	case c.builtDir(c.dirs[comp.dir], comp.dir) == "":
 		return "convert did not find the folder of this Files glob in " + c.built.Name + ", so it kept no code for its " +
 			"files and the late removeOld deletes them on the first upgrade from the WiX package; add the ComponentId WiX " +
