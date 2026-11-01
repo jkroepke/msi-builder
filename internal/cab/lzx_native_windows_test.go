@@ -47,50 +47,15 @@ func readLZXFixture(t *testing.T, path string) (int, int, [sha256.Size]byte, [][
 
 // lzxCabinet wraps LZX frames into a cabinet of one folder and one file.
 func lzxCabinet(window, size int, frames [][]byte) []byte {
-	const name = "data.bin"
-
-	headerSize := 36 + 8
-	fileSize := 16 + len(name) + 1
-
-	out := []byte("MSCF")
-	out = binary.LittleEndian.AppendUint32(out, 0)
-	out = binary.LittleEndian.AppendUint32(out, 0) // cbCabinet, set below
-	out = binary.LittleEndian.AppendUint32(out, 0)
-	out = binary.LittleEndian.AppendUint32(out, 36+8) // coffFiles
-	out = binary.LittleEndian.AppendUint32(out, 0)
-	out = append(out, 3, 1)                        // version 1.3
-	out = binary.LittleEndian.AppendUint16(out, 1) // cFolders
-	out = binary.LittleEndian.AppendUint16(out, 1) // cFiles
-	out = binary.LittleEndian.AppendUint16(out, 0) // flags
-	out = binary.LittleEndian.AppendUint16(out, 0) // setID
-	out = binary.LittleEndian.AppendUint16(out, 0) // iCabinet
-	out = binary.LittleEndian.AppendUint32(out, uint32(headerSize+fileSize))
-	out = binary.LittleEndian.AppendUint16(out, uint16(len(frames)))               //nolint:gosec // small
-	out = binary.LittleEndian.AppendUint16(out, uint16(cab.LZX)|uint16(window)<<8) //nolint:gosec // 15 to 21
-	out = binary.LittleEndian.AppendUint32(out, uint32(size))                      //nolint:gosec // small
-	out = binary.LittleEndian.AppendUint32(out, 0)                                 // uoffFolderStart
-	out = binary.LittleEndian.AppendUint16(out, 0)                                 // iFolder
-	out = binary.LittleEndian.AppendUint16(out, 0x5821)                            // 2024-01-01
-	out = binary.LittleEndian.AppendUint16(out, 0)
-	out = binary.LittleEndian.AppendUint16(out, cab.AttrArchive)
-	out = append(out, name+"\x00"...)
-
+	blocks := make([]cab.RawBlock, len(frames))
 	for i, frame := range frames {
-		frameSize := min(lzxFrameSize, size-i*lzxFrameSize)
-
-		var rec [8]byte
-
-		binary.LittleEndian.PutUint16(rec[4:], uint16(len(frame))) //nolint:gosec // at most 38912
-		binary.LittleEndian.PutUint16(rec[6:], uint16(frameSize))  //nolint:gosec // at most 32768
-		binary.LittleEndian.PutUint32(rec[:], cab.Checksum(frame, 0)^binary.LittleEndian.Uint32(rec[4:]))
-
-		out = append(out, rec[:]...)
-		out = append(out, frame...)
+		blocks[i] = cab.RawBlock{Payload: frame, Uncomp: min(lzxFrameSize, size-i*lzxFrameSize)}
 	}
 
-	binary.LittleEndian.PutUint32(out[8:], uint32(len(out))) //nolint:gosec // small
+	folder := cab.RawFolder{Blocks: blocks, Type: cab.LZX | cab.Compression(window)<<8}      //nolint:gosec // 15 to 21
+	file := cab.RawFile{Name: []byte("data.bin"), Size: uint32(size), Attr: cab.AttrArchive} //nolint:gosec // test sizes
 
-	return out
+	return cab.RawCabinet([]cab.RawFolder{folder}, []cab.RawFile{file})
 }
 
 const lzxFrameSize = 32768

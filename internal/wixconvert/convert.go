@@ -97,6 +97,21 @@ func Convert(r io.Reader, opts Options) (*Result, error) {
 	return &Result{YAML: text, Notes: notes, Vars: conv.undefinedVars()}, nil
 }
 
+// dirFileSource returns the FileSource of a Directory or DirectoryRef,
+// with its variables filled in.
+func (c *converter) dirFileSource(elm *elem) string {
+	src := elm.attr("FileSource")
+	if src == "" {
+		src = elm.attr("src")
+	}
+
+	if src == "" {
+		return ""
+	}
+
+	return strings.TrimRight(sourcePath(c.expand(elm, src)), "/")
+}
+
 // converter holds the indexed source file and the output.
 type converter struct {
 	compByID map[string]*comp
@@ -202,6 +217,8 @@ type dir struct {
 type comp struct {
 	e   *elem
 	out *omap
+	// files is the FileSource for its files without Source.
+	files fileSource
 	// folder is the folder source a Files glob became, whose files keep
 	// the codes WiX gave them in its guids.
 	folder *omap
@@ -359,6 +376,39 @@ type scope struct {
 	feature      *feature
 	featureGroup *featureGroup
 	dir          string
+	// files is where WiX looks for the files without Source here.
+	files fileSource
+}
+
+// fileSource is the FileSource that applies to the elements in a Directory
+// or DirectoryRef. joined marks one that the names of nested folders were
+// joined to, which convert only assumes WiX does.
+type fileSource struct {
+	path   string
+	joined bool
+}
+
+// below returns the file source of a nested folder of the given name.
+func (f fileSource) below(name string) fileSource {
+	if f.path == "" || name == "" || name == "." {
+		return f
+	}
+
+	return fileSource{path: f.path + "/" + name, joined: true}
+}
+
+// sourceIn returns the file source inside a Directory, DirectoryRef or
+// StandardDirectory: its own FileSource, or the outer one below its name.
+func (c *converter) sourceIn(elm *elem, outer fileSource) fileSource {
+	if own := c.dirFileSource(elm); own != "" {
+		return fileSource{path: own}
+	}
+
+	if !elm.is("Directory") {
+		return fileSource{}
+	}
+
+	return outer.below(c.expand(elm, elm.attr("Name")))
 }
 
 func (c *converter) walk(parent *elem, within scope) {
@@ -391,20 +441,23 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 		"StandardDirectory": func(c *converter, e *elem, sc scope) {
 			c.addDir(e, "", true)
 			sc.dir = e.attr("Id")
+			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
 		"Directory": func(c *converter, e *elem, sc scope) {
 			sc.dir = c.addDir(e, sc.dir, false).id
+			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
 		"DirectoryRef": func(c *converter, e *elem, sc scope) {
 			sc.dir = e.attr("Id")
+			sc.files = c.sourceIn(e, sc.files)
 			c.walk(e, sc)
 		},
 		"ComponentGroup": func(conv *converter, elm *elem, sc scope) {
-			inner := scope{dir: sc.dir, group: conv.group(elm.attr("Id"))}
+			inner := scope{dir: sc.dir, files: sc.files, group: conv.group(elm.attr("Id"))}
 			if folder := elm.attr(attrDirectory); folder != "" {
-				inner.dir = folder
+				inner.dir, inner.files = folder, fileSource{}
 			}
 
 			conv.walk(elm, inner)
@@ -425,10 +478,10 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 				feat.refLine = elm.line
 			}
 
-			conv.walk(elm, scope{dir: within.dir, feature: feat})
+			conv.walk(elm, scope{dir: within.dir, files: within.files, feature: feat})
 		},
 		"FeatureGroup": func(c *converter, e *elem, sc scope) {
-			c.walk(e, scope{dir: sc.dir, featureGroup: c.featureGroup(e.attr("Id"))})
+			c.walk(e, scope{dir: sc.dir, files: sc.files, featureGroup: c.featureGroup(e.attr("Id"))})
 		},
 		"FeatureGroupRef": func(conv *converter, e *elem, sc scope) {
 			switch groupID := e.attr("Id"); {
@@ -685,11 +738,14 @@ func (c *converter) addComp(elm *elem, within scope) {
 	}
 
 	if comp.dir == "" {
-		comp.dir = within.dir
+		comp.dir, comp.files = within.dir, within.files
 	}
 
 	if sub := c.expand(elm, elm.attr("Subdirectory")); sub != "" {
 		comp.dir = c.subdir(comp.dir, sub, elm.line)
+		for _, part := range strings.FieldsFunc(sub, func(r rune) bool { return r == '\\' || r == '/' }) {
+			comp.files = comp.files.below(part)
+		}
 	}
 
 	c.comps = append(c.comps, comp)

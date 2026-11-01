@@ -331,7 +331,7 @@ func TestBound(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			bound := Bound(len(files), int64(len("first.bin")+len("b")), int64(len(data)+5), comp)
+			bound := Bound(len(files), 1, int64(len("first.bin")+len("b")), int64(len(data)+5), comp)
 			if int64(len(out)) > bound || comp == None && int64(len(out)) != bound {
 				t.Errorf("compression %d: wrote %d bytes, bound %d", comp, len(out), bound)
 			}

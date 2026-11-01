@@ -159,6 +159,31 @@ func TestValidateAccepted(t *testing.T) {
 			"  launch: {file: app.exe}\n" +
 			"  languages: {de: {launch: {text: '&Starten'}, dialogs: {ExtraDlg: {title: y, description: z, " +
 			"fields: {OPT: {label: Stufe, options: {b: '&Hoch'}}, NAME: null}}}}, fr: {dialogs: {ExtraDlg: null}}}\n",
+		// A dual package runs an action without impersonation per machine
+		// only (CA-09).
+		"dual scope elevated action": pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: INSTALLDIR}
+    execute: deferred
+    impersonate: false
+    scope: perMachine
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize, when: install}]
+  - id: User
+    setProperty: {name: A, value: b}
+    scope: perUser
+    schedule: [{sequence: execute, after: CostFinalize}]
+`,
+		// A working directory installs nothing: only the folders ICE105
+		// rejects are refused, not Program Files.
+		"per-user action in Program Files": strings.Replace(pkg(`{platform: x64, scope: perUser}`), "id: ProgramFiles64Folder", "id: LocalAppDataFolder", 1) +
+			appComponent + `customActions:
+  - id: Tool
+    exec: {command: '"[ProgramFiles64Folder]x\x.exe"', directory: ProgramFiles64Folder}
+    execute: deferred
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
 		// Installed states and properties are fine in a component condition.
 		"installed states": base + strings.Replace(appComponent, "    files:",
 			"    condition: '!Main=3 AND ?App=3 OR START=\"&x\"'\n    services: [{name: svc, control: {startCondition: 'START=\"1\"'}}]\n    files:", 1),
@@ -453,6 +478,123 @@ func TestValidate(t *testing.T) {
     schedule: [{sequence: execute, after: InstallFiles}]
 `,
 			sevError, "customActions[0].impersonate", "deferred",
+		},
+		"dual scope elevated action without scope": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: INSTALLDIR}
+    execute: deferred
+    impersonate: false
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
+			sevError, "customActions[0].impersonate", "add scope: perMachine",
+		},
+		"dual scope elevated admin action": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: INSTALLDIR}
+    execute: deferred
+    impersonate: false
+    return: check
+    schedule: [{sequence: adminExecute, before: InstallFinalize}]
+`,
+			sevError, "customActions[0].impersonate", "only with scope: perMachine",
+		},
+		"dual scope elevated perUser action": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: INSTALLDIR}
+    execute: deferred
+    impersonate: false
+    scope: perUser
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
+			sevError, "customActions[0].impersonate", "a perUser action runs impersonated",
+		},
+		"per-machine action with scope": {
+			base + appComponent + `customActions:
+  - id: Set
+    setProperty: {name: A, value: b}
+    scope: perMachine
+    schedule: [{sequence: execute, after: CostFinalize}]
+`,
+			sevError, "customActions[0].scope", "only a perUserOrMachine or perMachineOrUser package",
+		},
+		"per-user elevated action with scope": {
+			pkg(`{platform: x64, scope: perUser}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: INSTALLDIR}
+    execute: deferred
+    impersonate: false
+    scope: perMachine
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
+			sevError, "customActions[0].scope", "only a perUserOrMachine or perMachineOrUser package",
+		},
+		"dual scope action in the system folder": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: System64Folder}
+    execute: deferred
+    impersonate: false
+    scope: perMachine
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
+			sevError, "customActions[0].exec.directory", "System64Folder",
+		},
+		"per-user action in the temp folder": {
+			strings.Replace(pkg(`{platform: x64, scope: perUser}`), "id: ProgramFiles64Folder", "id: LocalAppDataFolder", 1) +
+				appComponent + `customActions:
+  - id: Tool
+    run: {command: '"[INSTALLDIR]tool.exe"', directory: TempFolder}
+    execute: deferred
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
+			sevError, "customActions[0].run.directory", "TempFolder, which the action's directory adds (ICE105)",
+		},
+		"action scope in the admin execute sequence": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Set
+    setProperty: {name: A, value: b}
+    scope: perUser
+    schedule: [{sequence: adminExecute, after: CostFinalize}]
+`,
+			sevError, "customActions[0].schedule[0].sequence", "only in the execute sequence",
+		},
+		"elevated action in a per-user-first package": {
+			pkg(`{platform: x64, scope: perUserOrMachine}`) + appComponent + `customActions:
+  - id: Machine
+    exec: {command: '"[System64Folder]cmd.exe" /c ver', directory: INSTALLDIR}
+    execute: deferred
+    impersonate: false
+    scope: perMachine
+    return: check
+    schedule: [{sequence: execute, before: InstallFinalize}]
+`,
+			sevWarning, "customActions[0].scope", "ICE105 warns",
+		},
+		"action scope dual": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Set
+    setProperty: {name: A, value: b}
+    scope: perUserOrMachine
+    schedule: [{sequence: execute, after: CostFinalize}]
+`,
+			sevError, "customActions[0].scope", "not one of",
+		},
+		"action scope in the UI sequence": {
+			pkg(`{platform: x64, scope: perMachineOrUser}`) + appComponent + `customActions:
+  - id: Set
+    setProperty: {name: A, value: b}
+    scope: perMachine
+    schedule: [{sequence: execute, after: CostFinalize}, {sequence: ui, after: CostFinalize}]
+`,
+			sevError, "customActions[0].schedule[1].sequence", "only in the execute sequence",
 		},
 		"standard action name": {
 			base + appComponent + `customActions:

@@ -463,7 +463,8 @@ func (c *Close) Terminates() bool {
 type FileType struct {
 	// ProgID is the programmatic identifier, such as Acme.Document.1.
 	ProgID string `yaml:"progId"`
-	// Description is the type's name in Explorer.
+	// Description is the type's name in Explorer, written as it is:
+	// [PROPERTY] references are not formatted.
 	Description string `yaml:"description"`
 	// IconIndex picks an icon resource of the file for DefaultIcon; nil
 	// writes no DefaultIcon.
@@ -737,9 +738,13 @@ type CustomAction struct { //nolint:govet // field order is the YAML key order
 	Run          *Run          `yaml:"run"`
 	Execute      string        `yaml:"execute"`
 	Impersonate  *bool         `yaml:"impersonate"`
-	Return       string        `yaml:"return"`
-	HideTarget   bool          `yaml:"hideTarget"`
-	Once         string        `yaml:"once"`
+	// Scope, in a dual package only, runs the action only in that context:
+	// perMachine ANDs ALLUSERS=1 into each schedule's condition, perUser
+	// NOT ALLUSERS. Only a perMachine action may run without impersonation.
+	Scope      Scope  `yaml:"scope"`
+	Return     string `yaml:"return"`
+	HideTarget bool   `yaml:"hideTarget"`
+	Once       string `yaml:"once"`
 	// Progress is the action's description in the ActionText table, shown
 	// by the wizard's progress page while a deferred action runs and
 	// written to the verbose log (under /qn only for deferred actions).
