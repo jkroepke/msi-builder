@@ -872,7 +872,7 @@ func (c *converter) skippedProperty(propID string) bool {
 		return true
 	}
 
-	if _, ok := arpKeys[propID]; ok {
+	if _, ok := arpKeys[propID]; ok || c.skippedScopeProperty(propID) {
 		return true
 	}
 

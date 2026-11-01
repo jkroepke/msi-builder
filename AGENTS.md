@@ -156,6 +156,14 @@ versioning after 1.0.
   A WiX v3 package without a scope only does when it reads
   `MSIINSTALLPERUSER`; guessing from `ALLUSERS` setters alone kept turning
   per-machine packages per-user in review, so they stay perMachine.
+  A hand-built dialog whose radio button group property decides what its
+  Next publishes to `ALLUSERS`/`MSIINSTALLPERUSER` is a scope dialog
+  (`scopepage.go`): in a dual package with the wizard, the conditions of
+  the UI actions that set that property become `ui.scopePage` (with its
+  default when the page would start elsewhere), and those setters and the
+  property are left out (`scopeSources` moves placements on them) unless
+  something else names the property (`readsElsewhere`); setters that
+  choose both options keep a todo.
   A ProgId without `Extension` children takes its verbs and `openWithOnly`
   extensions from the `RegistryValue`s of its component that write
   `<ProgId>\shell\<verb>\command` (running `[#file]`) and

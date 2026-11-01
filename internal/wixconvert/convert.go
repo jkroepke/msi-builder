@@ -266,6 +266,10 @@ type converter struct {
 	// AdvertiseExecuteSequence, that schedule an action, by action.
 	otherSequences map[string]*elem
 	properties     []*elem
+	// scopeDialogs are the hand-built dialogs that pick the install
+	// context, and scopePrefResult what scopePref made of the one.
+	scopeDialogs    []*scopeDialog
+	scopePrefResult *scopePreference
 	// progressTexts are the ProgressText elements, which become the
 	// progress key of the action they name.
 	progressTexts []*elem
@@ -344,6 +348,8 @@ type converter struct {
 	// guessedDual is set when a WiX v3 package without a scope became a
 	// dual package; noDual keeps such a package perMachine.
 	guessedDual, noDual bool
+	// scopePrefDone records that scopePref ran.
+	scopePrefDone bool
 }
 
 type dir struct {

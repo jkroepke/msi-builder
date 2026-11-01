@@ -47,6 +47,14 @@ var removeOldAfter = map[string]bool{ //nolint:gochecknoglobals // lookup table
 	"InstallValidate": true, "InstallInitialize": true, "InstallExecute": true, "InstallFinalize": true,
 }
 
+// showNote notes a dialog that a sequence shows. A scope dialog's todo
+// covers it: the scope page takes its place.
+func (c *converter) showNote(entry *elem) {
+	if !c.isScopeDialog(entry.attr("Dialog")) {
+		c.todof(nil, "", entry.line, "<Show Dialog=%q> schedules a dialog; use the ui keys", entry.attr("Dialog"))
+	}
+}
+
 // placements reads the sequence tables into schedule entries by action.
 func (c *converter) placements() map[string][]any {
 	byAction := make(map[string][]any)
@@ -106,7 +114,7 @@ func (c *converter) standardAction(entry, seq *elem) {
 				"RemoveExistingProducts runs only when %s; msi-builder removes the old version whenever it finds one", cond)
 		}
 	case entry.is("Show"):
-		c.todof(nil, "", entry.line, "<Show Dialog=%q> schedules a dialog; use the ui keys", entry.attr("Dialog"))
+		c.showNote(entry)
 	case movable(entry, seq):
 		c.moveStandard(entry, sequenceNames[seq.name])
 	default:
@@ -1371,13 +1379,14 @@ func (c *converter) scheduledBinaries(byAction map[string][]any) map[string]bool
 // customActions: taken in by another action or key, or not needed.
 func (c *converter) skipAction(custom *elem, byAction map[string][]any) bool {
 	return c.consumed[custom] || c.onlyLaunch(custom.attr("Id"), byAction) ||
-		c.perMachineFolder(custom, custom.attr(attrProperty), byAction) || c.skipContextSetter(custom, byAction)
+		c.perMachineFolder(custom, custom.attr(attrProperty), byAction) || c.skipContextSetter(custom, byAction) ||
+		c.skipScopeSetter(custom, byAction)
 }
 
 // skipSetter reports whether a SetProperty or SetDirectory is left out.
 func (c *converter) skipSetter(setter *elem, byAction map[string][]any) bool {
 	return c.consumed[setter] || setter.is("SetProperty") && c.perMachineFolder(setter, setter.attr("Id"), byAction) ||
-		c.skipContextSetter(setter, byAction)
+		c.skipContextSetter(setter, byAction) || c.skipScopeSetter(setter, byAction)
 }
 
 // perMachineFolder reports whether an action sets WixPerMachineFolder, the
@@ -1574,7 +1583,7 @@ func (c *converter) sourceAnchors(byAction map[string][]any) (map[anchorKey]*oma
 	anchors := make(map[anchorKey]*omap)
 	sources := make(map[string]*elem)
 
-	for _, src := range slices.Concat(c.consumedSources(), c.perMachineSources(), c.contextSources()) {
+	for _, src := range slices.Concat(c.consumedSources(), c.perMachineSources(), c.contextSources(), c.scopeSources()) {
 		sources[src.id] = src.e
 
 		schedule := byAction[src.id]
