@@ -504,7 +504,7 @@ const (
 )
 
 // memberParents are the elements that list components.
-var memberParents = []string{"Feature", "FeatureRef", "ComponentGroup", "FeatureGroup"} //nolint:gochecknoglobals // lookup table
+var memberParents = []string{elemFeature, "FeatureRef", "ComponentGroup", "FeatureGroup"} //nolint:gochecknoglobals // lookup table
 
 // placesComponents reports whether a DirectoryRef holds components and
 // nothing else.

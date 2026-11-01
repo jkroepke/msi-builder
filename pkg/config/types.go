@@ -163,7 +163,9 @@ type InstallDir struct {
 
 // Directory is a node of the install tree.
 type Directory struct { //nolint:govet // field order is the YAML key order
-	ID           string       `yaml:"id"`
+	ID string `yaml:"id"`
+	// Name is the long name; AliasName (".") makes the directory a second
+	// id for its parent folder.
 	Name         string       `yaml:"name"`
 	Configurable bool         `yaml:"configurable"`
 	Children     []*Directory `yaml:"children"`
@@ -589,6 +591,10 @@ type RemoveFile struct {
 	Name string `yaml:"name"`
 	// Directory is a directory ID, default the component's.
 	Directory string `yaml:"directory"`
+	// Property names a property that holds the folder's full path instead
+	// of a directory, for example one a registry search fills (the
+	// RemoveFile.DirProperty column takes any property).
+	Property string `yaml:"property"`
 	// On is install, uninstall (default) or both.
 	On string `yaml:"on"`
 }

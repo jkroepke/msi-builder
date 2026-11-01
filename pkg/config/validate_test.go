@@ -893,6 +893,38 @@ func TestValidate(t *testing.T) {
 			pkg("{platform: x64, longFileNames: false}") + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"service-*.log\"}]\n    files:", 1),
 			sevError, "components[0].removeFiles[0].name", "8.3 pattern",
 		},
+		"removeFiles directory and property": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", directory: INSTALLDIR, property: LOGDIR}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0]", "not both",
+		},
+		"removeFiles property is a directory": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: INSTALLDIR}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "use directory: INSTALLDIR",
+		},
+		"removeFiles property nothing sets": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR}]\n    files:", 1),
+			sevWarning, "components[0].removeFiles[0].property", "nothing in the package sets LOGDIR",
+		},
+		"removeFiles property bad name": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: \"LOG DIR\"}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "not a property name",
+		},
+		"alias of a standard folder": {
+			strings.Replace(base, "        name: App\n", "        name: .\n", 1),
+			sevError, "directories[0].children[0].name", "standard folder",
+		},
+		"alias of a nested standard folder": {
+			strings.Replace(base, "        configurable: true\n", "        configurable: true\n        children: [{id: CommonAppDataFolder, children: [{id: DATA, name: .}]}]\n", 1),
+			sevError, "directories[0].children[0].children[0].children[0].name", "standard folder",
+		},
+		"removeFiles property on install": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR, on: both}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].on", "standard user",
+		},
+		"removeFiles property ROOTDRIVE": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: ROOTDRIVE}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "installer picks itself",
+		},
 		"recovery restart delay negative": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {restartDelay: -1s, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.restartDelay", "negative",

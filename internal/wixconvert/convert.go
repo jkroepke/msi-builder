@@ -241,9 +241,14 @@ type converter struct {
 	actions       map[string]*elem
 	needDirs      map[string]bool
 	renames       map[string]string
-	installDir    *dir
-	uiSet         string
-	platform      string
+	// folded maps a nameless Directory that became a standard folder to it.
+	folded map[string]string
+	// wixDirs are the Directories as the source has them, before folding,
+	// for the component codes WiX computes.
+	wixDirs    map[string]*dir
+	installDir *dir
+	uiSet      string
+	platform   string
 	// scope is the package's install scope, as package.scope names it.
 	scope        string
 	launchAction string
@@ -429,6 +434,9 @@ func newConverter(doc *document) *converter {
 		wixVars:        make(map[string]string),
 		firewallNames:  make(map[string]int),
 		renames:        make(map[string]string),
+		consumed:       make(map[*elem]bool),
+		folded:         make(map[string]string),
+		wixDirs:        make(map[string]*dir),
 		doActions:      make(map[string]*elem),
 		otherSequences: make(map[string]*elem),
 		needDirs:       make(map[string]bool),
@@ -511,6 +519,7 @@ func (c *converter) index() error {
 		}
 	}
 
+	c.foldAliasDirs()
 	c.linkDirs()
 	c.resolveFeatures()
 	c.chooseInstallDir()
@@ -520,6 +529,8 @@ func (c *converter) index() error {
 	} else {
 		c.choosePlatform()
 	}
+
+	c.platformFolded()
 
 	return nil
 }
@@ -633,7 +644,7 @@ func structureHandlers() map[string]func(c *converter, e *elem, sc scope) {
 		"Files":           func(c *converter, e *elem, sc scope) { c.addComp(implicitComponent(e), sc) },
 		refComponent:      func(c *converter, e *elem, sc scope) { c.addMember(sc, member{ref: e.attr("Id"), e: e}) },
 		refComponentGroup: func(c *converter, e *elem, sc scope) { c.addMember(sc, member{group: e.attr("Id"), e: e}) },
-		"Feature":         (*converter).addFeature,
+		elemFeature:       (*converter).addFeature,
 		// A FeatureRef adds the components and features it contains to
 		// the feature it names.
 		"FeatureRef": func(conv *converter, elm *elem, within scope) {

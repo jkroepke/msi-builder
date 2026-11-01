@@ -169,7 +169,7 @@ msi-builder does the same by default:
 | `File` | `components[].files`; a File without `Source` takes the `FileSource` of its Directory |
 | Heat harvesting, `Files` (v5) | A folder `source` ending in `/` |
 | `CreateFolder` | `components[].createFolder` |
-| `RemoveFile`, `RemoveFolder` | `components[].removeFiles` |
+| `RemoveFile`, `RemoveFolder` | `components[].removeFiles`; `Property` is `property` (or `directory` for a directory ID) |
 | `util:RemoveFolderEx` | `components[].purge` (the component's own folder), `components[].removeFolders` (a folder from a property) |
 | `RegistryKey`, `RegistryValue` | `components[].registry` |
 | `RemoveRegistryKey`, `RemoveRegistryValue` | `components[].removeRegistry` |
@@ -447,6 +447,16 @@ components:
 - A `SetDirectory` that points a folder somewhere else at install time
   becomes a `setDirectory` custom action. Often a standard folder does the
   same: `[%SYSTEMROOT]\Temp\Hello` is `WindowsFolder/Temp/Hello`.
+  A folder on the Windows volume, written in WiX as a Directory without
+  a name plus `<SetDirectory Id="WINDOWSVOLUME" Value="[WindowsVolume]" />`,
+  is a path below the standard folder `WindowsVolume`, such as
+  `WindowsVolume/opt/hello` for `C:\opt\hello`; `msi-builder convert`
+  writes it that way and leaves the action out.
+- A Directory with `Name="."`, or without a name below a named folder, is
+  a second ID for its parent folder. Write it in `directories` with
+  `name: .`. Setting it on the command line moves only its own components,
+  and it follows the parent otherwise (tested on Windows). One directly in a
+  standard folder is that folder: use the standard folder's ID.
 - A WiX `RegistrySearch` that restores the install folder from the last
   install is `installDir.remember: true`. It writes its own value,
   `InstallDir` under `HKLM\Software\<manufacturer>\<product name>`, so the
@@ -979,6 +989,14 @@ components:
     createFolder: true
     purge: true                       # util:RemoveFolderEx: the folder and everything in it
 ```
+
+A `RemoveFile` whose `Property` names a property that is not a
+directory, typically one a `RegistrySearch` fills, keeps it as
+`property: LOGDIR` in place of `directory`, on uninstall only: outside a
+`perUser` package msi-builder refuses `on: install` and `both` there,
+because a standard user can start an elevated repair with the property set
+to any folder, and `convert` leaves that half out with a note. Nothing
+checks the folder, unlike `removeFolders`.
 
 `purge` deletes the component's folder on uninstall, but not when an
 upgrade replaces the product. The folder must be outside the install
