@@ -1416,9 +1416,11 @@ process running that file, without elevation those are only logged
 (inferred from the access rights, not tested). In CLOSE-04 the action
 joined the session of a silent per-machine install and registered all
 three kinds, and Restart Manager shut down the program holding the file
-and the registered program, while the copy in another folder kept running.
-It restarts only programs that registered for a restart; CLOSE-05 records
-whether and when. The shell (`explorer.exe`) is no exception: registering
+and the registered program (both got `WM_ENDSESSION`), while the copy in
+another folder kept running; the service was stopped and started again.
+It restarts only programs that registered for a restart, when the
+installation ends: in CLOSE-05 the restarted program was running about
+0.1 seconds after msiexec returned. The shell (`explorer.exe`) is no exception: registering
 it shuts the desktop down until the installation ends. A service of a per-user
 package is an error, an entry listed twice in one component too, a `file`
 that ends in a backslash (a folder, which Restart Manager does not take)

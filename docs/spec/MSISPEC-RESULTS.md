@@ -1284,10 +1284,22 @@ handled only `WM_CLOSE`, not `WM_ENDSESSION`.
   had a console, did not.
 - Every run logged `Previously shut down applications have been
   restarted`; none of the helpers had registered for a restart.
-- Open: the package with the property in its `Property` table, whether the
-  programs got `WM_ENDSESSION`, the service's process ID before and after,
-  and CLOSE-05 (a program registered with `RegisterApplicationRestart`).
-  Not covered: a full-UI or basic-UI install, a standard user, another
+
+Second run on 2026-11-01, run on commit 3d650a8 of PR #211 (same job), with
+the repair step split and CLOSE-05 added (`TestMsiexecRestartsRegisteredProgram`).
+The window helpers now exit on `WM_ENDSESSION` and record it.
+
+| Case and step | Result |
+| --- | --- |
+| CLOSE-04 `/i` | exit 0. All three registered; the holder and the registered program got `WM_ENDSESSION`; the service ran as PID 3220 before and 6980 after |
+| CLOSE-04 `/fomus` repair with `MSIRESTARTMANAGERCONTROL=Disable` on the command line | exit 0. Session opened anyway; `HELD_FILE` and `OTHER_PROGRAM` `cannot format`; service registered, PID 6980 before and 7528 after |
+| CLOSE-04 second product with `MSIRESTARTMANAGERCONTROL=Disable` in its `Property` table | exit 0. `RESTART MANAGER: Disabled by MSIRESTARTMANAGERCONTROL property; Windows Installer will use the built-in FilesInUse functionality`; the action logged `no Restart Manager session; nothing registered`; service PID 7528 unchanged |
+| CLOSE-05 `/i` with a program that called `RegisterApplicationRestart` 65 s before | exit 0. Registered and shut down (`WM_ENDSESSION`); msiexec returned at 13:56:40.784, the restarted copy (new PID 8200, started with the registered command line) wrote its marker at 13:56:40.911 |
+
+- Restart Manager stops and starts a registered running service again.
+- Programs are restarted when the session closes at the end of the
+  installation, not right after `InstallValidate`.
+- Not covered: a full-UI or basic-UI install, a standard user, another
   user's session, Windows Server 2016.
 
 ## Custom action DLL review fixes (SEC-06, CLOSE-02, FILE-14)
