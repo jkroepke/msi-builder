@@ -1156,6 +1156,9 @@ func TestConvertFoldedFolderNotes(t *testing.T) {
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="SHARED">
+        <Component Id="Shared"><CreateFolder><util:PermissionEx User="Users" GenericAll="yes" /></CreateFolder></Component>
+      </Directory>
       <Directory Id="DATA" Name="Hello">
         <Component Id="Data"><CreateFolder />
           <RemoveFile Id="I" Property="CFGDIR" Name="*.tmp" On="install" />
@@ -1164,7 +1167,7 @@ func TestConvertFoldedFolderNotes(t *testing.T) {
       </Directory>
     </StandardDirectory>
     <Property Id="CFGDIR"><RegistrySearch Root="HKLM" Key="SOFTWARE\Example" Name="Cfg" Type="directory" /></Property>
-    <Feature Id="Main"><ComponentRef Id="One" /><ComponentRef Id="Wipe" /><ComponentRef Id="Logs" /><ComponentRef Id="Data" /></Feature>
+    <Feature Id="Main"><ComponentRef Id="One" /><ComponentRef Id="Wipe" /><ComponentRef Id="Logs" /><ComponentRef Id="Data" /><ComponentRef Id="Shared" /></Feature>
   </Package>
 </Wix>`
 
@@ -1174,7 +1177,7 @@ func TestConvertFoldedFolderNotes(t *testing.T) {
 	}
 
 	out := string(res.YAML)
-	for _, want := range []string{"the Directory VOL1 has no Name", "RemoveFolderEx on VOL2 was not converted", "RemoveFile on PFALIAS", "standard folder ProgramFiles64Folder", "value: '[ProgramFiles64Folder]'",
+	for _, want := range []string{"the Directory VOL1 has no Name", "the grant applies to CommonAppDataFolder itself", "RemoveFolderEx on VOL2 was not converted", "RemoveFile on PFALIAS", "standard folder ProgramFiles64Folder", "value: '[ProgramFiles64Folder]'",
 		"the install half of RemoveFile On=\"install\"", "the install half of RemoveFile On=\"both\"", "name: '*.bak'"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the YAML lacks %q:\n%s", want, out)

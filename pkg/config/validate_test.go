@@ -843,6 +843,10 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR, on: both}]\n    files:", 1),
 			sevError, "components[0].removeFiles[0].on", "standard user",
 		},
+		"removeFiles property ROOTDRIVE": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: ROOTDRIVE}]\n    files:", 1),
+			sevError, "components[0].removeFiles[0].property", "installer picks itself",
+		},
 		"recovery restart delay negative": {
 			base + strings.Replace(appComponent, "    files:", "    services: [{name: svc, recovery: {restartDelay: -1s, actions: [restart]}}]\n    files:", 1),
 			sevError, "components[0].services[0].recovery.restartDelay", "negative",

@@ -52,7 +52,7 @@ components:
 // (FILE-16):
 //
 //   - a Directory row WindowsVolume below TARGETDIR resolves to the Windows
-//     volume, not below TARGETDIR or ROOTDRIVE, so its children land in
+//     volume, not below TARGETDIR, so its children land in
 //     C:\name even with TARGETDIR set elsewhere, and a configurable child
 //     can still be moved on the command line;
 //   - a directory named "." (DefaultDir ".") is its parent folder and

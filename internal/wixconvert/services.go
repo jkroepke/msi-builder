@@ -389,6 +389,11 @@ func (cc *compConv) createFolder(elm *elem) {
 
 	cc.out.set("createFolder", true)
 
+	if target := conv.folded[cc.cp.dir]; target != "" && slices.ContainsFunc(elm.kids, func(k *elem) bool { return permissionElems[k.qname()] }) {
+		conv.todof(cc.out, "", elm.line, "the permissions on %s: that Directory has no name, so it is the standard folder %s, and "+
+			"the grant applies to %s itself; check that it should", cc.cp.dir, target, target)
+	}
+
 	for _, k := range elm.kids {
 		if permissionElems[k.qname()] {
 			conv.permission(cc.out, "folderPermissions", k, rightsFile)

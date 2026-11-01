@@ -672,7 +672,8 @@ directories:
   a path such as `WindowsVolume/opt/app` installs to `C:\opt\app` on a
   system on drive C. Its row sits below `TARGETDIR` with `DefaultDir` `.` and
   takes the `WindowsVolume` property, so it stays on the Windows volume
-  when `TARGETDIR` or `ROOTDRIVE` point elsewhere, and a configurable folder
+  when `TARGETDIR` points elsewhere (with `ROOTDRIVE` expected the same,
+  from section 8.3 of the specification; not tested), and a configurable folder
   below it still moves on the command line (FILE-16). ICE99 reports an
   error for the key, because `WindowsVolume` is also a public property; the
   engine resolved it correctly in FILE-16, so the builder writes it anyway

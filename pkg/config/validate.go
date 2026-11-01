@@ -1680,6 +1680,13 @@ func (v *validator) componentRemoveFiles(cfg *Config, p string, comp *Component,
 	}
 }
 
+// engineFolderProperties are folder properties the installer sets itself
+// (specification section 8.3): ROOTDRIVE, the drive with the most free
+// space, and the source folder of the package.
+var engineFolderProperties = map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"ROOTDRIVE": true, "SourceDir": true, "SOURCEDIR": true, "PrimaryVolumePath": true,
+}
+
 // removeFileFolder names the folder of a removeFiles entry: its directory,
 // the component's, or [property].
 func removeFileFolder(comp *Component, entry *RemoveFile) string {
@@ -1701,8 +1708,10 @@ func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath strin
 		v.errorf(entryPath, "give directory or property, not both")
 	case !IsIdentifier(name) || len(name) > MaxIdentifierLength:
 		v.errorf(field, "%q is not a property name", name)
-	case known.dirs[name] != nil || IsStandardFolder(name) || name == targetDir:
+	case known.dirs[name] != nil || IsStandardFolder(name): // TARGETDIR is one
 		v.errorf(field, "%s is a directory; use directory: %s", name, name)
+	case engineFolderProperties[name]:
+		v.errorf(field, "%s is a folder the installer picks itself, not one of the product; name a folder the package installs or remembers", name)
 	case entry.On != RemoveOnUninstall && cfg.Package.Scope != ScopePerUser:
 		// A standard user may start a repair of a per-machine product,
 		// which runs elevated and reinstalls the component, with the
