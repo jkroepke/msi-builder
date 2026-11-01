@@ -841,6 +841,8 @@ type FirewallRule struct { //nolint:govet // field order is the YAML key order
 	Port            string     `yaml:"port"`
 	RemoteAddresses string     `yaml:"remoteAddresses"`
 	Profiles        StringList `yaml:"profiles"`
+	// IgnoreFailure lets the install go on when netsh cannot add the rule.
+	IgnoreFailure bool `yaml:"ignoreFailure,omitempty"`
 
 	// origin is the YAML path of a rule written under a feature.
 	origin string

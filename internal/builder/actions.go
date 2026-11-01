@@ -411,8 +411,10 @@ func (b *build) useRunDLL() bool {
 // firewall writes the netsh actions of the firewall helper (section 17.3,
 // design section 4.11): on install and repair every rule is deleted by name
 // before any is added, with a rollback that deletes again; on removal the
-// rule is deleted, with a rollback that adds it back.
-func (b *build) firewall() error { //nolint:cyclop // one pass over the format; splitting would scatter it
+// rule is deleted, with a rollback that adds it back. A rule with protocol
+// any and a port is added once for TCP and once for UDP under its name,
+// because netsh takes a port only with TCP or UDP (CA-10).
+func (b *build) firewall() error { //nolint:cyclop,funlen // one pass over the format; splitting would scatter it
 	if len(b.cfg.Firewall) == 0 {
 		return nil
 	}
@@ -420,16 +422,21 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 	sysDir := b.systemDir()
 	netsh := fmt.Sprintf(`"[%s]netsh.exe" advfirewall firewall `, sysDir)
 
+	// add is one netsh add of a rule; its id names the add's actions.
+	type add struct {
+		id, target string
+	}
+
 	type rule struct {
-		id, add, del, install, remove string
+		id, del, install, remove string
+		adds                     []add
+		ignoreFailure            bool
 	}
 
 	rules := make([]rule, 0, len(b.cfg.Firewall))
 
 	for _, cfgRule := range b.cfg.Firewall {
 		ruleID := generatedID("", "Firewall", cfgRule.Name, cfgRule.Protocol, cfgRule.Port, cfgRule.Program)[:8]
-		install := "$" + cfgRule.Component + "=3"
-		remove := "$" + cfgRule.Component + "=2"
 
 		remoteIP := cfgRule.RemoteAddresses
 		if remoteIP == "" {
@@ -445,39 +452,29 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 			remoteIP = "[" + prop + "]"
 		}
 
-		var parts []string
-
-		parts = append(parts, `name="`+cfgRule.Name+`"`, "dir=in", "action=allow", "protocol="+cfgRule.Protocol)
-
-		if cfgRule.Port != "" {
-			parts = append(parts, "localport="+cfgRule.Port)
+		protocols := []string{cfgRule.Protocol}
+		if cfgRule.Protocol == fwAny && cfgRule.Port != "" {
+			protocols = []string{"tcp", "udp"}
 		}
 
-		if cfgRule.Program != "" {
-			parts = append(parts, `program="`+cfgRule.Program+`"`)
+		fwRule := rule{
+			id:            ruleID,
+			del:           netsh + `delete rule name="` + cfgRule.Name + `" dir=in`,
+			install:       "$" + cfgRule.Component + "=3",
+			remove:        "$" + cfgRule.Component + "=2",
+			ignoreFailure: cfgRule.IgnoreFailure,
 		}
 
-		// Defaults (remoteip=any, profile=any, enable=yes) are left out to
-		// keep the Target within 255 characters.
-		if remoteIP != fwAny {
-			parts = append(parts, "remoteip="+remoteIP)
+		for _, protocol := range protocols {
+			addID := ruleID
+			if len(protocols) > 1 {
+				addID = generatedID("", "Firewall", cfgRule.Name, protocol, cfgRule.Port, cfgRule.Program)[:8]
+			}
+
+			fwRule.adds = append(fwRule.adds, add{id: addID, target: netsh + "add rule " + firewallArgs(cfgRule, protocol, remoteIP)})
 		}
 
-		if profiles := firewallProfiles(cfgRule.Profiles); profiles != fwAny {
-			parts = append(parts, "profile="+profiles)
-		}
-
-		if cfgRule.Description != "" {
-			parts = append(parts, `description="`+cfgRule.Description+`"`)
-		}
-
-		rules = append(rules, rule{
-			id:      ruleID,
-			add:     netsh + "add rule " + strings.Join(parts, " "),
-			del:     netsh + `delete rule name="` + cfgRule.Name + `" dir=in`,
-			install: install,
-			remove:  remove,
-		})
+		rules = append(rules, fwRule)
 	}
 
 	deferred := caExec | caDeferred | caNoImpersonate
@@ -485,7 +482,10 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 
 	// Removal: rollback (add back) precedes its deferred action (delete).
 	for _, r := range rules {
-		b.addAction(&actionInfo{name: "FwRemoveRollback" + r.id, typ: rollback | caContinue, source: sysDir, target: r.add})
+		for _, a := range r.adds {
+			b.addAction(&actionInfo{name: "FwRemoveRollback" + a.id, typ: rollback | caContinue, source: sysDir, target: a.target})
+		}
+
 		b.addAction(&actionInfo{name: "FwRemove" + r.id, typ: deferred | caContinue, source: sysDir, target: r.del})
 	}
 
@@ -495,8 +495,15 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 	}
 
 	for _, r := range rules {
-		b.addAction(&actionInfo{name: "FwAddRollback" + r.id, typ: rollback | caContinue, source: sysDir, target: r.del})
-		b.addAction(&actionInfo{name: "FwAdd" + r.id, typ: deferred, source: sysDir, target: r.add})
+		typ := deferred
+		if r.ignoreFailure {
+			typ |= caContinue
+		}
+
+		for _, a := range r.adds {
+			b.addAction(&actionInfo{name: "FwAddRollback" + a.id, typ: rollback | caContinue, source: sysDir, target: r.del})
+			b.addAction(&actionInfo{name: "FwAdd" + a.id, typ: typ, source: sysDir, target: a.target})
+		}
 	}
 
 	// After InstallFiles, so that the program exists; the chain keeps the
@@ -505,7 +512,10 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 	b.standardAt(seqInstallExecute, anchor)
 
 	for _, r := range rules {
-		b.schedule(seqInstallExecute, "FwRemoveRollback"+r.id, r.remove, "", anchor, 0)
+		for _, a := range r.adds {
+			b.schedule(seqInstallExecute, "FwRemoveRollback"+a.id, r.remove, "", anchor, 0)
+		}
+
 		b.schedule(seqInstallExecute, "FwRemove"+r.id, r.remove, "", anchor, 0)
 	}
 
@@ -514,11 +524,43 @@ func (b *build) firewall() error { //nolint:cyclop // one pass over the format; 
 	}
 
 	for _, r := range rules {
-		b.schedule(seqInstallExecute, "FwAddRollback"+r.id, r.install, "", anchor, 0)
-		b.schedule(seqInstallExecute, "FwAdd"+r.id, r.install, "", anchor, 0)
+		for _, a := range r.adds {
+			b.schedule(seqInstallExecute, "FwAddRollback"+a.id, r.install, "", anchor, 0)
+			b.schedule(seqInstallExecute, "FwAdd"+a.id, r.install, "", anchor, 0)
+		}
 	}
 
 	return nil
+}
+
+// firewallArgs returns the netsh add rule arguments of a rule for one
+// protocol.
+func firewallArgs(cfgRule *config.FirewallRule, protocol, remoteIP string) string {
+	parts := []string{`name="` + cfgRule.Name + `"`, "dir=in", "action=allow", "protocol=" + protocol}
+
+	if cfgRule.Port != "" {
+		parts = append(parts, "localport="+cfgRule.Port)
+	}
+
+	if cfgRule.Program != "" {
+		parts = append(parts, `program="`+cfgRule.Program+`"`)
+	}
+
+	// Defaults (remoteip=any, profile=any, enable=yes) are left out to
+	// keep the Target within 255 characters.
+	if remoteIP != fwAny {
+		parts = append(parts, "remoteip="+remoteIP)
+	}
+
+	if profiles := firewallProfiles(cfgRule.Profiles); profiles != fwAny {
+		parts = append(parts, "profile="+profiles)
+	}
+
+	if cfgRule.Description != "" {
+		parts = append(parts, `description="`+cfgRule.Description+`"`)
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func firewallProfiles(list config.StringList) string {

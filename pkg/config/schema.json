@@ -2500,7 +2500,8 @@
           "type": [
             "string",
             "number"
-          ]
+          ],
+          "description": "netsh localport list. With protocol any, the rule is added once for TCP and once for UDP."
         },
         "remoteAddresses": {
           "type": "string",
@@ -2542,6 +2543,10 @@
               }
             }
           ]
+        },
+        "ignoreFailure": {
+          "type": "boolean",
+          "description": "The install goes on when netsh cannot add the rule. The rule is then missing."
         }
       },
       "required": [

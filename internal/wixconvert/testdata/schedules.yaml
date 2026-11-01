@@ -105,10 +105,10 @@ firewall:
   - name: Hello port
     component: HelloExe
     program: '[#hello.exe]'
-    # TODO(line 23): the firewall exception sets no Protocol; msi-builder opens port 8080 for tcp only, add a udp rule if the program needs it
-    protocol: tcp
+    protocol: any
     port: "8080"
     profiles: all
+    ignoreFailure: true
 ui:
   enabled: true
   chooseDirectory: true

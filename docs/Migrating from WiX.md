@@ -671,6 +671,9 @@ firewall:
   key becomes an SDDL string too.
 - `Scope="any"` is the default; `remoteAddresses` limits the rule and
   `profiles` the networks.
+- An exception without `Protocol` becomes `protocol: any`; with a `Port`,
+  msi-builder opens it for TCP and UDP. `IgnoreFailure="yes"` becomes
+  `ignoreFailure: true`.
 
 ## Properties and searches
 
