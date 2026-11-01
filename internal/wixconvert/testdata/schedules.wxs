@@ -18,7 +18,7 @@
 
     <Component Id="HelloExe" Directory="INSTALLFOLDER">
       <File Id="hello.exe" Source="dist\hello.exe">
-        <!-- No Protocol: the rule is not limited to TCP. -->
+        <!-- No Protocol: any protocol without a port, TCP with one (CA-10). -->
         <fw:FirewallException Id="HelloAll" Name="Hello" Scope="any" />
         <fw:FirewallException Id="HelloPort" Name="Hello port" Port="8080" Scope="any" IgnoreFailure="yes" />
       </File>

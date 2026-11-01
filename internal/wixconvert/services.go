@@ -743,16 +743,21 @@ func (c *converter) firewall(elm *elem, comp *comp, program string) { //nolint:c
 }
 
 // firewallProtocol sets the protocol and port of a firewall rule. A WiX
-// exception without Protocol is not limited to TCP: it becomes any, which
-// with a port msi-builder adds once for TCP and once for UDP (CA-10).
+// exception without Protocol is any protocol without a port and TCP with
+// one, as a WiX 5 package installs it (CA-10).
 func (c *converter) firewallProtocol(rule *omap, elm *elem) {
-	protocol := c.value(elm, "Protocol")
-	if protocol == "" {
+	protocol, port := c.value(elm, "Protocol"), c.value(elm, "Port")
+
+	switch {
+	case protocol != "":
+	case port == "":
 		protocol = valueAny
+	default:
+		protocol = "tcp"
 	}
 
 	rule.set("protocol", protocol)
-	rule.set("port", c.value(elm, "Port"))
+	rule.set("port", port)
 }
 
 // compID returns the component's ID, giving it one when WiX generated it.
