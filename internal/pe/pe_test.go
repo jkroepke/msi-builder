@@ -726,7 +726,8 @@ func partialTranslation(t *testing.T, n uint16) []byte {
 }
 
 // TestPartialTranslation counts a partial last Translation entry once its
-// language word fits, as Windows did for value lengths 4 to 7 (FILE-14).
+// language word fits, as msi.dll 5.0.26100.33648 did for value lengths 4
+// to 7; 5.0.26100.1742 also counted length 5 as two (FILE-14).
 func TestPartialTranslation(t *testing.T) {
 	t.Parallel()
 

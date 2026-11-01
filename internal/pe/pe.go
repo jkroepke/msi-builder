@@ -691,7 +691,8 @@ func parseVarFileInfo(data []byte, off int, info *Info) {
 
 			// An entry counts once its language word fits the value
 			// length: lengths 6 and 7 gave two languages on Windows, 5
-			// one (FILE-14).
+			// one with msi.dll 5.0.26100.33648; 5.0.26100.1742 gave two for
+			// 5 (FILE-14).
 			for p := koff; p+2 <= koff+valueLen; p += 4 {
 				langs = append(langs, int(order.Uint16(data[p:])))
 			}
