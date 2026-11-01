@@ -43,3 +43,10 @@ launch condition" and "remembered machine folder" the client's
 the client keeps `ALLUSERS=2`. Next now sets `ALLUSERS` to 1 or nothing.
 The same runs passed `TestFullUIInstallScope` (INST-02), `TestFullUIRememberInstallDir`
 (UI-08) and `TestMsiexecRegistryFileFolder` (SEARCH-10).
+
+ICE27 then reported `FindRelatedProducts` and `LaunchConditions` after
+`CostFinalize` in `InstallUISequence` as errors (`TestICEInstallScope`,
+run 41321229841). With the setters, the page and both actions after
+`AppSearch` and before `CostInitialize`, run 41323396341 passed all five
+`TestFullUIScopeUpdate` cases, `TestFullUIInstallScope`,
+`TestFullUIRememberInstallDir` and the ICE suite.

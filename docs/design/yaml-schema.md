@@ -2795,7 +2795,11 @@ one that refuses a per-user install next to a per-machine one, ended the
 install before the page appeared (UI-11). `standardActions` therefore
 cannot move `AppSearch`, `FindRelatedProducts` or `LaunchConditions` in the
 `ui` sequence of a dual package with the wizard, and an action placed
-relative to the last two in `ui` runs after the page too. A launch condition that refuses the chosen context shows its
+relative to the last two in `ui` runs after the page too. The page and
+the actions that set its folders take the numbers right after `AppSearch`
+and the actions placed after it, so a `ui` action at a fixed number there
+collides with them; validate counts only the page and the two actions
+after it, and the build reports the rest. A launch condition that refuses the chosen context shows its
 message right after the page; without the wizard's sequence, as in a
 silent install, the server checks the launch conditions with the context
 the command line chose. The

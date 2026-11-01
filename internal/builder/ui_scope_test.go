@@ -264,3 +264,28 @@ func TestScopePageAnchors(t *testing.T) {
 		}
 	}
 }
+
+// TestScopePageNestedRemembered checks that a remembered install dir below
+// another public folder keeps its setters: the restore actions set it in
+// the context the package opened in, before the page.
+func TestScopePageNestedRemembered(t *testing.T) {
+	t.Parallel()
+
+	res := buildScope(t, "perUserOrMachine", "x64", `installDir: { remember: true }
+directories:
+  - id: ProgramFiles64Folder
+    children:
+      - id: COMPANYDIR
+        name: Acme
+        configurable: true
+        children: [{ id: INSTALLDIR, name: App, configurable: true }]
+ui: { enabled: true }
+`)
+
+	events := strings.Join(eventsOf(t, res, "InstallScopeDlg", "Next"), "\n")
+	for _, want := range []string{"[COMPANYDIR] [InstallScopeUser_COMPANYDIR]", "[INSTALLDIR] [InstallScopeMachine_INSTALLDIR]"} {
+		if !strings.Contains(events, want) {
+			t.Errorf("Next events lack %s:\n%s", want, events)
+		}
+	}
+}

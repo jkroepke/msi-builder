@@ -221,7 +221,7 @@ func scopeProperty(prefix, dir string) string {
 }
 
 // scopeDirs returns the topmost public directories below a folder that
-// follows the context, in key order.
+// follows the context, and a remembered install dir, in key order.
 func (b *build) scopeDirs() []*dirInfo {
 	var dirs []*dirInfo
 
@@ -230,7 +230,11 @@ func (b *build) scopeDirs() []*dirInfo {
 			continue
 		}
 
-		if top, _ := b.dirPath(dir); scopeFolders[top].user != "" && !b.publicAbove(dir) {
+		// A remembered install dir keeps its own setters: the restore
+		// actions after AppSearch set it in the context the package opened
+		// in.
+		remembered := dir.id == b.cfg.InstallDir.ID && b.cfg.InstallDir.Remember
+		if top, _ := b.dirPath(dir); scopeFolders[top].user != "" && (remembered || !b.publicAbove(dir)) {
 			dirs = append(dirs, dir)
 		}
 	}
