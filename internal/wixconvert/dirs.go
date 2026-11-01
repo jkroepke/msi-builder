@@ -14,40 +14,24 @@ var installDirNames = []string{"INSTALLFOLDER", "INSTALLDIR", "APPLICATIONFOLDER
 // chooseInstallDir picks the directory that becomes installDir: the one
 // the wizard or a feature makes configurable, else one with a
 // conventional name, else the first folder below Program Files.
-func (c *converter) chooseInstallDir() { //nolint:cyclop // the fallbacks in their order of preference
-	var candidates []string
+func (c *converter) chooseInstallDir() {
+	var chosen []string
 
 	if c.wixUI != nil {
-		candidates = append(candidates, c.wixUI.attr("InstallDirectory"))
+		chosen = append(chosen, c.wixUI.attr("InstallDirectory"))
 	}
 
 	for _, p := range c.properties {
 		if p.attr("Id") == "WIXUI_INSTALLDIR" {
-			candidates = append(candidates, p.attr("Value"))
+			chosen = append(chosen, p.attr("Value"))
 		}
 	}
 
-	c.eachFeature(func(f *feature) { candidates = append(candidates, f.e.attr("ConfigurableDirectory")) })
+	c.eachFeature(func(f *feature) { chosen = append(chosen, f.e.attr("ConfigurableDirectory")) })
 
-	candidates = append(candidates, installDirNames...)
-
-	for _, id := range candidates {
-		folder := c.dirs[id]
-
-		// A configurable alias keeps its own row, so that setting it
-		// moves only its own components, as in the source.
-		if folder != nil && folder.name == config.AliasName {
-			c.configurableAliases[folder.id] = true
-			c.needDirs[folder.id] = true
-
-			continue
-		}
-
-		if folder != nil && !folder.std && folder.name != "" && c.top(folder) != nil {
-			c.installDir = folder
-
-			break
-		}
+	c.installDir = c.firstInstallDir(chosen, true)
+	if c.installDir == nil {
+		c.installDir = c.firstInstallDir(installDirNames, false)
 	}
 
 	if c.installDir == nil {
@@ -64,6 +48,27 @@ func (c *converter) chooseInstallDir() { //nolint:cyclop // the fallbacks in the
 			c.renames[id] = upper
 		}
 	}
+}
+
+// firstInstallDir returns the first of ids that can be installDir. A
+// directory named "." qualifies only when the wizard or a feature makes it
+// configurable: it then stays in the tree as a configurable alias of its
+// parent, so that moving it moves only its own components, as in the
+// source. An alias that only has a conventional name is its parent's
+// second id, not the install folder.
+func (c *converter) firstInstallDir(ids []string, configurable bool) *dir {
+	for _, id := range ids {
+		folder := c.dirs[id]
+		if folder == nil || folder.std || folder.name == "" || c.top(folder) == nil {
+			continue
+		}
+
+		if folder.name != config.AliasName || configurable {
+			return folder
+		}
+	}
+
+	return nil
 }
 
 // programFilesDir returns the folder a package installs its program into
@@ -280,6 +285,14 @@ func (c *converter) treeDirs() map[*dir]bool { //nolint:cyclop // one pass in a 
 		}
 	}
 
+	// An alias install dir has no path of its own, so it stays in the tree
+	// below its parent.
+	if inst := c.installDir; inst != nil && inst.name == config.AliasName {
+		for x := inst; x != nil && !x.std; x = x.parent {
+			tree[x] = true
+		}
+	}
+
 	// A folder above the install dir in the tree takes the install dir
 	// with it, so that the path is not created twice.
 	if c.installDir != nil {
@@ -365,7 +378,7 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 				"sets it; msi-builder has no such folder, give it a name or use a standard folder", folder.id)
 		}
 
-		if folder == c.installDir || c.configurableAliases[folder.id] {
+		if folder == c.installDir {
 			entry.set("configurable", true)
 		}
 

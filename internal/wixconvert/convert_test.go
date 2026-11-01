@@ -1240,6 +1240,80 @@ func TestConvertFolderAliasOrder(t *testing.T) {
 	}
 }
 
+// TestConvertAliasInstallDir checks a nameless install folder below a
+// named one: when the wizard names it, it becomes the configurable
+// installDir in upper case and stays a "." child of its parent; with only
+// a conventional name it is its parent's second id and the parent installs.
+func TestConvertAliasInstallDir(t *testing.T) {
+	t.Parallel()
+
+	const wizard = `<ui:WixUI Id="WixUI_InstallDir" InstallDirectory="InstallFolder" />`
+
+	src := `<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Hello" Manufacturer="Example" Version="1.0.0" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="APPDIR" Name="Hello">
+        <Component Id="Top"><File Id="t" Source="hello.exe" Name="top.exe" /></Component>
+        <Directory Id="ID">
+          <Component Id="App"><File Source="hello.exe" /></Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    WIZARD
+    <Feature Id="Main"><ComponentRef Id="Top" /><ComponentRef Id="App" /></Feature>
+  </Package>
+</Wix>`
+
+	for _, tc := range []struct {
+		name, id, wizard string
+		want, not        []string
+	}{
+		{
+			name: "wizard", id: "InstallFolder", wizard: wizard,
+			want: []string{"installDir:\n", "  id: INSTALLFOLDER\ndirectories:", "- id: INSTALLFOLDER\n            name: .\n            configurable: true"},
+		},
+		{
+			name: "conventional", id: "INSTALLFOLDER",
+			want: []string{"installDir:\n  id: APPDIR\n  name: Hello\n"},
+			not:  []string{"configurable: true"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := strings.ReplaceAll(strings.ReplaceAll(src, "WIZARD", tc.wizard), `"ID"`, `"`+tc.id+`"`)
+
+			res, err := wixconvert.Convert(strings.NewReader(in), wixconvert.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := string(res.YAML)
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("the YAML lacks %q:\n%s", want, out)
+				}
+			}
+
+			for _, not := range tc.not {
+				if strings.Contains(out, not) {
+					t.Errorf("the YAML has %q:\n%s", not, out)
+				}
+			}
+
+			cfg, err := config.Parse(res.YAML, config.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := config.Validate(cfg).Err(); err != nil {
+				t.Errorf("the converted YAML does not validate: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
 // TestConvertUnmappedNotes checks the TODOs of WiX constructs whose output
 // cannot validate or would be lost silently.
 func TestConvertUnmappedNotes(t *testing.T) {
