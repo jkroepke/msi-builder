@@ -432,7 +432,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.changed != '0'
     runs-on: ubuntu-26.04
-    container: ubuntu:24.04
+    container: ubuntu:26.04
     permissions:
       contents: read
     steps:
