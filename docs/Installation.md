@@ -18,11 +18,16 @@ go install github.com/jkroepke/msi-builder/cmd/msi-builder@latest
 ## Container image
 
 The image runs on Linux for amd64 and arm64. Mount the directory with the
-configuration and its files at `/work`:
+configuration and its files at `/work`, and run the container as your own
+user, so that it can write the package into that directory:
 
 ```shell
-docker run --rm -v "$PWD:/work" ghcr.io/jkroepke/msi-builder build -o hello.msi msi.yaml
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" \
+  ghcr.io/jkroepke/msi-builder build -o hello.msi msi.yaml
 ```
+
+Without `--user`, msi-builder runs as the image's unprivileged user
+(65532), which usually cannot write to a directory mounted from the host.
 
 ## Shell completion
 

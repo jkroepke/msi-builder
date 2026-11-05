@@ -179,10 +179,22 @@ msiexec /fomus hello.msi /qn
 values and shortcuts; `/famus` reinstalls every file, also a damaged one of
 the same version.
 
-A repair needs the `.msi` of the installed version. With the product code
-in place of the file, or with the **Repair** button, Windows Installer looks
-for the file where it was first installed from; if it has moved or been
-deleted, a silent repair fails with 1612, so pass the file again.
+A repair can undo your own changes. It writes every registry value and
+shortcut of the package again, so a setting the program keeps in such a
+value, or a shortcut you edited, goes back to what the package installed.
+`/famus` also overwrites the files of the package that you edited, such as
+a configuration file; `/fomus` normally leaves an edited file alone. Back
+up such settings before a repair, or ask the package author which ones a
+repair resets.
+
+Windows keeps a copy of the installed package, but without its files. A
+repair that has to put back or replace a file therefore needs the `.msi`
+of the installed version; one that finds every file in place and only
+rewrites registry values and shortcuts runs without it (expected, not
+tested). With the product code in place of the file, or with the
+**Repair** button, Windows Installer looks for the `.msi` where it was
+first installed from; if it has moved or been deleted, a silent repair
+that needs it fails with 1612, so pass the file again.
 
 ## Uninstall
 

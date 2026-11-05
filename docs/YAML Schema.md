@@ -52,6 +52,18 @@ complete and check the file as you type.
 `files[].source` is relative to the YAML file. A program (`.exe`, `.dll`)
 must have a version resource; msi-builder reads its version from it.
 
+Keep those file versions going up from release to release, like the
+product version. When a release ships a file with a lower version than the
+installed release, the upgrade with the default `upgrade.removeOld` keeps
+the installed file and then deletes it with the old release, so the file
+is missing after the upgrade until a repair puts it back (UPG-07).
+msi-builder cannot warn, since it does not know the versions of earlier
+releases. If a file has to go back to an older build, set its `version`
+above the installed one, for example `version: 2.0.0.1` for an installed
+2.0.0.0, and keep later releases above that; or set
+`upgrade.removeOld: afterInstallExecute`, which keeps the installed file
+instead.
+
 ## Versions from the build
 
 The file is a Go [text/template](https://pkg.go.dev/text/template):
@@ -345,7 +357,8 @@ with still wins.
 
 To show another icon for the files, and to let the user choose in the
 feature tree whether the package registers the extension, list the file
-type in a component of its own that names the program with `file`:
+type in a component of its own that names the program with `file`, and
+turn on the wizard's feature tree:
 
 ```yaml
 components:
@@ -364,6 +377,9 @@ features:
     components: [Hello]
     features:
       - { id: Association, title: Open .hello files with Hello, components: [HelloAssociation] }
+ui:
+  enabled: true
+  chooseFeatures: true
 ```
 
 ### Close the running program before an upgrade
@@ -650,7 +666,12 @@ add `includeMax: true` to the `related` entry to detect it too.
 product is uninstalled, but not when an upgrade replaces it. The example
 deletes it only when the user asks for it with
 `msiexec /x hello.msi DELETE_DATA=1`. The folder must
-lie outside the install folder, for example below `CommonAppDataFolder`:
+lie outside the install folder, for example below `CommonAppDataFolder`.
+The folder is deleted for good, at the end of the uninstall: when the
+uninstall fails after that and rolls back, the product stays installed
+without the folder, and a repair then puts back the package's own files in
+it, but not what the program wrote (both expected, not tested). Tell users
+to back up that data first.
 
 ```yaml
 components:
@@ -671,7 +692,15 @@ the install folder (with `installDir.remember`, so the uninstall finds a
 folder chosen at install time) and a folder the first install remembered
 in the registry. The folder is moved aside and deleted at the end, so a
 failed uninstall puts it back, and a junction inside it is deleted as
-a link, never followed (tested on Windows). `on:
+a link, never followed (tested on Windows). When the rollback cannot move
+it back, for example because something created a folder at the same path
+in the meantime, or the commit cannot delete all of it, it (or what is
+left of it) stays in `BuilderRemoveFolders.<token>\<n>` at the
+root of its drive, which only administrators can open. The log names it in
+a `BuilderRemoveFolders:` line, and the registry keeps its original path
+under `Software\msi-builder\RemoveFoldersLeft` in `HKEY_USERS\S-1-5-18`
+(the installing user's `HKEY_CURRENT_USER` in a per-user install); an
+administrator moves it back or deletes it by hand. `on:
 install` and `on: both` are for folders the package does not install to,
 and a folder that is or holds a folder of the package goes only when the
 whole product is removed, not with one feature, on install or on repair,
