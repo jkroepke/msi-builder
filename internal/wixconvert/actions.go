@@ -1640,7 +1640,7 @@ func moveAnchor(placement, anchor *omap) *omap {
 	moved := flowMap()
 	moved.order("sequence", "before", "after", "at", "condition", "when")
 
-	for _, key := range []string{"sequence", "condition", "when"} {
+	for _, key := range []string{"sequence", keyCondition, "when"} {
 		moved.set(key, placement.get(key))
 	}
 

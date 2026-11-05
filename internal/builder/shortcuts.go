@@ -532,3 +532,95 @@ func (b *build) removeFileName(dirID, pattern string) string {
 func validShortPattern(pattern string) bool {
 	return config.ValidShortName(strings.NewReplacer("*", "x", "?", "x").Replace(pattern))
 }
+
+// unsecureRemoveFileProperties keeps the properties a removeFiles entry
+// reads its folder from out of SecureCustomProperties, with the plain
+// properties in the values of the setProperty and setDirectory actions
+// that set them. In a per-machine product a standard user can remove a
+// feature (REMOVE=Feature) in an elevated maintenance install and pass a
+// secure property on the command line, and the engine then deletes the
+// matching files in any folder (also when a search of the property found
+// nothing); a property that is not secure only arrives from an
+// administrator (PROP-01). A searched property still works where the
+// execute sequence searches, without a full UI. Validation allows these
+// rows on uninstall only outside per-user packages. An explicit
+// secure: true is an error; a property the wizard sets gets a warning
+// that a standard user's value from it no longer arrives.
+func (b *build) unsecureRemoveFileProperties() {
+	if b.cfg.Package.Scope == config.ScopePerUser {
+		return
+	}
+
+	sources := b.removeFileSources()
+	if len(sources) == 0 {
+		return
+	}
+
+	wizard := b.uiSetProperties()
+
+	for _, name := range sortedKeys(sources) {
+		if !config.IsPublicProperty(name) {
+			continue
+		}
+
+		if prop := b.cfg.Properties[name]; prop != nil && prop.Secure != nil && *prop.Secure {
+			b.errorf("properties."+name+".secure", "%s names the folder of a removeFiles entry, so it cannot be secure in a %s "+
+				"package: a standard user who removes a feature, which runs elevated, could set it on the command line and "+
+				"delete the matching files in any folder", name, b.cfg.Package.Scope)
+
+			continue
+		}
+
+		if b.secure[name] && wizard[name] {
+			b.warnf("properties."+name, "%s names the folder of a removeFiles entry, so it is not secure: a value the wizard "+
+				"sets reaches the installation only when an administrator installs", name)
+		}
+
+		delete(b.secure, name)
+	}
+}
+
+// removeFileSources returns the properties of the removeFiles entries and
+// the plain properties in the values of the setProperty and setDirectory
+// actions that set one of them, until nothing new is found. A directory in
+// a value resolves from the Directory table and is left out.
+func (b *build) removeFileSources() map[string]bool {
+	sources := make(map[string]bool)
+
+	for _, comp := range b.cfg.Components {
+		for _, entry := range comp.RemoveFiles {
+			if entry.Property != "" {
+				sources[entry.Property] = true
+			}
+		}
+	}
+
+	for added := len(sources) > 0; added; {
+		added = b.addSetSources(sources)
+	}
+
+	return sources
+}
+
+// addSetSources adds to sources the plain properties in the values of the
+// setProperty and setDirectory actions that set one of them, and reports
+// whether it added one.
+func (b *build) addSetSources(sources map[string]bool) bool {
+	added := false
+
+	for _, action := range b.cfg.CustomActions {
+		target, value, field := setAction(action)
+		if field == "" || !sources[target] {
+			continue
+		}
+
+		for _, name := range innerRefs(value) {
+			if _, isDir := b.dirs[name]; !isDir && !sources[name] {
+				sources[name] = true
+				added = true
+			}
+		}
+	}
+
+	return added
+}

@@ -6,6 +6,7 @@
 package condition
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -328,6 +329,45 @@ func prefixed(s, prefixes string) []string {
 
 		if tok.kind == tokPrefix && strings.IndexByte(prefixes, tok.text[0]) >= 0 {
 			out = append(out, tok.text)
+		}
+	}
+}
+
+// RenameProperties returns s with each property name that rename maps
+// replaced, leaving strings, feature, component and environment references
+// and everything else as it is. A byte the grammar does not read is kept
+// and lexing goes on after it, so a caller that passes text holding other
+// syntax, such as template actions, must split it off first.
+func RenameProperties(cond string, rename func(name string) (string, bool)) string {
+	lex := &lexer{s: cond}
+
+	var out strings.Builder
+
+	last := 0
+
+	for {
+		tok, err := lex.next()
+
+		var syntax *Error
+
+		switch {
+		case errors.As(err, &syntax):
+			lex.pos = syntax.Pos + 1
+
+			continue
+		case err != nil || tok.kind == tokEOF:
+			out.WriteString(cond[last:])
+
+			return out.String()
+		case tok.kind != tokIdent:
+			continue
+		}
+
+		if to, ok := rename(tok.text); ok {
+			out.WriteString(cond[last:tok.pos])
+			out.WriteString(to)
+
+			last = tok.pos + len(tok.text)
 		}
 	}
 }

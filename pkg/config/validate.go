@@ -1780,7 +1780,7 @@ func removeFileFolder(comp *Component, entry *RemoveFile) string {
 
 // removeFileProperty checks the property of a removeFiles entry, whose
 // value the engine reads as the folder's full path when RemoveFiles runs.
-func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath string, entry *RemoveFile) {
+func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath string, entry *RemoveFile) { //nolint:cyclop // a flat list of independent checks
 	field := entryPath + ".property"
 	name := entry.Property
 
@@ -1799,10 +1799,24 @@ func (v *validator) removeFileProperty(cfg *Config, known *refs, entryPath strin
 		// property on the command line; nothing checks the folder.
 		v.errorf(entryPath+".on", "on: %s with a property runs on every repair, which a standard user can start elevated with "+
 			"%s set to any folder; remove these files on uninstall, or name a directory of the package", entry.On, name)
+	case secureRemoveFileProperty(cfg, name):
+		v.errorf("properties."+name+".secure", "%s names the folder of %s, so it cannot be secure in a %s package: a standard "+
+			"user who removes a feature, which runs elevated, could set it on the command line and delete the matching files "+
+			"in any folder", name, entryPath, cfg.Package.Scope)
 	case !setProperties(cfg)[name]:
 		v.warnf(field, "nothing in the package sets %s, so only the command line can name the folder, and the row "+
 			"does nothing without it; use a property with a search that finds the folder again at uninstall", name)
 	}
+}
+
+// secureRemoveFileProperty reports whether the property of a removeFiles
+// entry is secure: true outside a per-user package. The builder keeps it
+// out of SecureCustomProperties otherwise: a standard user can remove a
+// feature, which runs elevated, with the property on the command line.
+func secureRemoveFileProperty(cfg *Config, name string) bool {
+	prop := cfg.Properties[name]
+
+	return cfg.Package.Scope != ScopePerUser && prop != nil && prop.Secure != nil && *prop.Secure
 }
 
 // maxRemoveFilePattern leaves room in the 255 characters of

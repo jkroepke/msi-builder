@@ -103,3 +103,29 @@ func TestStates(t *testing.T) {
 		t.Errorf("States = %v, want %v", got, want)
 	}
 }
+
+func TestRenameProperties(t *testing.T) {
+	t.Parallel()
+
+	rename := func(name string) (string, bool) {
+		if name == "VOLROOT" {
+			return "WindowsVolume", true
+		}
+
+		return "", false
+	}
+
+	for cond, want := range map[string]string{
+		"VOLROOT":                               "WindowsVolume",
+		`VOLROOT AND VOLROOT<>"VOLROOT"`:        `WindowsVolume AND WindowsVolume<>"VOLROOT"`,
+		"NOT VOLROOT OR $VOLROOT=3 OR %VOLROOT": "NOT WindowsVolume OR $VOLROOT=3 OR %VOLROOT",
+		"(VOLROOT)AND VOLROOTX AND X.VOLROOT":   "(WindowsVolume)AND VOLROOTX AND X.VOLROOT",
+		`VOLROOT AND "unterminated VOLROOT`:     `WindowsVolume AND "unterminated WindowsVolume`,
+		"@ VOLROOT":                             "@ WindowsVolume",
+		"":                                      "",
+	} {
+		if got := RenameProperties(cond, rename); got != want {
+			t.Errorf("RenameProperties(%q) = %q, want %q", cond, got, want)
+		}
+	}
+}

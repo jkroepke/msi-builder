@@ -508,7 +508,7 @@ func (cc *compConv) removeFile(elm *elem) {
 
 	// On="both" on a property becomes uninstall-only outside a per-user
 	// package, and can then equal an uninstall row of the same folder.
-	key := [5]string{elm.name, strings.ToLower(row.str("name")), row.str("directory"), row.str("property"), row.str("on")}
+	key := [5]string{elm.name, lowerOutsideActions(row.str("name")), row.str("directory"), row.str("property"), row.str("on")}
 	if cc.removeRows[key] {
 		if elm.attr("On") != when {
 			conv.todof(cc.out, "", elm.line, "the install half of %s On=%q on the property %s was not converted: a repair, "+
@@ -528,6 +528,25 @@ func (cc *compConv) removeFile(elm *elem) {
 	}
 
 	cc.out.add("removeFiles", row)
+}
+
+// lowerOutsideActions lowers the case of text outside its template
+// actions: the engine matches names without case, but the variables of
+// {{ .CleanMask }} and {{ .CLEANMASK }} are two values.
+func lowerOutsideActions(text string) string {
+	var out strings.Builder
+
+	last := 0
+
+	for _, span := range action.FindAllStringIndex(text, -1) {
+		out.WriteString(strings.ToLower(text[last:span[0]]))
+		out.WriteString(text[span[0]:span[1]])
+		last = span[1]
+	}
+
+	out.WriteString(strings.ToLower(text[last:]))
+
+	return out.String()
 }
 
 // noteFoldedFolder notes a RemoveFile or RemoveFolder on a nameless

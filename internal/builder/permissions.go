@@ -55,6 +55,7 @@ func (b *build) permissions() error {
 
 	b.grantActions()
 	b.unsecureGrantProperties()
+	b.unsecureRemoveFileProperties()
 
 	return nil
 }

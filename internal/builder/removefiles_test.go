@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jkroepke/msi-builder/internal/msidb"
 )
 
 // TestRemoveFiles writes one RemoveFile row per removeFiles entry, with a
@@ -164,5 +166,75 @@ components:
 
 	if props != 2 {
 		t.Errorf("%d RemoveFile rows on LOGDIR, want 2: %v", props, rows(t, database, "RemoveFile"))
+	}
+}
+
+// removeFilePropsYAML is a package of the scope with removeFiles entries
+// on properties: LOGDIR from a search, CLEAN_DIR from an action whose
+// value names SRC_DIR, and KEEP, which nothing removes; props adds to the
+// properties.
+func removeFilePropsYAML(scope, props string) string {
+	return `schema: msi-builder/v1
+product: { name: Hello, manufacturer: Example, version: 1.0.0, upgradeCode: 3f2504e0-4f89-41d3-9a0c-0305e82c3301 }
+package: { platform: x64, scope: ` + scope + ` }
+properties:
+  LOGDIR: { search: { registry: { root: HKLM, key: 'SOFTWARE\Example', name: Logs, type: directory } } }
+  SRC_DIR: { value: 'C:\Example\' }
+  KEEP: { value: "1" }
+` + props + `components:
+  - id: App
+    files: [{ source: hello.exe }]
+    removeFiles:
+      - { name: '*.log', property: LOGDIR }
+      - { name: '*.tmp', property: CLEAN_DIR }
+customActions:
+  - id: SetClean
+    setProperty: { name: CLEAN_DIR, value: '[SRC_DIR]cache\' }
+    schedule: [{ sequence: execute, after: CostFinalize }]
+`
+}
+
+// TestRemoveFilePropertiesNotSecure checks that outside a per-user
+// package the properties a removeFiles entry reads its folder from, and
+// those an action sets them from, are not secure: a standard user who
+// removes a feature in an elevated maintenance install could otherwise
+// name any folder on the command line. A per-user package keeps them, and
+// secure: true is refused.
+func TestRemoveFilePropertiesNotSecure(t *testing.T) {
+	t.Parallel()
+
+	for scope, want := range map[string]bool{"perMachine": false, "perUserOrMachine": false, "perUser": true} {
+		res, err := buildMoved(t, removeFilePropsYAML(scope, ""))
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", scope, err, res.Diagnostics)
+		}
+
+		database, err := msidb.Unmarshal(res.Package)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		secure := ";" + fmt.Sprint(cell(t, database, "Property", "Value", func(r []any) bool { return r[0] == "SecureCustomProperties" })) + ";"
+		for _, name := range []string{"LOGDIR", "SRC_DIR"} {
+			if got := strings.Contains(secure, ";"+name+";"); got != want {
+				t.Errorf("%s: SecureCustomProperties %q: %s secure %t, want %t", scope, secure, name, got, want)
+			}
+		}
+
+		if !strings.Contains(secure, ";KEEP;") {
+			t.Errorf("%s: SecureCustomProperties %q lacks KEEP", scope, secure)
+		}
+	}
+
+	// Validation refuses secure: true on the entry's own property; the
+	// builder refuses it on one an action sets that property from.
+	for name, src := range map[string]string{
+		"CLEAN_DIR": removeFilePropsYAML("perMachine", "  CLEAN_DIR: { secure: true }\n"),
+		"SRC_DIR":   strings.Replace(removeFilePropsYAML("perMachine", ""), `SRC_DIR: { value: 'C:\Example\' }`, `SRC_DIR: { value: 'C:\Example\', secure: true }`, 1),
+	} {
+		res, err := buildMoved(t, src)
+		if err == nil || !strings.Contains(fmt.Sprint(res.Diagnostics), "properties."+name+".secure") {
+			t.Errorf("%s secure: true built: err %v, diagnostics %v", name, err, res)
+		}
 	}
 }
