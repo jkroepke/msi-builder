@@ -669,9 +669,9 @@ deletes it only when the user asks for it with
 lie outside the install folder, for example below `CommonAppDataFolder`.
 The folder is deleted for good, at the end of the uninstall: when the
 uninstall fails after that and rolls back, the product stays installed
-without the folder (expected, not tested). A repair then puts back the package's own files in it
-(expected, not tested), but not what the program wrote, so tell users to
-back up that data first.
+without the folder, and a repair then puts back the package's own files in
+it, but not what the program wrote (both expected, not tested). Tell users
+to back up that data first.
 
 ```yaml
 components:
