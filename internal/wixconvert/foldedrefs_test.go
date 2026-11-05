@@ -68,10 +68,10 @@ func TestConvertRemoveFileVariableCase(t *testing.T) {
       <Directory Id="INSTALLFOLDER" Name="Hello">
         <Component Id="App">
           <File Source="hello.exe" />
-          <RemoveFile Id="CleanA" Name="$(var.CleanMask)" On="uninstall" />
-          <RemoveFile Id="CleanB" Name="$(var.CLEANMASK)" On="uninstall" />
-          <RemoveFile Id="CleanC" Name="X$(var.CleanMask)" On="uninstall" />
-          <RemoveFile Id="CleanD" Name="x$(var.CleanMask)" On="uninstall" />
+          <RemoveFile Id="CleanFirst" Name="$(var.CleanMask)" On="uninstall" />
+          <RemoveFile Id="CleanSecond" Name="$(var.CLEANMASK)" On="uninstall" />
+          <RemoveFile Id="CleanThird" Name="X$(var.CleanMask)" On="uninstall" />
+          <RemoveFile Id="CleanFourth" Name="x$(var.CleanMask)" On="uninstall" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -93,7 +93,7 @@ func TestConvertRemoveFileVariableCase(t *testing.T) {
 
 	// X and x are the same pattern to the engine.
 	if got := strings.Count(out, "- name: "); got != 3 {
-		t.Errorf("%d removeFiles rows, want 3 (CleanD equals CleanC):\n%s", got, out)
+		t.Errorf("%d removeFiles rows, want 3 (CleanFourth equals CleanThird):\n%s", got, out)
 	}
 }
 
