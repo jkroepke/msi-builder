@@ -66,9 +66,11 @@ msi-builder verify hello.msi
 ## Install
 
 On Windows, open PowerShell as an administrator (**Run as administrator**),
-then install the package silently and remove it again:
+change to the folder with `hello.msi`, then install the package silently and
+remove it again:
 
 ```powershell
+cd C:\path\to\hello
 Start-Process msiexec -ArgumentList '/i hello.msi /qn /norestart INSTALLDIR="D:\Apps\Hello"' -Wait
 Start-Process msiexec -ArgumentList '/x hello.msi /qn /norestart' -Wait
 ```

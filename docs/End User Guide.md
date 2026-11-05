@@ -190,7 +190,8 @@ repair resets.
 Windows keeps a copy of the installed package, but without its files. A
 repair that has to put back or replace a file therefore needs the `.msi`
 of the installed version; one that finds every file in place and only
-rewrites registry values and shortcuts runs without it. With the product
+rewrites registry values and shortcuts runs without it (expected, not
+tested). With the product
 code in place of the file, or with the **Repair** button, Windows Installer
 looks for the `.msi` where it was first installed from; if it has moved or
 been deleted, a silent repair that needs it fails with 1612, so pass the

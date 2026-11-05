@@ -54,12 +54,15 @@ must have a version resource; msi-builder reads its version from it.
 
 Keep those file versions going up from release to release, like the
 product version. When a release ships a file with a lower version than the
-installed release, the upgrade keeps the installed file and then deletes
-it with the old release, so the file is missing after the upgrade until a
-repair puts it back (UPG-07). msi-builder cannot warn, since it does not
-know the versions of earlier releases. If a file has to go back to an
-older build, set its `version` above the installed one, for example
-`version: 2.0.0.1` for an installed 2.0.0.0.
+installed release, the upgrade with the default `upgrade.removeOld` keeps
+the installed file and then deletes it with the old release, so the file
+is missing after the upgrade until a repair puts it back (UPG-07).
+msi-builder cannot warn, since it does not know the versions of earlier
+releases. If a file has to go back to an older build, set its `version`
+above the installed one, for example `version: 2.0.0.1` for an installed
+2.0.0.0, and keep later releases above that; or set
+`upgrade.removeOld: afterInstallExecute`, which keeps the installed file
+instead.
 
 ## Versions from the build
 
@@ -666,7 +669,7 @@ deletes it only when the user asks for it with
 lie outside the install folder, for example below `CommonAppDataFolder`.
 The folder is deleted for good, at the end of the uninstall: when the
 uninstall fails after that and rolls back, the product stays installed
-without the folder. A repair then puts back the package's own files in it
+without the folder (expected, not tested). A repair then puts back the package's own files in it
 (expected, not tested), but not what the program wrote, so tell users to
 back up that data first.
 
@@ -691,12 +694,13 @@ in the registry. The folder is moved aside and deleted at the end, so a
 failed uninstall puts it back, and a junction inside it is deleted as
 a link, never followed (tested on Windows). When the rollback cannot move
 it back, for example because something created a folder at the same path
-in the meantime, it stays in `BuilderRemoveFolders.<token>\<n>` at the
+in the meantime, or the commit cannot delete all of it, it (or what is
+left of it) stays in `BuilderRemoveFolders.<token>\<n>` at the
 root of its drive, which only administrators can open. The log names it in
 a `BuilderRemoveFolders:` line, and the registry keeps its original path
 under `Software\msi-builder\RemoveFoldersLeft` in `HKEY_USERS\S-1-5-18`
 (the installing user's `HKEY_CURRENT_USER` in a per-user install); an
-administrator moves it back by hand. `on:
+administrator moves it back or deletes it by hand. `on:
 install` and `on: both` are for folders the package does not install to,
 and a folder that is or holds a folder of the package goes only when the
 whole product is removed, not with one feature, on install or on repair,

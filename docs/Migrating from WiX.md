@@ -1031,9 +1031,8 @@ in WiX. Prefer the keys of the sections above over a custom action where
 one fits: services, registry values and environment variables undo
 themselves on uninstall and roll back on a failed install. A `grant` rolls
 back on a failed install too, but an uninstall takes no permissions back:
-a folder, file or registry key that stays after the uninstall, such as a
-data folder with files the program wrote, keeps the rights the package gave
-it.
+a folder or file that stays after the uninstall, such as a data folder
+with files the program wrote, keeps the rights the package gave it.
 
 ## The setup wizard
 
