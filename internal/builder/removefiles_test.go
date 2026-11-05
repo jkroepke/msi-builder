@@ -238,3 +238,22 @@ func TestRemoveFilePropertiesNotSecure(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoveFilePropertyFromMovableDir warns about an action that sets a
+// removeFiles property from a secure directory, such as a configurable
+// install dir, which a standard user can move in an elevated removal.
+func TestRemoveFilePropertyFromMovableDir(t *testing.T) {
+	t.Parallel()
+
+	src := strings.Replace(removeFilePropsYAML("perMachine", ""), "[SRC_DIR]cache", "[INSTALLDIR]cache", 1)
+	src = strings.Replace(src, "properties:\n", "installDir: { id: INSTALLDIR, name: Hello }\nproperties:\n", 1)
+
+	res, err := buildMoved(t, src)
+	if err != nil {
+		t.Fatalf("%v\n%v", err, res)
+	}
+
+	if !strings.Contains(fmt.Sprint(res.Diagnostics), "customActions[0].setProperty.value") {
+		t.Errorf("no warning on SetClean: %v", res.Diagnostics)
+	}
+}

@@ -908,7 +908,10 @@ nothing; with the property not secure, the file stayed (Codex review of
 PR #210). Outside a `perUser` package the builder therefore keeps the
 property out of `SecureCustomProperties`, with the plain properties in the
 value of a `setProperty` or `setDirectory` action that sets it, and
-`secure: true` on one of them is an error. A property with a `search`
+`secure: true` on one of them is an error. Such an action whose value
+names a secure directory, such as a configurable install dir
+(`[INSTALLDIR]cache\`), gets a warning: the directory stays secure for
+the wizard, so the command line can still move it. A property with a `search`
 still finds its folder when the execute sequence searches (a removal
 without the UI sequence, such as `msiexec /x <package> /qn`); after a
 full-UI maintenance install by a standard user, whose UI sequence searched,

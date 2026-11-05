@@ -26,6 +26,7 @@ func TestConvertFoldedConditions(t *testing.T) {
       </Directory>
     </Directory>
     <SetProperty Id="SEEN" Value="1" After="CostFinalize" Condition="VOLROOT AND VOLROOT&lt;&gt;&quot;VOLROOT&quot; AND $(var.Gate)" />
+    <Launch Condition="Installed OR VOLROOT" Message="no volume" />
     <Feature Id="Main"><ComponentRef Id="App" /></Feature>
   </Package>
 </Wix>`
@@ -36,6 +37,10 @@ func TestConvertFoldedConditions(t *testing.T) {
 	}
 
 	out := string(res.YAML)
+	if want := "Installed OR WindowsVolume"; !strings.Contains(out, want) {
+		t.Errorf("the launch condition lacks %q:\n%s", want, out)
+	}
+
 	if want := "`WindowsVolume AND WindowsVolume<>\"VOLROOT\" AND ` .Gate"; !strings.Contains(out, want) {
 		t.Errorf("the YAML lacks the condition %q:\n%s", want, out)
 	}

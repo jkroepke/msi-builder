@@ -556,6 +556,8 @@ func (b *build) unsecureRemoveFileProperties() {
 		return
 	}
 
+	b.warnMovableRemoveFileSources(sources)
+
 	wizard := b.uiSetProperties()
 
 	for _, name := range sortedKeys(sources) {
@@ -623,4 +625,29 @@ func (b *build) addSetSources(sources map[string]bool) bool {
 	}
 
 	return added
+}
+
+// warnMovableRemoveFileSources warns about a setProperty or setDirectory
+// action that sets the folder of a removeFiles entry from a directory the
+// command line can move: a public one, which an elevated maintenance
+// install takes from a standard user when it is secure, as a configurable
+// directory is. The directory keeps its secure status, which the wizard
+// needs.
+func (b *build) warnMovableRemoveFileSources(sources map[string]bool) {
+	for i, action := range b.cfg.CustomActions {
+		target, value, field := setAction(action)
+		if field == "" || !sources[target] {
+			continue
+		}
+
+		for _, name := range innerRefs(value) {
+			if _, isDir := b.dirs[name]; !isDir || !b.secure[name] {
+				continue
+			}
+
+			b.warnf(fmt.Sprintf("customActions[%d].%s.value", i, field), "%s sets %s, the folder of a removeFiles entry, from the "+
+				"directory %s, which a standard user can move on the command line when removing a feature elevated, and the "+
+				"matching files there are then deleted; name a folder that does not come from a secure directory", action.ID, target, name)
+		}
+	}
 }
