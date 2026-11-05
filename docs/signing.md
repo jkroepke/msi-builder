@@ -77,6 +77,12 @@ anyone from replacing the tables along with the cabinets.
   signatures are randomized) gives a different package and automatic
   PackageCode on every build. RSA without a timestamp keeps both
   reproducible; a timestamp changes only the cabinets.
+  Windows Installer treats an ECDSA rebuild of a release as another
+  package of the same product version: it refuses to install it over the
+  installed build (error 1638, another version of this product is already
+  installed) and, expected but not tested, does not accept it as the
+  source of a repair. Do not rebuild a released version with an ECDSA
+  key; ship and keep the `.msi` and cabinets of the one build.
 - Size limits (`builder.Options.CabinetSize`, 2 GiB) count the cabinet
   without its signature, which adds a few kilobytes to each file.
 - `msi-builder verify` checks the package signature only; it does not yet

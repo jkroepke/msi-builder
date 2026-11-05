@@ -109,27 +109,36 @@ installDir:
   id: INSTALLFOLDER
   name: Hello
 
-components:
-  - files:
-      - source: hello.exe
-    services:
-      - name: Hello
-        displayName: Hello Service
-        start: auto
-  - files:
-      - source: hello.yaml
-  - id: PathEnv
-    guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a11
-    environment:
-      - name: PATH
-        value: '[INSTALLFOLDER]'
-        action: append       # Action="set" Part="last"
-        scope: machine       # System="yes"
+features:
+  - id: Main               # Feature Id="Main"
+    components:
+      - files:
+          - source: hello.exe
+        services:
+          - name: Hello
+            displayName: Hello Service
+            start: auto
+      - files:
+          - source: hello.yaml
+      - id: PathEnv
+        guid: 0b7e6b4e-6c1a-4c55-9e43-3b8f3c0d6a11
+        environment:
+          - name: PATH
+            value: '[INSTALLFOLDER]'
+            action: append   # Action="set" Part="last"
+            scope: machine   # System="yes"
 ```
 
 Build it with `msi-builder build --var VERSION=1.4.0 -o hello.msi msi.yaml`.
+The feature keeps its WiX ID, `Main`, so that `ADDLOCAL=Main` and the
+feature states of an upgrade from the WiX package still name it; without
+`features`, the package has one feature called `MainFeature`.
+
 The rest of this page shows the parts of a file one at a time. Each example
-replaces the keys of the same name in this file.
+replaces the keys of the same name in this file. An example with
+`components` or `features` replaces both, because the features hold the
+components: it shows only the components it is about, and a real file
+keeps the others in a feature.
 
 ## What you can leave out
 
@@ -508,7 +517,11 @@ because an upgrade can lose a program without one.
 
 A feature lists its components, by ID or in place. `Level="1"` is the
 default, `Level="2"` is `default: off`, `Level="0"` is
-`default: disabled`, and any other level goes into `level`:
+`default: disabled`, and any other level goes into `level`. The example
+replaces both `components` and `features` of the whole package above, so
+its service, configuration file and `PATH` entry are gone; in a real
+file, put them into one of the features too, since msi-builder refuses a
+component that no feature lists (ICE21):
 
 ```xml
 <Feature Id="Main" Title="Hello">
@@ -1015,8 +1028,12 @@ that their order stays.
 
 Actions with the same `before` or `after` run in the order of the file, as
 in WiX. Prefer the keys of the sections above over a custom action where
-one fits: services, registry values, environment variables and permissions
-undo themselves on uninstall and roll back on a failed install.
+one fits: services, registry values and environment variables undo
+themselves on uninstall and roll back on a failed install. A `grant` rolls
+back on a failed install too, but an uninstall takes no permissions back:
+a folder, file or registry key that stays after the uninstall, such as a
+data folder with files the program wrote, keeps the rights the package gave
+it.
 
 ## The setup wizard
 

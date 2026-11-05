@@ -65,14 +65,21 @@ msi-builder verify hello.msi
 
 ## Install
 
-On Windows, install the package silently and remove it again:
+On Windows, open PowerShell as an administrator (**Run as administrator**),
+then install the package silently and remove it again:
 
 ```powershell
-msiexec /i hello.msi /qn INSTALLDIR="D:\Apps\Hello"
-msiexec /x hello.msi /qn
+Start-Process msiexec -ArgumentList '/i hello.msi /qn /norestart INSTALLDIR="D:\Apps\Hello"' -Wait
+Start-Process msiexec -ArgumentList '/x hello.msi /qn /norestart' -Wait
 ```
 
-`INSTALLDIR` is optional and changes the target directory.
+The package installs for all users, which needs administrator rights, and a
+silent install (`/qn`) cannot ask for them: from a prompt that is not
+elevated, it fails. `msiexec` returns before it has finished, so `-Wait`
+keeps the uninstall from starting while the install still runs.
+`INSTALLDIR` is optional and changes the target directory. The
+[End User Guide](End%20User%20Guide.md) covers the other options, exit
+codes and log files.
 
 ## Next steps
 
