@@ -37,6 +37,18 @@ const appComponent = `components:
       - source: app.exe
 `
 
+// aliasLogsTree is a directories entry with two ids for one folder:
+// Logs is CommonAppDataFolder\Example\logs, and so is AliasLogs, below the
+// "." alias of Example.
+const aliasLogsTree = `  - id: CommonAppDataFolder
+    children:
+      - id: DataRoot
+        name: Example
+        children:
+          - {id: Logs, name: logs}
+          - {id: SameRoot, name: ".", children: [{id: AliasLogs, name: Logs}]}
+`
+
 // progressAction is a customActions section with one immediate action
 // whose progress text is text; an empty text leaves the key out.
 func progressAction(text string) string {
@@ -930,6 +942,11 @@ func TestValidate(t *testing.T) {
 			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR}]\n    files:", 1),
 			sevWarning, "components[0].removeFiles[0].property", "nothing in the package sets LOGDIR",
 		},
+		"removeFiles property secure": {
+			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: LOGDIR}]\n    files:", 1) +
+				"properties:\n  LOGDIR: {value: 'C:\\Logs\\', secure: true}\n",
+			sevError, "properties.LOGDIR.secure", "cannot be secure in a perMachine package",
+		},
 		"removeFiles property bad name": {
 			base + strings.Replace(appComponent, "    files:", "    removeFiles: [{name: \"*.log\", property: \"LOG DIR\"}]\n    files:", 1),
 			sevError, "components[0].removeFiles[0].property", "not a property name",
@@ -1283,6 +1300,18 @@ func TestValidate(t *testing.T) {
 		"purge above a permanent component": {
 			base + appComponent + "  - id: Data\n    directory: CommonAppDataFolder/Example/Hello\n    createFolder: true\n    purge: true\n" +
 				"  - id: Keep\n    directory: CommonAppDataFolder/Example/Hello/keep\n    createFolder: true\n    permanent: true\n",
+			sevError, "components[1].purge", "permanent component Keep",
+		},
+		"purge above a permanent component behind an alias": {
+			strings.Replace(base, "directories:\n", "directories:\n"+aliasLogsTree, 1) + appComponent +
+				"  - id: Data\n    directory: Logs\n    createFolder: true\n    purge: true\n" +
+				"  - id: Keep\n    directory: AliasLogs\n    createFolder: true\n    permanent: true\n",
+			sevError, "components[1].purge", "permanent component Keep",
+		},
+		"purge an alias path above a permanent component": {
+			strings.Replace(base, "directories:\n", "directories:\n"+aliasLogsTree, 1) + appComponent +
+				"  - id: Data\n    directory: AliasLogs\n    createFolder: true\n    purge: true\n" +
+				"  - id: Keep\n    directory: Logs\n    createFolder: true\n    permanent: true\n",
 			sevError, "components[1].purge", "permanent component Keep",
 		},
 		"purge permanent": {

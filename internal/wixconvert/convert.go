@@ -191,6 +191,7 @@ func convertOnce(data []byte, opts Options, forced map[int]bool, noDual bool) (*
 	}
 
 	conv.emit()
+	conv.renameConditions()
 
 	text, err := conv.render(opts)
 	if err != nil {

@@ -475,7 +475,9 @@ components:
   and it follows the parent otherwise (tested on Windows). One directly in a
   standard folder is that folder: use the standard folder's ID. One
   directly in `TARGETDIR` that nothing sets is `TARGETDIR` itself, so
-  `msi-builder convert` writes `TARGETDIR` for it.
+  `msi-builder convert` writes `TARGETDIR` for it. A condition that names
+  such a Directory, such as `Condition="VOLROOT"`, names the standard folder
+  in the YAML, since the Directory's own property no longer exists.
 - A WiX `RegistrySearch` that restores the install folder from the last
   install is `installDir.remember: true`. It writes its own value,
   `InstallDir` under `HKLM\Software\<manufacturer>\<product name>`, so the
@@ -1093,7 +1095,12 @@ directory, typically one a `RegistrySearch` fills, keeps it as
 `perUser` package msi-builder refuses `on: install` and `both` there,
 because a standard user can start an elevated repair with the property set
 to any folder, and `convert` leaves that half out with a note. Nothing
-checks the folder, unlike `removeFolders`.
+checks the folder, unlike `removeFolders`, so the property is also not
+secure there: a standard user who removes a feature could otherwise set it
+on the command line. When the property comes from a `RegistrySearch`, the
+row still removes the files in a removal without the wizard, such as
+`msiexec /x <package> /qn`, or by an administrator, but not in a standard
+user's removal through the maintenance wizard.
 
 `purge` deletes the component's folder on uninstall, but not when an
 upgrade replaces the product. The folder must be outside the install

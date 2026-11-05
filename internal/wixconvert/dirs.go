@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jkroepke/msi-builder/internal/condition"
 	"github.com/jkroepke/msi-builder/pkg/config"
 )
 
@@ -745,3 +746,73 @@ func joinPath(start string, names []string) string {
 }
 
 func isFile(e *elem) bool { return e.is(elemFile) || e.is("Files") }
+
+// keyCondition is the YAML key of a condition.
+const keyCondition = "condition"
+
+// conditionKeys are the keys whose values are conditions, by the key of
+// the mapping they are in ("" for any mapping).
+var conditionKeys = map[string]map[string]bool{ //nolint:gochecknoglobals // lookup table
+	"":          {keyCondition: true, "startCondition": true},
+	"scopePage": {"perMachine": true, "perUser": true},
+}
+
+// renameConditions updates the conditions of the output for the
+// directories the converter renamed: a nameless Directory folded into a
+// standard folder, or an install dir that became upper case, no longer
+// exists under its own name, so a bare Condition="VOLROOT" would be false
+// where WiX's package tested the folder.
+func (c *converter) renameConditions() {
+	if len(c.renames) == 0 {
+		return
+	}
+
+	rename := func(name string) (string, bool) {
+		to, ok := c.renames[name]
+
+		return to, ok
+	}
+
+	var walk func(mapping *omap, mapKey string)
+
+	walk = func(mapping *omap, mapKey string) {
+		for _, key := range mapping.keys {
+			base, _, _ := strings.Cut(key, keySep)
+
+			switch value := mapping.values[key].(type) {
+			case string:
+				if conditionKeys[""][base] || conditionKeys[mapKey][base] {
+					mapping.values[key] = renameOutsideActions(value, rename)
+				}
+			case *omap:
+				walk(value, base)
+			case []any:
+				for _, item := range value {
+					if sub, ok := item.(*omap); ok {
+						walk(sub, base)
+					}
+				}
+			}
+		}
+	}
+
+	walk(c.out, "")
+}
+
+// renameOutsideActions renames the properties of a condition outside the
+// template actions in it.
+func renameOutsideActions(cond string, rename func(string) (string, bool)) string {
+	var out strings.Builder
+
+	last := 0
+
+	for _, span := range action.FindAllStringIndex(cond, -1) {
+		out.WriteString(condition.RenameProperties(cond[last:span[0]], rename))
+		out.WriteString(cond[span[0]:span[1]])
+		last = span[1]
+	}
+
+	out.WriteString(condition.RenameProperties(cond[last:], rename))
+
+	return out.String()
+}

@@ -99,7 +99,7 @@ func (c *converter) emitComponents(tree map[*dir]bool) {
 func hasContent(component *omap) bool {
 	for _, key := range component.keys {
 		switch key {
-		case "id", keyDirectory, "guid", "condition", "bitness", "keyPath":
+		case "id", keyDirectory, "guid", keyCondition, "bitness", "keyPath":
 		default:
 			if _, ok := component.values[key]; ok {
 				return true

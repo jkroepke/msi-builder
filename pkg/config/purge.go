@@ -16,7 +16,7 @@ func (v *validator) purge(cfg *Config, known *refs, field string, comp *Componen
 		return
 	}
 
-	if keep := permanentBelow(cfg, known, comp.Directory); keep != "" {
+	if keep := permanentBelow(cfg, comp.Directory); keep != "" {
 		v.errorf(field+".purge", "permanent component %s outlives the product, but purge deletes its folder at "+
 			"uninstall; keep permanent components out of the purged folder", keep)
 	}
@@ -153,18 +153,35 @@ func unsafeNameInPath(known *refs, dirID string) string {
 	return ""
 }
 
-// permanentBelow returns the first permanent component whose directory is
-// dirID or a folder below it.
-func permanentBelow(cfg *Config, known *refs, dirID string) string {
+// permanentBelow returns the first permanent component whose folder is
+// the folder of dirID or one below it. It compares default target paths
+// (directoryPaths), not ids, because a "." alias is a second id for its
+// parent: Root/./logs is the folder Root/logs.
+func permanentBelow(cfg *Config, dirID string) string {
+	paths := directoryPaths(cfg.Directories, "", make(map[string]string))
+
+	purged, ok := paths[dirID]
+	if !ok {
+		return ""
+	}
+
 	for _, other := range cfg.Components {
 		if other == nil || !other.Permanent {
 			continue
 		}
 
-		for id, depth := other.Directory, 0; id != "" && depth < 64; id, depth = known.dirParent[id], depth+1 {
-			if id == dirID {
+		folder, ok := paths[other.Directory]
+		if !ok {
+			// Reported for the directory already; compare ids.
+			if other.Directory == dirID {
 				return other.ID
 			}
+
+			continue
+		}
+
+		if strings.EqualFold(folder, purged) || strings.HasPrefix(strings.ToLower(folder), strings.ToLower(purged)+`\`) {
+			return other.ID
 		}
 	}
 

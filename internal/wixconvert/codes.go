@@ -216,7 +216,7 @@ func (c *converter) builtByKeyFile(comp *comp, keyFile string) *BuiltComponent {
 // got a generated one in the package, and only its name below its parent
 // can find it.
 func (c *converter) keyFileDir(comp *comp) (string, bool) {
-	folder := c.dirs[comp.dir]
+	folder := c.wixDir(comp.dir)
 	if folder == nil || !folder.generated {
 		return comp.dir, false
 	}
@@ -451,7 +451,7 @@ func (c *converter) harvestNote(comp *comp, late bool) string {
 		return "WiX gave each file of this Files glob a component of its own, so " + lostCodes(late) + "; run msi-builder " +
 			"convert again next to the glob's folder, or with --msi and the package WiX built, which keeps the code of each " +
 			"file in guids" + early
-	case c.builtDir(c.dirs[comp.dir], comp.dir) == "":
+	case c.builtDir(c.wixDir(comp.dir), comp.dir) == "":
 		return "convert did not find the folder of this Files glob in " + c.built.Name + leftOut(comp) + ", so it kept no code for its " +
 			"files and " + lostCodes(late) + "; add the ComponentId WiX gave each file to guids (msi-builder inspect " +
 			"--table Component)" + early
@@ -508,7 +508,7 @@ func (c *converter) harvests() []harvest {
 			continue
 		}
 
-		target := c.builtDir(c.dirs[comp.dir], comp.dir)
+		target := c.builtDir(c.wixDir(comp.dir), comp.dir)
 
 		filter, err := folderglob.New(comp.folder.list("include"), comp.folder.list("exclude"))
 		if target == "" || err != nil {
@@ -705,12 +705,14 @@ func (c *converter) claim(row *BuiltComponent) {
 
 // builtDir returns the ID that the folder, with the source ID dirID, has
 // in the built package, or "". A folder WiX gave an ID of its own is found
-// by its name below its parent.
+// by its name below its parent. The folders are the source's records
+// (wixDir): a nameless Directory that became a standard folder is still a
+// row of its own there, named ".".
 func (c *converter) builtDir(folder *dir, dirID string) string {
 	if folder != nil && folder.generated {
 		parent := ""
-		if folder.parent != nil {
-			parent = c.builtDir(folder.parent, folder.parent.id)
+		if folder.parentID != "" {
+			parent = c.builtDir(c.wixDir(folder.parentID), folder.parentID)
 		}
 
 		return c.builtChild(parent, folder.name)
@@ -735,16 +737,18 @@ func (c *converter) builtDir(folder *dir, dirID string) string {
 }
 
 // builtChild returns the ID of the only folder of the built package named
-// name below parent, or "".
+// name below parent, or "". A nameless folder ("" or ".") matches a
+// nameless row.
 func (c *converter) builtChild(parent, name string) string {
-	if parent == "" || name == "" {
+	if parent == "" {
 		return ""
 	}
 
 	found := ""
 
 	for _, row := range c.built.Directories {
-		if row.Parent != parent || !strings.EqualFold(row.Name, name) {
+		named := strings.EqualFold(row.Name, name) || unnamed(name) && unnamed(row.Name)
+		if row.Parent != parent || row.ID == parent || !named {
 			continue
 		}
 

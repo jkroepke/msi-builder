@@ -899,9 +899,25 @@ set it whenever the search finds nothing. For that reason `on: install` and
 `both` are errors with a property outside a `perUser` package: a standard
 user can start a repair of a per-machine product, which runs elevated and
 reinstalls the component (as SEC-03 found for grants). An uninstall-time
-row runs only when the component is removed; whether a standard user can
-start that elevated, by removing a feature in a maintenance install, was
-not tested.
+row runs when the component is removed, and a process with a restricted
+token (not tested with a separate standard user) removed a feature of a
+per-machine product with `REMOVE=<feature>` and the property on the
+command line in an elevated maintenance install, which deleted a file it
+could not delete itself, also with a property whose registry search found
+nothing; with the property not secure, the file stayed (Codex review of
+PR #210). Outside a `perUser` package the builder therefore keeps the
+property out of `SecureCustomProperties`, with the plain properties in the
+value of a `setProperty` or `setDirectory` action that sets it, and
+`secure: true` on one of them is an error. Such an action whose value
+names a secure directory, such as a configurable install dir
+(`[INSTALLDIR]cache\`), gets a warning: the directory stays secure for
+the wizard, so the command line can still move it. A property with a `search`
+still finds its folder when the execute sequence searches (a removal
+without the UI sequence, such as `msiexec /x <package> /qn`); after a
+full-UI maintenance install by a standard user, whose UI sequence searched,
+the server gets no value and the row removes nothing (expected from the
+skipped `AppSearch`, not tested). An administrator's
+values reach the server anyway (PROP-01).
 The builder already removes the folders of shortcuts and of components in
 the user profile on uninstall; a folder entry for one of them warns, since
 it only adds a second row.
@@ -941,7 +957,8 @@ another folder is rejected too, because the installer resolves its path
 itself, and so is a `%` in any folder name, because `cmd.exe` expands
 `%NAME%` as an environment variable, and a `~`, because a name such as
 `PROGRA~1` can resolve to another folder's 8.3 alias (not tested). A permanent component in the purged folder or below it
-is an error: the component would outlive the product, but its folder would
+is an error, compared by the folders' paths, so that a `.` alias of a
+folder above (`Root/./logs` is `Root/logs`) is no way around it: the component would outlive the product, but its folder would
 not. Data below the install dir therefore cannot be purged;
 use a path below a fixed standard folder other than TARGETDIR (public, and
 its drive can change), whose generated IDs are private, such as
