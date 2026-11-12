@@ -2266,10 +2266,12 @@ func (c *converter) chainAfterBuilderActions() {
 	}
 
 	gaps := make(map[string][]atEntry)
+	children := make(map[string][]string)
 
 	for _, item := range list {
 		if action, isMap := item.(*omap); isMap {
 			collectAnchorGaps(action, gaps)
+			collectChildren(action, children)
 		}
 	}
 
@@ -2284,11 +2286,50 @@ func (c *converter) chainAfterBuilderActions() {
 
 		_, prev, _ := strings.Cut(key, "/")
 
+		seq, _, _ := strings.Cut(key, "/")
+
 		for _, entry := range entries {
 			entry.placement.del("at")
 			entry.placement.set(keyAfter, prev)
-			prev = entry.id
+			// The next one follows the actions placed after this one too,
+			// which the builder places right behind it, as WiX numbers
+			// them right after it.
+			prev = lastPlaced(children, seq, entry.id)
 		}
+	}
+}
+
+// collectChildren records, by sequence and action, the actions placed
+// right after it, in definition order, as the builder places them.
+func collectChildren(action *omap, children map[string][]string) {
+	schedule, ok := action.get("schedule").([]any)
+	if !ok {
+		return
+	}
+
+	for _, place := range schedule {
+		if placement, isMap := place.(*omap); isMap {
+			if after := placement.str(keyAfter); after != "" {
+				key := placement.str("sequence") + "/" + after
+				children[key] = append(children[key], action.str("id"))
+			}
+		}
+	}
+}
+
+// lastPlaced returns the action the builder places last of action and the
+// actions placed after it, directly or through others.
+func lastPlaced(children map[string][]string, seq, action string) string {
+	seen := map[string]bool{action: true}
+
+	for {
+		kids := children[seq+"/"+action]
+		if len(kids) == 0 || seen[kids[len(kids)-1]] {
+			return action
+		}
+
+		action = kids[len(kids)-1]
+		seen[action] = true
 	}
 }
 

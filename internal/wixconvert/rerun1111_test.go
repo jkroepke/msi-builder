@@ -396,19 +396,22 @@ func TestConvertAtPlacementKeepsAfterOrder(t *testing.T) {
           </Component>`)+`
     <Feature Id="Main"><ComponentRef Id="App" /></Feature>
     <CustomAction Id="DoHello" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --do" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UndoHello2" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --undo2" Execute="rollback" Impersonate="no" Return="ignore" />
     <CustomAction Id="UndoHello" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --undo" Execute="rollback" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
       <Custom Action="UndoHello" After="InstallInitialize">NOT Installed</Custom>
       <Custom Action="DoHello" Sequence="1510">NOT Installed</Custom>
+      <Custom Action="UndoHello2" After="UndoHello">NOT Installed</Custom>
     </InstallExecuteSequence>`)
 
 	got := convertWith(t, src, wixconvert.Options{})
-	wantAll(t, got, "after: InstallInitialize", "after: UndoHello")
+	wantAll(t, got, "after: InstallInitialize", "after: UndoHello,", "after: UndoHello2,")
 	wantNone(t, got, "at: 1510", "after: DoHello")
 }
 
 // TestConvertLaunchVariableName keeps ui.launch for a file whose name
-// comes from a variable: its extension is not known.
+// ends in a variable, whose extension is not known, and leaves it out for
+// a document named by a variable and its extension.
 func TestConvertLaunchVariableName(t *testing.T) {
 	t.Parallel()
 
@@ -432,6 +435,18 @@ func TestConvertLaunchVariableName(t *testing.T) {
 	got := string(res.YAML)
 	wantAll(t, got, "launch:", "file: HelloExe")
 	wantNone(t, got, "which is no program")
+
+	doc := strings.Replace(strings.Replace(src, `Source="$(var.HelloApp.TargetPath)"`, `Source="$(var.HelloApp.TargetPath)"`+
+		` /><File Id="Doc" Source="$(var.DocName).html"`, 1), "[#HelloExe]", "[#Doc]", 1)
+
+	res, err = wixconvert.Convert(strings.NewReader(doc), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got = string(res.YAML)
+	wantAll(t, got, "which is no program")
+	wantNone(t, got, "launch:")
 }
 
 // TestConvertPrivilegedWithoutAllUsers2 keeps a per-user package without
