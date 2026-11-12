@@ -138,10 +138,22 @@ func (c *converter) markAdvertised(e *elem) {
 	}
 }
 
-func (c *converter) workingDirectory(s *omap, e *elem, fileDir string) {
-	if wd := e.attr("WorkingDirectory"); wd != "" && wd != fileDir {
-		s.set("workingDirectory", c.stdID(c.dirRef(wd)))
+func (c *converter) workingDirectory(shortcut *omap, elm *elem, fileDir string) {
+	folder := elm.attr("WorkingDirectory")
+	if folder == "" || folder == fileDir {
+		return
 	}
+
+	if !c.isDir(folder) {
+		// WiX writes the name unchecked; msiexec finds no folder by it
+		// (Jami, janet: INSTALLFOLDER).
+		c.todof(shortcut, "", elm.line, "the shortcut's WorkingDirectory %s names no directory of the file, so it was left out "+
+			"and the shortcut starts in its component's folder; name the folder it should start in", folder)
+
+		return
+	}
+
+	shortcut.set("workingDirectory", c.stdID(c.dirRef(folder)))
 }
 
 // placeShortcut puts a Shortcut outside a File onto the file it starts when
@@ -184,7 +196,7 @@ func (c *converter) placeShortcut(pending pendingShortcut) {
 		link.set("program", c.expand(elm, target))
 	}
 
-	link.set("workingDirectory", c.stdID(c.dirRef(elm.attr("WorkingDirectory"))))
+	c.workingDirectory(link, elm, "")
 	pending.comp.out.add("shortcuts", link)
 	c.markAdvertised(elm)
 }

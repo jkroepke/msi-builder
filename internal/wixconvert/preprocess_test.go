@@ -194,8 +194,8 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			note: "<?ifdef AutoStart?> is not evaluated: only its first branch was converted",
 		},
 		"component without an Id in a loop": {
-			body: `<?foreach L in en;de ?><Component Directory="INSTALLFOLDER"><File Source="$(var.L).txt" /></Component><?endforeach ?>`,
-			note: "<?foreach L in en;de?> is not expanded: its body was converted once",
+			body: `<?foreach L in $(var.Langs) ?><Component Directory="INSTALLFOLDER"><File Source="$(var.L).txt" /></Component><?endforeach ?>`,
+			note: "<?foreach L in $(var.Langs)?> is not expanded: its body was converted once",
 		},
 		"define that extends a passed variable": {
 			body: `<?ifdef Extra ?><?define Flags = "$(var.Flags) extra" ?><?endif ?><Property Id="FLAGS" Value="$(var.Flags)" />`,
@@ -265,8 +265,8 @@ func TestConvertPreprocessorFallback(t *testing.T) {
 			note: "the variable X reads itself, where WiX reads the value it has at each define; pass it with --var or write its value",
 		},
 		"define in a loop": {
-			body: `<?foreach L in a;b ?><?define X = $(var.L) ?><?endforeach ?>`,
-			note: "<?foreach L in a;b?> is not expanded: its body was converted once",
+			body: `<?foreach L in $(var.Langs) ?><?define X = $(var.L) ?><?endforeach ?>`,
+			note: "<?foreach L in $(var.Langs)?> is not expanded: its body was converted once",
 		},
 	}
 

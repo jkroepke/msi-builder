@@ -161,11 +161,13 @@ func (c *converter) membersIn(ms []member, seen map[string]bool) []compIn {
 			if cp := c.compByID[member.ref]; cp != nil {
 				out = append(out, compIn{comp: cp, opens: unionOpens(opens, sameLoops(cp.e.opens, opens))})
 			} else {
+				c.markRefLoops(member.e, member.ref)
 				c.todof(nil, "", 0, "ComponentRef %s names no component of this file", member.ref)
 			}
 		case member.group != "":
 			group := c.groups[member.group]
 			if group == nil {
+				c.markRefLoops(member.e, member.group)
 				c.todof(nil, "", 0, "ComponentGroupRef %s names no component group of this file", member.group)
 
 				continue

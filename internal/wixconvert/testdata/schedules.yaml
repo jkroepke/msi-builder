@@ -78,7 +78,7 @@ customActions:
       command: '"[#hello.exe]" late'
     return: ignore
     schedule:
-      - {sequence: execute, at: 6620}
+      - {sequence: execute, after: LaunchHello}
   # No setter is scheduled right before this one.
   - id: Orphan
     run:
@@ -91,7 +91,7 @@ customActions:
       command: '"[#hello.exe]" [LAUNCHARGS]'
     return: asyncNoWait
     schedule:
-      - {sequence: execute, after: InstallFinalize, condition: AUTOLAUNCH AND NOT Installed}
+      - {sequence: execute, after: Check, condition: AUTOLAUNCH AND NOT Installed}
   - id: SetDataRoot
     setDirectory: {directory: DataRoot, value: '[%ProgramData]\Hello'}
     schedule:

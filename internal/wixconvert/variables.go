@@ -242,7 +242,7 @@ func (c *converter) staticDefines() ([]staticDefine, map[string]string) {
 		}
 
 		_, value, _ := strings.Cut(proc.inst, "=")
-		value = replaceVars(strings.Trim(strings.TrimSpace(value), `"`), func(ref string) (string, bool) {
+		value = replaceVars(defineValue(value), func(ref string) (string, bool) {
 			v, ok := final[ref]
 
 			return v, ok
@@ -373,7 +373,7 @@ func (c *converter) standardVar(id string) bool {
 		}
 
 		_, value, _ := strings.Cut(proc.inst, "=")
-		if !config.IsStandardFolder(c.staticFill(strings.Trim(strings.TrimSpace(value), `"`), nil)) {
+		if !config.IsStandardFolder(c.staticFill(defineValue(value), nil)) {
 			return false
 		}
 
@@ -381,4 +381,17 @@ func (c *converter) standardVar(id string) bool {
 	}
 
 	return defined
+}
+
+// defineValue returns the value of a <?define name = value?>: without the
+// spaces around it and the double or single quotes that enclose it
+// (FoundationDB writes <?define PyVersions='2.7;3.4;CUSTOM'?>, which WiX
+// reads without the quotes).
+func defineValue(value string) string {
+	value = strings.Trim(strings.TrimSpace(value), `"`)
+	if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+		value = value[1 : len(value)-1]
+	}
+
+	return value
 }

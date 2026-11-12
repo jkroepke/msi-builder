@@ -122,6 +122,16 @@ func convertAll(data []byte, opts Options, noDual bool) (*Result, *converter, er
 			return nil, nil, err
 		}
 
+		if len(conv.expandLoops) > 0 {
+			expanded := expandStaticLoops(data, conv.expandLoops, conv.staticVars, opts.Arch)
+			if !bytes.Equal(expanded, data) {
+				data = expanded
+				forced = make(map[int]bool)
+
+				continue
+			}
+		}
+
 		if len(conv.unkeep) == 0 {
 			notes := append([]Note(nil), conv.notes...)
 			slices.SortStableFunc(notes, func(a, b Note) int { return cmp.Compare(a.Line, b.Line) })
@@ -308,6 +318,9 @@ type converter struct {
 	forced, unkeep map[int]bool
 	// condVars caches conditionalVars.
 	condVars map[string]bool
+	// expandLoops are the lines of the <?foreach?> blocks over a static
+	// list that the next pass expands (loops.go).
+	expandLoops map[int]bool
 	// staticVars are the last values of the variables that only defines
 	// outside the blocks set (fillRedefined).
 	staticVars map[string]string
@@ -797,6 +810,12 @@ func (c *converter) addDir(elm *elem, parentID string, standard bool) *dir {
 // component without an Id, or "" when WiX generates it.
 func (c *converter) keyFileID(elm *elem) string {
 	key := keyElem(elm)
+	if key == nil {
+		// WiX 5 names a component of registry values without a marked
+		// key path after its first one: IronPython's ComponentRef
+		// InstallationKey names such a component.
+		key = firstRegistryValue(elm)
+	}
 
 	switch {
 	case key == nil:
@@ -839,6 +858,23 @@ func keyElem(elm *elem) *elem {
 	}
 
 	return first
+}
+
+// firstRegistryValue returns the first RegistryValue of a component, also
+// one inside a RegistryKey, or nil.
+func firstRegistryValue(elm *elem) *elem {
+	for _, kid := range elm.kids {
+		switch {
+		case kid.is("RegistryValue"):
+			return kid
+		case kid.is(elemRegistryKey):
+			if value := firstRegistryValue(kid); value != nil {
+				return value
+			}
+		}
+	}
+
+	return nil
 }
 
 // markedKey returns the element marked KeyPath below a RegistryKey.
@@ -1012,7 +1048,7 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 				continue
 			}
 
-			value = strings.Trim(strings.TrimSpace(value), `"`)
+			value = defineValue(value)
 			c.defines = append(c.defines, [2]string{varName(strings.TrimSpace(name)), value})
 		case "include":
 			c.todof(nil, "", proc.line, "<?include %s?>: convert the included file and merge it in by hand", proc.inst)
@@ -1026,6 +1062,7 @@ func (c *converter) preprocessor() { //nolint:cyclop // one branch per processin
 			}
 		case piForeach:
 			if !kept {
+				c.markExpansion(proc.block)
 				c.todof(nil, "", proc.line, "<?foreach %s?> is not expanded: its body was converted once", proc.text)
 			}
 		case "error":

@@ -133,6 +133,12 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 		comp.generated = true
 	case guid == "":
 		out.set("guid", "none")
+
+		if !elm.yes("Permanent") {
+			out.set("permanent", true)
+			c.todof(out, "", elm.line, "the component has an empty Guid, so Windows Installer never tracks or removes it; "+
+				"msi-builder writes such a component only as permanent: true")
+		}
 	default:
 		out.set("guid", guid)
 	}
@@ -147,7 +153,7 @@ func (c *converter) component(comp *comp, tree map[*dir]bool) *omap {
 
 	c.bitness(out, elm)
 
-	content := &compConv{c: c, cp: comp, out: out, tree: tree, keyIsDir: elm.yes("KeyPath"), removeRows: make(map[[5]string]bool)}
+	content := &compConv{c: c, cp: comp, out: out, tree: tree, keyIsDir: elm.yes("KeyPath"), removeRows: make(map[[5]string]bool), envLines: make(map[*omap]int)}
 	content.typeRegs = c.progIDRegistry(elm)
 
 	for _, kid := range elm.kids {
@@ -246,6 +252,8 @@ type compConv struct {
 	out        *omap
 	tree       map[*dir]bool
 	controlled map[*omap]bool
+	// envLines are the source lines of the environment entries.
+	envLines map[*omap]int
 	// typeRegs are the registry values that complete the ProgIds.
 	typeRegs map[*elem]*typeRegistry
 	// firstKey is a key path RegistryValue that came before any other
@@ -370,6 +378,7 @@ func (cc *compConv) shortcut(e *elem) {
 
 func (cc *compConv) finish() { //nolint:cyclop // one pass in a fixed order; splitting would scatter it
 	cc.resolveControls()
+	cc.machineEnvironment()
 
 	switch {
 	case cc.keyIsDir && (cc.files > 0 || cc.out.get("registry") != nil):
@@ -466,6 +475,13 @@ func (cc *compConv) file(elm *elem) { //nolint:cyclop // a flat list of independ
 	}
 
 	key := config.FileKey(&config.File{Source: src, Name: name, ID: elm.attr("Id")})
+	if !elm.has("Id") && len(file.opens) == 0 && conv.fileKeyTaken(key) {
+		// WiX generates the Id of a second File of that name (Rust: two
+		// index.html files); msi-builder would derive the same key.
+		key = conv.freeFileKey(key)
+		file.set("id", key)
+	}
+
 	ref := &fileRef{e: elm, key: key, dir: cc.cp.dir, name: name, comp: cc.cp, out: file}
 	conv.files = append(conv.files, ref)
 
@@ -493,6 +509,30 @@ func (cc *compConv) file(elm *elem) { //nolint:cyclop // a flat list of independ
 	}
 
 	cc.out.add("files", file)
+}
+
+// fileKeyTaken reports whether a file outside template blocks already has
+// the key.
+func (c *converter) fileKeyTaken(key string) bool {
+	return slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == key && len(f.out.opens) == 0 })
+}
+
+// freeFileKey returns key with the first suffix _2, _3, ... that no file
+// has, shortened to an identifier's length.
+func (c *converter) freeFileKey(key string) string {
+	for n := 2; ; n++ {
+		suffix := "_" + strconv.Itoa(n)
+		candidate := key
+
+		if len(candidate)+len(suffix) > config.MaxIdentifierLength {
+			candidate = candidate[:config.MaxIdentifierLength-len(suffix)]
+		}
+
+		candidate += suffix
+		if !slices.ContainsFunc(c.files, func(f *fileRef) bool { return f.key == candidate }) && c.compByID[candidate] == nil {
+			return candidate
+		}
+	}
 }
 
 // dirSource returns the source of a File without Source: the FileSource
@@ -842,7 +882,43 @@ func (cc *compConv) environment(elm *elem) {
 		conv.todof(env, "", elm.line, "Separator=%q has no counterpart; msi-builder joins with ;", sep)
 	}
 
+	cc.envLines[env] = elm.line
 	cc.out.add("environment", env)
+}
+
+// machineEnvironment changes the machine variables of a component that
+// msi-builder lets change only the user's: in a per-user package (k6, whose
+// WiX v3 file has no InstallScope) they become user variables, in a dual
+// package outside a perMachine component they follow the install context.
+func (cc *compConv) machineEnvironment() {
+	conv := cc.c
+	if conv.scope != scopeUser && (!conv.dualScope() || cc.out.str("scope") == scopeMachine) {
+		return
+	}
+
+	list, ok := cc.out.get("environment").([]any)
+	if !ok {
+		return
+	}
+
+	for _, item := range list {
+		env, ok := item.(*omap)
+		if !ok || env.str("scope") != "machine" {
+			continue
+		}
+
+		if conv.scope == scopeUser {
+			env.set("scope", "user")
+			conv.todof(env, "", cc.envLines[env], "%s was a machine variable (System=\"yes\"), which a per-user package cannot change "+
+				"(ICE105); it now changes the user's variable. Keep it a machine variable with package.scope perMachine", env.str("name"))
+
+			continue
+		}
+
+		env.set("scope", "auto")
+		conv.todof(env, "", cc.envLines[env], "%s was a machine variable (System=\"yes\"), which msi-builder changes only in a "+
+			"component with scope perMachine; it now follows the install context (scope auto)", env.str("name"))
+	}
 }
 
 // inProfile reports whether the component's folder is in the user profile.

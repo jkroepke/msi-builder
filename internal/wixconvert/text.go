@@ -195,11 +195,16 @@ func (c *converter) bindValue(kind, name string) (string, bool) {
 
 		return c.expandVars(c.pkg, v), ok
 	case "bind":
-		switch name {
-		case "Property.ProductName":
-			return c.expandVars(c.pkg, c.pkg.attr("Name")), c.pkg.has("Name")
-		case "Property.Manufacturer":
-			return c.expandVars(c.pkg, c.pkg.attr("Manufacturer")), c.pkg.has("Manufacturer")
+		// WiX takes the kind in any case: Cyberduck writes both
+		// bind.Property.ProductName and bind.property.ProductName.
+		kind, prop, ok := strings.Cut(name, ".")
+		if !ok || !strings.EqualFold(kind, "property") {
+			return "", false
+		}
+
+		attr, known := productPropertyAttrs[prop]
+		if known && c.pkg.has(attr) {
+			return c.expandVars(c.pkg, c.pkg.attr(attr)), true
 		}
 	}
 

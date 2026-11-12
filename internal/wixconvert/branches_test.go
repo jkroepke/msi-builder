@@ -104,10 +104,10 @@ func TestConvertComponentGroupNotKept(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		"loop": `<Feature Id="Main"><?foreach D in a;b ?><ComponentGroupRef Id="G_$(var.D)" /><?endforeach ?></Feature>
+		"loop": `<Feature Id="Main"><?foreach D in $(var.Ds) ?><ComponentGroupRef Id="G_$(var.D)" /><?endforeach ?></Feature>
   </Package>
   <Fragment>
-    <?foreach D in a;b ?><ComponentGroup Id="G_$(var.D)" Directory="INSTALLFOLDER"><File Id="F_$(var.D)" Source="$(var.D).txt" /></ComponentGroup><?endforeach ?>
+    <?foreach D in $(var.Ds) ?><ComponentGroup Id="G_$(var.D)" Directory="INSTALLFOLDER"><File Id="F_$(var.D)" Source="$(var.D).txt" /></ComponentGroup><?endforeach ?>
   </Fragment>`,
 		"reference": `<Feature Id="Main"><?if $(var.Extra) = 1 ?><ComponentGroupRef Id="Extras" /><?endif ?></Feature>
     <Component Id="App" Directory="INSTALLFOLDER"><File Source="hello.exe" /></Component>
@@ -129,7 +129,7 @@ func TestConvertComponentGroupNotKept(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if !hasNote(res.Notes, "<?foreach D in a;b?> is not expanded") && !hasNote(res.Notes, "<?if $(var.Extra) = 1?> is not evaluated") {
+			if !hasNote(res.Notes, "<?foreach D in $(var.Ds)?> is not expanded") && !hasNote(res.Notes, "<?if $(var.Extra) = 1?> is not evaluated") {
 				t.Errorf("notes %q, want the block noted", res.Notes)
 			}
 

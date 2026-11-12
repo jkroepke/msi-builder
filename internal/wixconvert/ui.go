@@ -2,6 +2,7 @@ package wixconvert
 
 import (
 	"maps"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -308,12 +309,32 @@ func (c *converter) uiLaunch(wizard *omap) {
 		wizard.set("finishText", c.value(p, "Value"))
 	}
 
+	c.launchCheckbox(wizard, props)
+}
+
+// propertyIs reports whether the Property element prop exists and sets
+// value.
+func (c *converter) propertyIs(prop *elem, value string) bool {
+	return prop != nil && c.value(prop, "Value") == value
+}
+
+// launchCheckbox converts the finish page's launch check box, or the
+// Finish button that runs WixShellExec, to ui.launch.
+func (c *converter) launchCheckbox(wizard *omap, props map[string]*elem) {
 	target := props["WixShellExecTarget"]
 	if target == nil && props["WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"] == nil {
 		if c.launchAction != "" {
 			c.todof(wizard, "", 0, "the Finish button runs the action %s, which has no counterpart: ui.launch starts a file "+
 				"of the package from a check box on the finish page", c.launchAction)
 		}
+
+		return
+	}
+
+	if c.launchAction == "" && props["WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"] == nil {
+		// Nothing runs WixShellExec on the finish page (Node.js).
+		c.todof(wizard, "", target.line, "WixShellExecTarget is set, but no Finish button or check box of the finish page "+
+			"runs WixShellExec, so there is no ui.launch")
 
 		return
 	}
@@ -327,11 +348,11 @@ func (c *converter) uiLaunch(wizard *omap) {
 
 	c.launchFile(wizard, launch, target)
 
-	if p := props["WIXUI_EXITDIALOGOPTIONALCHECKBOX"]; p == nil || c.value(p, "Value") != "1" {
+	if !c.propertyIs(props["WIXUI_EXITDIALOGOPTIONALCHECKBOX"], "1") {
 		launch.set("checked", false)
 	}
 
-	if launch.get("file") == nil {
+	if launch.get("file") == nil || c.launchDocument(wizard, launch) {
 		// ui.launch needs a file; the TODO says what the checkbox did.
 		wizard.del("launch")
 
@@ -339,6 +360,39 @@ func (c *converter) uiLaunch(wizard *omap) {
 	}
 
 	c.launchElsewhere(launch)
+}
+
+// launchDocument reports whether the finish page opens a file of the
+// package that is no program, such as a .bat, .html or .txt file:
+// WixShellExec opens it with the program Windows associates with it, but
+// ui.launch starts programs only, so it is left out with a note.
+func (c *converter) launchDocument(wizard, launch *omap) bool {
+	key := launch.str("file")
+
+	for _, file := range c.files {
+		if file.key != key {
+			continue
+		}
+
+		ext := strings.ToLower(path.Ext(file.name))
+		if strings.ContainsAny(ext, "{}()$") {
+			// A name that ends in a variable, such as a project's
+			// TargetPath: its extension is not known.
+			return false
+		}
+
+		switch ext {
+		case ".exe", ".com", "":
+			return false
+		default:
+			c.todof(wizard, "", 0, "the finish page opens %s, which is no program: ui.launch starts only a .exe or .com "+
+				"file of the package, so the launch checkbox was left out", file.name)
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // launchElsewhere notes a ui.launch.file that this source file does not

@@ -191,9 +191,16 @@ func (c *converter) emitProduct() {
 
 	product.set("upgradeCode", c.value(c.pkg, "UpgradeCode"))
 
-	code := c.value(c.pkg, "ProductCode")
+	codeAttr := "ProductCode"
 	if c.v3 {
-		code = c.value(c.pkg, "Id")
+		codeAttr = "Id"
+	}
+
+	// A variable that the file defines as * (QTTabBar) asks for a new
+	// product code per build, as * itself does.
+	code := c.value(c.pkg, codeAttr)
+	if raw := strings.TrimSpace(c.staticFill(c.pkg.attr(codeAttr), nil)); raw == "*" {
+		code = ""
 	}
 
 	if code != "" && code != "*" {
@@ -873,7 +880,7 @@ func (c *converter) skippedProperty(propID string) bool {
 		return true
 	}
 
-	if _, ok := arpKeys[propID]; ok || c.skippedScopeProperty(propID) {
+	if _, ok := arpKeys[propID]; ok || c.skippedScopeProperty(propID) || c.quietExecData(propID) {
 		return true
 	}
 

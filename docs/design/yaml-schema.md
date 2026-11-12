@@ -482,8 +482,11 @@ version detects it with a `related` row of its own upgrade code
 (`maxVersion` at the floor, `includeMax: true` when `includeMin: false`,
 `onlyDetect: true`) and a launch condition on that row's property, which
 fails the install with 1603 and leaves the old version alone (observed,
-UPG-13). The floor must be below `product.version` in the first three
-fields, since Windows Installer compares only those.
+UPG-13). The floor must not be above `product.version` in the first three
+fields, since Windows Installer compares only those; a floor at the product
+version removes no older version and only warns, because a package that
+starts each release line at `Major.Minor.0.0` writes it for the line's first
+release.
 
 `downgrade: error` adds a launch condition on `newerProperty`; `ignore`
 detects newer versions but installs side by side; `allow` drops the
@@ -818,7 +821,8 @@ follows the key path the component would have without it (section 4.4). A pinned
 windows_exporter executable component keeps the GUID of its released
 packages). `none` writes a NULL ComponentId and is only accepted with
 `permanent: true`, because such a component is never removed (specification
-section 8.4). Two components must not end up with one ComponentId (ICE08):
+section 8.4); the builder leaves the Permanent bit out of its row, which
+ICE92 refuses on a component without a ComponentId. Two components must not end up with one ComponentId (ICE08):
 two `auto` components with the same bitness and key path, for example two
 components in one directory with only environment variables and so the
 directory as key path, need a pinned `guid` on one of them. The builder

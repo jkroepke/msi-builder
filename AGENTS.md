@@ -256,6 +256,19 @@ versioning after 1.0.
   as `$(var.PF)` a standard folder when every define sets one (the ID
   keeps the variable everywhere), and `serviceKey`
   matches services and their controls by the filled-in name.
+  Static loops (`loops.go`): a `<?foreach?>` whose list `staticFill`
+  resolves is expanded in the source before converting again when its
+  body defines variables or a reference in it cannot name a component
+  (`markExpansion`, `markRefLoops`). Each copy is resolved on its own
+  (`resolveCopy`: nested static loops unrolled, defines and conditions
+  worked out with a `ppSim`); one it cannot resolve keeps only the loop
+  variable filled in. Every copy but the last goes onto the `<?foreach?>`
+  line so later elements keep their line numbers for the notes.
+  A WiX `Sequence` number in the gap after a standard action that the
+  builder chains its own actions after (`chainAnchor`: `AppSearch`,
+  `CostFinalize`, the `removeOld` anchors) becomes an `after:` chain
+  (`chainAfterBuilderActions`), since the builder takes the numbers right
+  after the anchor (Storj, Checkmk collided at anchor+1).
 - [`internal/spool`](internal/spool), [`internal/memtest`](internal/memtest),
   [`internal/testpe`](internal/testpe): the spool target shared by file and
   in-memory builds, the peak-heap sampler for bounded-memory tests, and a

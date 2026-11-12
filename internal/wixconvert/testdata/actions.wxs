@@ -27,7 +27,7 @@
         <File Id="hello.yaml" Source="dist\hello.yaml" />
         <ServiceControl Id="HelloSvcStart" Name="HelloSvc" Start="install" Stop="both" Remove="uninstall" />
       </Component>
-      <!-- A second control of the same service, which is left out. -->
+      <!-- A second control of the same service, whose events are merged. -->
       <Component Id="HelloSvcRestart">
         <File Id="hello.ini" Source="dist\hello.ini" />
         <ServiceControl Id="HelloSvcRestart" Name="HelloSvc" Stop="install" Start="install" />

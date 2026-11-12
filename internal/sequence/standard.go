@@ -1,6 +1,9 @@
 package sequence
 
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 // Sequence table names.
 const (
@@ -67,6 +70,12 @@ func LookupStandard(name string) (Standard, bool) {
 	s, ok := standardActions[name]
 
 	return s, ok
+}
+
+// StandardNames returns the names of the standard actions that
+// LookupStandard knows, sorted.
+func StandardNames() []string {
+	return slices.Sorted(maps.Keys(standardActions))
 }
 
 // Always returns the standard actions every product gets in a table

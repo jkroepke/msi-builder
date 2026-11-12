@@ -370,8 +370,10 @@ func TestShortcutsOnlyComponentGUIDAndDirectory(t *testing.T) {
 		t.Errorf("Kept ComponentId %v, want null", kept[1])
 	}
 
-	if attrs, ok := kept[3].(int); !ok || attrs&16 == 0 {
-		t.Errorf("Kept attributes %v, want permanent", kept[3])
+	// Without a ComponentId the component is never removed; the Permanent
+	// bit on it would be an ICE92 error.
+	if attrs, ok := kept[3].(int); !ok || attrs&16 != 0 {
+		t.Errorf("Kept attributes %v, want no Permanent bit", kept[3])
 	}
 
 	if strings.Contains(fmt.Sprint(res.Diagnostics), "components[1]") {
