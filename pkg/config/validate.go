@@ -417,9 +417,16 @@ func (v *validator) upgradeMin(productVersion string, upg *Upgrade) {
 		return // product.version reports it
 	}
 
-	if compareVersion3(floor, version) >= 0 {
+	// At the product version the floor removes no older version, but it is
+	// what a package writes that starts each line at Major.Minor.0.0 for the
+	// first release of the line (Python), so it is only a warning.
+	switch compareVersion3(floor, version) {
+	case 1:
 		v.errorf("upgrade.minVersion", "%s must be below product.version %s in the first three fields, "+
 			"otherwise the upgrade removes no older version", upg.MinVersion, productVersion)
+	case 0:
+		v.warnf("upgrade.minVersion", "%s is product.version %s in the first three fields, so the upgrade removes "+
+			"no older version", upg.MinVersion, productVersion)
 	}
 }
 

@@ -375,8 +375,12 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		entry.set("name", folder.name)
 
 		if folder.name == "" && !folder.std {
+			// msi-builder needs a name (Python launcher): the ID stands in
+			// for it wherever no action sets the folder.
+			entry.set("name", folder.id)
 			c.todof(entry, "", folder.line, "the Directory %s has no Name, so it is its parent folder unless an action "+
-				"sets it; msi-builder has no such folder, give it a name or use a standard folder", folder.id)
+				"sets it; msi-builder has no such folder, so it is named %s wherever no action sets it: give it a name or "+
+				"use a standard folder", folder.id, folder.id)
 		}
 
 		if folder == c.installDir || configurable[folder.id] {
@@ -392,9 +396,44 @@ func (c *converter) emitDirs(tree map[*dir]bool) { //nolint:cyclop,gocognit // o
 		}
 	}
 
+	// A shortcut's working directory must be in the tree, also when it is
+	// a standard folder, such as the [WindowsVolume] a nameless folder
+	// became (Rust).
+	for _, id := range c.workingFolders() {
+		if _, ok := rootByID[id]; !ok {
+			root := newMap().set("id", id)
+			rootByID[id] = root
+			roots = append(roots, root)
+		}
+	}
+
 	for _, r := range roots {
 		c.out.add("directories", r)
 	}
+}
+
+// workingFolders returns the standard folders that shortcuts name as their
+// working directory, in source order.
+func (c *converter) workingFolders() []string {
+	var ids []string
+
+	var walk func(*elem)
+
+	walk = func(elm *elem) {
+		if wd := elm.attr("WorkingDirectory"); elm.is(elemShortcut) && wd != "" && c.isDir(wd) {
+			if id := c.stdID(c.dirRef(wd)); (c.dirs[wd] == nil || c.dirs[wd].std) && id != folderTargetDir && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		}
+
+		for _, kid := range elm.kids {
+			walk(kid)
+		}
+	}
+
+	walk(c.doc.root)
+
+	return ids
 }
 
 // foldAliasDirs handles the Directories without a name of their own,

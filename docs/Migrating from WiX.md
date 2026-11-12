@@ -283,7 +283,11 @@ as the platform `--arch` names. When the branch depends on anything else,
 such as a variable only `-d` sets or `$(sys.BUILDARCH)` without `--arch`,
 it is the first branch not known to be false, and later blocks follow its
 defines. A component group in a `<?foreach?>`, or one that references
-other components, is such a block too.
+other components, is such a block too. A `<?foreach?>` over a list that is
+the same in every build (written out, or a define of the file) is written
+out once per item, as WiX does, when its body defines variables or a
+reference in it names a component by the loop variable; the defines and
+conditions of each copy are worked out for its item.
 
 The vars header holds one value per variable, where WiX reads the value
 a variable has at each place. When a `<?define?>` outside the blocks sets

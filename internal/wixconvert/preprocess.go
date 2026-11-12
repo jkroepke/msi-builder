@@ -30,6 +30,7 @@ const (
 // Preprocessor instructions.
 const (
 	piDefine     = "define"
+	piUndef      = "undef"
 	piIf         = "if"
 	piIfdef      = "ifdef"
 	piIfndef     = "ifndef"
@@ -1134,7 +1135,7 @@ func (e *defineEval) define(proc procInst) {
 		return
 	}
 
-	value = strings.Trim(strings.TrimSpace(value), `"`)
+	value = defineValue(value)
 	self := varName(strings.TrimSpace(name))
 
 	var text strings.Builder

@@ -22,8 +22,12 @@ func TestContextCondition(t *testing.T) {
 		"ALLUSERS = 1 AND VersionNT64":                        "",
 		"NOT (ALLUSERS = 1) AND VersionNT64":                  "",
 		"(ALLUSERS = 1) AND (MSIINSTALLPERUSER = 1) OR OTHER": "",
-		`ALLUSERS = "1" AND MSIINSTALLPERUSER <> "1"`:         "",
-		"NOT (ALLUSERS = 1) OR (ALLUSERS = 1)":                "",
+		`ALLUSERS = "1" AND MSIINSTALLPERUSER <> "1"`:         scopeMachine,
+		`ALLUSERS="" OR (ALLUSERS=2 AND (NOT Privileged))`:    scopeUser,
+		"ALLUSERS=1 OR (ALLUSERS=2 AND Privileged)":           scopeMachine,
+		"Privileged":                           scopeMachine,
+		`ALLUSERS = "1" OR OTHER = "a AND b"`:  "",
+		"NOT (ALLUSERS = 1) OR (ALLUSERS = 1)": "",
 	} {
 		if got := contextCondition(cond); got != want {
 			t.Errorf("contextCondition(%q) = %q, want %q", cond, got, want)

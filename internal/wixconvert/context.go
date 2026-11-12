@@ -32,6 +32,16 @@ var contextConditions = map[string]string{ //nolint:gochecknoglobals // lookup t
 	"NOT MSIINSTALLPERUSER":   scopeMachine,
 	`MSIINSTALLPERUSER=""`:    scopeMachine,
 	"NOT MSIINSTALLPERUSER=1": scopeMachine,
+	// ALLUSERS=2 installs per machine for an administrator (7-Zip, Rust);
+	// a dual scope's page sets 1 or nothing instead.
+	"Privileged":                      scopeMachine,
+	"NOT Privileged":                  scopeUser,
+	"ALLUSERS=2 AND Privileged":       scopeMachine,
+	"Privileged AND ALLUSERS=2":       scopeMachine,
+	"ALLUSERS=2 AND NOT Privileged":   scopeUser,
+	"ALLUSERS=2 AND (NOT Privileged)": scopeUser,
+	"NOT Privileged AND ALLUSERS=2":   scopeUser,
+	"(NOT Privileged) AND ALLUSERS=2": scopeUser,
 }
 
 // operatorSpace matches the spaces around a comparison operator.
@@ -133,21 +143,21 @@ func closingParen(cond string) int {
 	return -1
 }
 
-// splitTopLevel splits cond at op outside parentheses. A condition with a
-// string literal is not split, since the literal could hold either.
+// splitTopLevel splits cond at op outside parentheses and string literals.
 func splitTopLevel(cond, operator string) []string {
-	if strings.Contains(cond, `"`) {
-		return []string{cond}
-	}
-
 	var (
-		parts []string
-		depth int
-		start int
+		parts  []string
+		depth  int
+		start  int
+		quoted bool
 	)
 
 	for i := 0; i < len(cond); i++ {
 		switch {
+		case cond[i] == '"':
+			// A string literal holds no operators (ALLUSERS="" OR ...).
+			quoted = !quoted
+		case quoted:
 		case cond[i] == '(':
 			depth++
 		case cond[i] == ')':

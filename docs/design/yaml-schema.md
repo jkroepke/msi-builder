@@ -482,8 +482,11 @@ version detects it with a `related` row of its own upgrade code
 (`maxVersion` at the floor, `includeMax: true` when `includeMin: false`,
 `onlyDetect: true`) and a launch condition on that row's property, which
 fails the install with 1603 and leaves the old version alone (observed,
-UPG-13). The floor must be below `product.version` in the first three
-fields, since Windows Installer compares only those.
+UPG-13). The floor must not be above `product.version` in the first three
+fields, since Windows Installer compares only those; a floor at the product
+version removes no older version and only warns, because a package that
+starts each release line at `Major.Minor.0.0` writes it for the line's first
+release.
 
 `downgrade: error` adds a launch condition on `newerProperty`; `ignore`
 detects newer versions but installs side by side; `allow` drops the

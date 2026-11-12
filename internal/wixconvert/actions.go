@@ -1,6 +1,7 @@
 package wixconvert
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"regexp"
@@ -926,6 +927,7 @@ func (c *converter) emitActions() {
 		c.out.add("customActions", action)
 	}
 
+	c.chainAfterBuilderActions()
 	c.emitMoved(reanchor)
 
 	for _, id := range slices.Sorted(maps.Keys(byAction)) {
@@ -1693,7 +1695,33 @@ func (c *converter) commandSources() []commandSource {
 		}
 	}
 
+	// A deferred action reads the property named like itself, so a plain
+	// Property of that name passes the command line too (Fibratus). Setters
+	// come first: they replace the Property's value before the action runs.
+	for _, prop := range c.properties {
+		if c.quietExecData(prop.attr("Id")) {
+			sources = append(sources, commandSource{e: prop, id: prop.attr("Id"), property: prop.attr("Id")})
+		}
+	}
+
 	return sources
+}
+
+// quietExecData reports whether the Property propID holds the command line
+// of the deferred quiet exec action of that name, which its run action
+// takes over.
+func (c *converter) quietExecData(propID string) bool {
+	for _, custom := range c.actionOrder {
+		if custom.attr("Id") == propID && inScript(custom) && quietExec[custom.attr("DllEntry")] {
+			for _, prop := range c.properties {
+				if prop.attr("Id") == propID && prop.has("Value") && len(prop.opens) == 0 {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // passesCommand reports whether a source passes the command line to the
@@ -2204,4 +2232,101 @@ func (c *converter) quoteNote(action *omap, key string, line int, command string
 	}
 
 	c.todof(action, key, line, "quote the executable %s: an unquoted path with a space is tried piece by piece by CreateProcess", token)
+}
+
+// chainAnchor reports whether name is a standard action that msi-builder schedules actions
+// schedules actions of its own right after: property searches and the remembered install dir
+// after AppSearch, ARPINSTALLLOCATION and firewall addresses after
+// CostFinalize, RemoveExistingProducts after the anchor upgrade.removeOld
+// names.
+func chainAnchor(name string) bool {
+	return name == actAppSearch || name == actCostFinalize || removeOldAfter[name]
+}
+
+// atEntry is a placement at a number in the gap after a chain anchor.
+type atEntry struct {
+	placement *omap
+	id        string
+	at        int
+}
+
+// chainAfterBuilderActions turns the placements at a number right after
+// a standard action that msi-builder chains actions of its own after into
+// a chain of after placements in the same order. A WiX number such as 51,
+// next to AppSearch at 50, would take the number of the action that
+// applies a property search there and fail the build (Storj, Checkmk); an
+// after placement follows the builder's actions instead.
+func (c *converter) chainAfterBuilderActions() {
+	list, ok := c.out.get("customActions").([]any)
+	if !ok {
+		return
+	}
+
+	gaps := make(map[string][]atEntry)
+
+	for _, item := range list {
+		if action, isMap := item.(*omap); isMap {
+			collectAnchorGaps(action, gaps)
+		}
+	}
+
+	for _, key := range slices.Sorted(maps.Keys(gaps)) {
+		entries := gaps[key]
+		slices.SortStableFunc(entries, func(a, b atEntry) int { return cmp.Compare(a.at, b.at) })
+
+		_, prev, _ := strings.Cut(key, "/")
+
+		for _, entry := range entries {
+			entry.placement.del("at")
+			entry.placement.set(keyAfter, prev)
+			prev = entry.id
+		}
+	}
+}
+
+// collectAnchorGaps adds the at placements of action that fall after a
+// chain anchor to gaps, keyed by sequence and anchor.
+func collectAnchorGaps(action *omap, gaps map[string][]atEntry) {
+	schedule, ok := action.get("schedule").([]any)
+	if !ok {
+		return
+	}
+
+	for _, place := range schedule {
+		placement, isMap := place.(*omap)
+		if !isMap {
+			continue
+		}
+
+		number, isNumber := placement.get("at").(int)
+		seq := placement.str("sequence")
+
+		if !isNumber || seq != seqExecute && seq != seqUI {
+			continue
+		}
+
+		if anchor := precedingStandard(sequenceTable(seq), number); chainAnchor(anchor) {
+			key := seq + "/" + anchor
+			gaps[key] = append(gaps[key], atEntry{placement: placement, id: action.str("id"), at: number})
+		}
+	}
+}
+
+// precedingStandard returns the standard action whose default number in
+// table comes last below number, or "" when number is a standard action's number.
+func precedingStandard(table string, number int) string {
+	best, bestNumber := "", 0
+
+	for _, name := range msisequence.StandardNames() {
+		std, _ := msisequence.LookupStandard(name)
+
+		switch n := std.Number(table); {
+		case n == number:
+			return ""
+		case n > bestNumber && n < number:
+			best, bestNumber = name, n
+		}
+	}
+
+	return best
 }

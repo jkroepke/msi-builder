@@ -233,8 +233,7 @@ func (cc *compConv) resolveControls() {
 			// control, also when another component installs it too.
 			cc.ownControl(own, elm)
 		case own != nil:
-			conv.todof(cc.out, "", elm.line, "the ServiceControl for %s was left out: msi-builder takes one control per "+
-				"service of a component; merge the events into the first one", name)
+			// ownControl merged its events into the first one.
 		default:
 			cc.otherComponentControl(elm, name, key)
 		}
@@ -253,16 +252,12 @@ func (cc *compConv) otherComponentControl(elm *elem, name, key string) {
 	case len(withOwn)+len(without) == 0:
 		cc.foreignControl(elm)
 	case elm == conv.borrowedControl(key) && len(without) > 0:
-		msg := "the ServiceControl for %s became services[].control of %s, which keeps that component's condition " +
-			"and feature instead of this one's"
-		if len(withOwn) > 0 {
-			msg += "; merge its events into the control of " + conv.compNames(withOwn) + " too"
-		}
-
-		conv.todof(cc.out, "", elm.line, msg, name, conv.compNames(without))
+		conv.todof(cc.out, "", elm.line, "the ServiceControl for %s became services[].control of %s, which keeps "+
+			"that component's condition and feature instead of this one's", name, conv.compNames(append(without, withOwn...)))
 	default:
-		conv.todof(cc.out, "", elm.line, "the ServiceControl for %s was left out: msi-builder takes one control per "+
-			"service; merge the events into services[].control of %s", name, conv.compNames(append(withOwn, without...)))
+		conv.todof(cc.out, "", elm.line, "msi-builder takes one control per service, so the events of the ServiceControl "+
+			"for %s were merged into services[].control of %s, which keeps that component's condition and feature instead "+
+			"of this one's", name, conv.compNames(append(withOwn, without...)))
 	}
 }
 
@@ -377,6 +372,38 @@ func (c *converter) borrowedControl(key string) *elem {
 	return installer
 }
 
+// mergedControls returns the ServiceControls whose events make up the
+// control of the service that elm names in this component: elm, the
+// component's other ones of the service, and those of components that do
+// not install it. Each component that installs the service takes them all,
+// since msi-builder writes one control per service.
+func (cc *compConv) mergedControls(elm *elem) []*elem {
+	conv := cc.c
+	key := conv.serviceKey(elm)
+	named := conv.namedKid(elemServiceControl, key)
+	merged := []*elem{elm}
+
+	for _, other := range cc.controls {
+		if other != elm && named(other) {
+			merged = append(merged, other)
+		}
+	}
+
+	for _, comp := range conv.comps {
+		if comp == cc.cp || slices.ContainsFunc(comp.e.kids, conv.namedKid(elemServiceInstall, key)) {
+			continue
+		}
+
+		for _, kid := range comp.e.kids {
+			if kid != elm && named(kid) {
+				merged = append(merged, kid)
+			}
+		}
+	}
+
+	return merged
+}
+
 // compNames lists components by ID.
 func (c *converter) compNames(comps []*comp) string {
 	names := make([]string, 0, len(comps))
@@ -393,6 +420,27 @@ func events(v string) (bool, bool) {
 	return v == onInstall || v == onBoth, v == onUninstall || v == onBoth
 }
 
+// controlEvents are the events of ServiceControls, merged.
+type controlEvents struct {
+	startInstall, startUninstall, stopInstall, stopUninstall, removeInstall, removeUninstall bool
+}
+
+// mergeEvents returns the events that any of controls asks for.
+func mergeEvents(controls []*elem) controlEvents {
+	var merged controlEvents
+
+	for _, ctlElm := range controls {
+		startI, startU := events(ctlElm.attr("Start"))
+		stopI, stopU := events(ctlElm.attr("Stop"))
+		removeI, removeU := events(ctlElm.attr("Remove"))
+		merged.startInstall, merged.startUninstall = merged.startInstall || startI, merged.startUninstall || startU
+		merged.stopInstall, merged.stopUninstall = merged.stopInstall || stopI, merged.stopUninstall || stopU
+		merged.removeInstall, merged.removeUninstall = merged.removeInstall || removeI, merged.removeUninstall || removeU
+	}
+
+	return merged
+}
+
 func (cc *compConv) ownControl(svc *omap, elm *elem) {
 	if cc.controlled == nil {
 		cc.controlled = make(map[*omap]bool)
@@ -402,9 +450,10 @@ func (cc *compConv) ownControl(svc *omap, elm *elem) {
 	ctl := newMap()
 	ctl.order("startOnInstall", "stopOnInstall", "deleteOnInstall", "stopOnUninstall", "deleteOnUninstall", "wait")
 
-	startInstall, startUninstall := events(elm.attr("Start"))
-	stopInstall, stopUninstall := events(elm.attr("Stop"))
-	removeInstall, removeUninstall := events(elm.attr("Remove"))
+	// msi-builder writes one control per service, so the events of the
+	// package's other ServiceControls of it are merged in (G15: smartdns
+	// and Jenkins delete the service from a second one).
+	merged := mergeEvents(cc.mergedControls(elm))
 
 	set := func(key string, value, def bool) {
 		if value != def {
@@ -412,19 +461,20 @@ func (cc *compConv) ownControl(svc *omap, elm *elem) {
 		}
 	}
 
-	set("startOnInstall", startInstall, true)
-	set("stopOnInstall", stopInstall, true)
-	set("deleteOnInstall", removeInstall, false)
-	set("stopOnUninstall", stopUninstall, true)
-	set("deleteOnUninstall", removeUninstall, true)
+	set("startOnInstall", merged.startInstall, true)
+	set("stopOnInstall", merged.stopInstall, true)
+	set("deleteOnInstall", merged.removeInstall, false)
+	set("stopOnUninstall", merged.stopUninstall, true)
+	set("deleteOnUninstall", merged.removeUninstall, true)
 
 	// Without Wait, WiX leaves the column null, which waits like 1 by the
-	// ServiceControl table documentation, so wait keeps its default true.
-	if elm.no("Wait") {
+	// ServiceControl table documentation, so wait keeps its default true;
+	// merged controls wait when any of them does.
+	if !slices.ContainsFunc(cc.mergedControls(elm), func(e *elem) bool { return !e.no("Wait") }) {
 		ctl.set("wait", false)
 	}
 
-	if startUninstall {
+	if merged.startUninstall {
 		cc.c.todof(ctl, "", elm.line, "starting the package's own service on uninstall has no counterpart")
 	}
 
@@ -436,12 +486,16 @@ func (cc *compConv) foreignControl(elm *elem) {
 	ctl.order("name", "stopOnInstall", "startOnInstall", "deleteOnInstall", "stopOnUninstall", "startOnUninstall", "deleteOnUninstall", "wait")
 	ctl.set("name", cc.c.value(elm, "Name"))
 
+	hasEvent := false
+
 	for _, event := range [][3]string{
 		{"Stop", "stopOnInstall", "stopOnUninstall"},
 		{"Start", "startOnInstall", "startOnUninstall"},
 		{"Remove", "deleteOnInstall", "deleteOnUninstall"},
 	} {
 		onInstall, onUninstall := events(elm.attr(event[0]))
+		hasEvent = hasEvent || onInstall || onUninstall
+
 		if onInstall {
 			ctl.set(event[1], true)
 		}
@@ -449,6 +503,17 @@ func (cc *compConv) foreignControl(elm *elem) {
 		if onUninstall {
 			ctl.set(event[2], true)
 		}
+	}
+
+	if !hasEvent {
+		// Without Start, Stop or Remove the row does nothing, and
+		// msi-builder refuses an entry without an event (WireGuard adds
+		// one only to get the table for its own action).
+		cc.c.todof(cc.out, "", elm.line, "ServiceControl %s names no Start, Stop or Remove event, so it does nothing and is left out; "+
+			"msi-builder writes the ServiceControl table only for entries with an event, so an action that adds rows to it at "+
+			"install time needs one", elm.attr("Id"))
+
+		return
 	}
 
 	if elm.no("Wait") {
@@ -1129,11 +1194,17 @@ func (c *converter) typeText(out *omap, elm *elem, attr string) string {
 	return text
 }
 
+// productPropertyAttrs are the properties that the package element sets,
+// by the attribute that sets them.
+var productPropertyAttrs = map[string]string{ //nolint:gochecknoglobals // lookup table
+	"ProductName": "Name", "Manufacturer": "Manufacturer", "ProductVersion": "Version",
+}
+
 // constProperty returns the value of a property that a Property element
 // or the package sets and nothing in the source changes. A public one could
 // still come from the command line; convert assumes it does not.
 func (c *converter) constProperty(name string) (string, bool) {
-	if attr, ok := map[string]string{"ProductName": "Name", "Manufacturer": "Manufacturer", "ProductVersion": "Version"}[name]; ok {
+	if attr, ok := productPropertyAttrs[name]; ok {
 		value := c.expandVars(c.pkg, c.pkg.attr(attr))
 
 		return value, c.pkg.has(attr) && !formattedLeft(value)

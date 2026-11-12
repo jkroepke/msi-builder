@@ -78,7 +78,7 @@ customActions:
       command: '"[#hello.exe]" late'
     return: ignore
     schedule:
-      - {sequence: execute, at: 6620}
+      - {sequence: execute, after: InstallFinalize}
   # No setter is scheduled right before this one.
   - id: Orphan
     run:

@@ -155,8 +155,8 @@ func (s *ppSim) step(proc procInst) { //nolint:cyclop // one branch per instruct
 			return
 		}
 
-		s.set(strings.TrimSpace(name), strings.Trim(strings.TrimSpace(value), `"`), here)
-	case "undef":
+		s.set(strings.TrimSpace(name), defineValue(value), here)
+	case piUndef:
 		name := strings.TrimSpace(proc.text)
 		if !here.reads {
 			s.skip(name, here)

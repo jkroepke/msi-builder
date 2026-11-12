@@ -48,14 +48,14 @@ components:
     keyPath: hello.exe
   # Controls the service of another component.
   # TODO(line 26): the condition "&Complete = 3" was left out: it tests the action state &Complete, which is not set yet when the installer evaluates component conditions; test a property instead
-  # TODO(line 28): the ServiceControl for HelloSvc became services[].control of HelloExe, which keeps that component's condition and feature instead of this one's; merge its events into the control of HelloSvcLite too
+  # TODO(line 28): the ServiceControl for HelloSvc became services[].control of HelloExe, HelloSvcLite, which keeps that component's condition and feature instead of this one's
   - id: HelloSvcControl
     guid: '{466F140C-3791-595D-A3E2-3C02376DB130}'
     files:
       - source: dist/hello.yaml
         id: hello.yaml
-  # A second control of the same service, which is left out.
-  # TODO(line 33): the ServiceControl for HelloSvc was left out: msi-builder takes one control per service; merge the events into services[].control of HelloSvcLite, HelloExe
+  # A second control of the same service, whose events are merged.
+  # TODO(line 33): msi-builder takes one control per service, so the events of the ServiceControl for HelloSvc were merged into services[].control of HelloSvcLite, HelloExe, which keeps that component's condition and feature instead of this one's
   - id: HelloSvcRestart
     guid: '{828E142F-4705-52E6-BAAA-6D8358A06F5F}'
     files:
@@ -70,8 +70,6 @@ components:
     services:
       - name: HelloSvc
         start: demand
-        control:
-          startOnInstall: false
     condition: EDITION="lite"
   # The key file has no Id; the advertised shortcut starts it.
   - id: Tray

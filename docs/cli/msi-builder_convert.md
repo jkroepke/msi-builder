@@ -19,7 +19,9 @@ property, a component group of these, or a reference that puts components
 in a feature or group. Of any other block, it converts only the branch that
 a build without -d variables takes, with the file's defines and the platform
 --arch names, or the first branch not known to be false when that depends
-on a -d variable, and leaves a "# TODO".
+on a -d variable, and leaves a "# TODO". A <?foreach?> over a list that the
+file fixes is written out once per item, as WiX does, when its body defines
+variables or a reference in it names a component by the loop variable.
 
 A component whose Guid WiX generates (Guid="*" or none) keeps the code WiX
 gives it: convert computes it from the key file or key registry value as

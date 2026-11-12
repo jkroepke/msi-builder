@@ -1378,7 +1378,7 @@ func TestValidate(t *testing.T) {
 		},
 		"upgrade minVersion at product version": {
 			strings.Replace(base, "upgrade: {}", "upgrade: {minVersion: 1.0.0.5}", 1) + appComponent,
-			sevError, "upgrade.minVersion", "below product.version",
+			sevWarning, "upgrade.minVersion", "removes no older version",
 		},
 		"upgrade minVersion above product version": {
 			strings.Replace(base, "upgrade: {}", "upgrade: {minVersion: 2.0.0}", 1) + appComponent,
