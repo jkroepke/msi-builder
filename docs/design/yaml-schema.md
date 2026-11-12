@@ -821,7 +821,8 @@ follows the key path the component would have without it (section 4.4). A pinned
 windows_exporter executable component keeps the GUID of its released
 packages). `none` writes a NULL ComponentId and is only accepted with
 `permanent: true`, because such a component is never removed (specification
-section 8.4). Two components must not end up with one ComponentId (ICE08):
+section 8.4); the builder leaves the Permanent bit out of its row, which
+ICE92 refuses on a component without a ComponentId. Two components must not end up with one ComponentId (ICE08):
 two `auto` components with the same bitness and key path, for example two
 components in one directory with only environment variables and so the
 directory as key path, need a pinned `guid` on one of them. The builder

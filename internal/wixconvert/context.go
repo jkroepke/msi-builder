@@ -223,7 +223,7 @@ func (c *converter) choosesContext(machineOK bool) int {
 		}
 
 		switch {
-		case elm.is("Component") && contextCondition(c.componentConditionText(elm)) != "":
+		case elm.is("Component") && c.contextComponent(c.componentConditionText(elm)):
 			line = elm.line
 		case contextSetter(elm) != "" && (!machineOK || !c.machineSetter(elm)):
 			line = elm.line
@@ -237,6 +237,18 @@ func (c *converter) choosesContext(machineOK bool) int {
 	walk(c.doc.root)
 
 	return line
+}
+
+// contextComponent reports whether a component condition picks the
+// install context. Privileged alone only does in a package that sets
+// ALLUSERS=2 (7-Zip): elsewhere a per-user package is not elevated, and
+// the condition just leaves the component out.
+func (c *converter) contextComponent(cond string) bool {
+	if contextCondition(cond) == "" {
+		return false
+	}
+
+	return !strings.Contains(cond, "Privileged") || strings.Contains(cond, "ALLUSERS") || c.propertyValue(propAllUsers) == "2"
 }
 
 // contextScope makes a per-user package that chooses its context itself

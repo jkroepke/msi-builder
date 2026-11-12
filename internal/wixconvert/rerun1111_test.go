@@ -1,6 +1,7 @@
 package wixconvert_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jkroepke/msi-builder/internal/wixconvert"
@@ -382,4 +383,149 @@ func TestConvertEmptyGuidPermanent(t *testing.T) {
 
 	got := convertWith(t, src, wixconvert.Options{})
 	wantAll(t, got, "guid: none", "permanent: true", "empty Guid")
+}
+
+// TestConvertAtPlacementKeepsAfterOrder keeps a WiX After placement on the
+// anchor before a Sequence number in the same gap: a rollback action
+// scheduled After the anchor still runs before its deferred action.
+func TestConvertAtPlacementKeepsAfterOrder(t *testing.T) {
+	t.Parallel()
+
+	src := helloProduct("perMachine", helloDirs(`          <Component Id="App" Guid="*" Win64="yes">
+            <File Source="hello.exe" KeyPath="yes" />
+          </Component>`)+`
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+    <CustomAction Id="DoHello" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --do" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UndoHello" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]hello.exe&quot; --undo" Execute="rollback" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="UndoHello" After="InstallInitialize">NOT Installed</Custom>
+      <Custom Action="DoHello" Sequence="1510">NOT Installed</Custom>
+    </InstallExecuteSequence>`)
+
+	got := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, got, "after: InstallInitialize", "after: UndoHello")
+	wantNone(t, got, "at: 1510", "after: DoHello")
+}
+
+// TestConvertLaunchVariableName keeps ui.launch for a file whose name
+// comes from a variable: its extension is not known.
+func TestConvertLaunchVariableName(t *testing.T) {
+	t.Parallel()
+
+	src := helloProduct("perMachine", helloDirs(`          <Component Id="App" Guid="*" Win64="yes">
+            <File Id="HelloExe" Source="$(var.HelloApp.TargetPath)" KeyPath="yes" />
+          </Component>`)+`
+    <Feature Id="Main"><ComponentRef Id="App" /></Feature>
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="WixShellExecTarget" Value="[#HelloExe]" />
+    <CustomAction Id="LaunchApplication" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+    <UI>
+      <UIRef Id="WixUI_InstallDir" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication">NOT Installed</Publish>
+    </UI>`)
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := string(res.YAML)
+	wantAll(t, got, "launch:", "file: HelloExe")
+	wantNone(t, got, "which is no program")
+}
+
+// TestConvertPrivilegedWithoutAllUsers2 keeps a per-user package without
+// ALLUSERS=2 per user when a component tests Privileged.
+func TestConvertPrivilegedWithoutAllUsers2(t *testing.T) {
+	t.Parallel()
+
+	src := helloProduct("perUser", `    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLFOLDER" Name="Hello">
+          <Component Id="App" Guid="*">
+            <File Source="hello.exe" KeyPath="yes" />
+          </Component>
+          <Component Id="AdminReg" Guid="3f2504e0-4f89-41d3-9a0c-0305e82c3302">
+            <Condition>Privileged</Condition>
+            <RegistryValue Root="HKCU" Key="Software\Example\Hello" Name="Admin" Value="1" Type="string" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="Main"><ComponentRef Id="App" /><ComponentRef Id="AdminReg" /></Feature>`)
+
+	got := convertWith(t, src, wixconvert.Options{})
+	wantAll(t, got, "scope: perUser\n", "condition: Privileged")
+	wantNone(t, got, "perUserOrMachine")
+}
+
+// TestConvertStaticLoopLaterDefine leaves a loop that reads a variable a
+// later define sets again unexpanded: the static value is the last one.
+func TestConvertStaticLoopLaterDefine(t *testing.T) {
+	t.Parallel()
+
+	src := `<?xml version="1.0"?>
+<?define Langs = "de;fr" ?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+` + helloDirs(`          <Component Id="App" Guid="*" Win64="yes">
+            <File Source="hello.exe" KeyPath="yes" />
+          </Component>`) + `
+    <Feature Id="Main">
+      <ComponentRef Id="App" />
+      <?foreach L in $(var.Langs) ?>
+      <ComponentRef Id="Lang_$(var.L)" />
+      <?endforeach ?>
+    </Feature>
+    <?define Langs = "it" ?>
+  </Product>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantNone(t, string(res.YAML), "Lang_it")
+}
+
+// TestConvertStaticLoopDottedVariable fills a loop variable with a dot in
+// its name into the copies that are not resolved.
+func TestConvertStaticLoopDottedVariable(t *testing.T) {
+	t.Parallel()
+
+	src := `<?xml version="1.0"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Hello" Manufacturer="Example" Version="1.0.0" Language="1033" UpgradeCode="3f2504e0-4f89-41d3-9a0c-0305e82c3301">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="newer" />
+` + helloDirs(`          <Component Id="App" Guid="*" Win64="yes">
+            <File Source="hello.exe" KeyPath="yes" />
+          </Component>
+          <?foreach Lang.Code in de;fr ?>
+          <?define Seen = "1" ?>
+          <Component Id="Lang_$(var.Lang.Code)" Guid="*" Win64="yes">
+            <File Id="Text_$(var.Lang.Code)" Source="$(var.Lang.Code).txt" KeyPath="yes" />
+          </Component>
+          <?endforeach ?>`) + `
+    <Feature Id="Main">
+      <ComponentRef Id="App" />
+      <?ifdef Seen ?>
+      <ComponentRef Id="Lang_de" />
+      <ComponentRef Id="Lang_fr" />
+      <?endif ?>
+    </Feature>
+  </Product>
+</Wix>`
+
+	res, err := wixconvert.Convert(strings.NewReader(src), wixconvert.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := string(res.YAML)
+	wantAll(t, got, "id: Lang_de", "id: Lang_fr")
+	wantNone(t, got, "Lang_Code")
 }

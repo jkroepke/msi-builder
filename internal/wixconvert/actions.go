@@ -2244,6 +2244,9 @@ func chainAnchor(name string) bool {
 }
 
 // atEntry is a placement at a number in the gap after a chain anchor.
+// An after placement on the anchor itself has at 0, so that it keeps its
+// place before the numbers, as in WiX, where it takes the anchor's number
+// plus one.
 type atEntry struct {
 	placement *omap
 	id        string
@@ -2272,6 +2275,11 @@ func (c *converter) chainAfterBuilderActions() {
 
 	for _, key := range slices.Sorted(maps.Keys(gaps)) {
 		entries := gaps[key]
+		if !slices.ContainsFunc(entries, func(e atEntry) bool { return e.at != 0 }) {
+			// Only after placements: the builder numbers them as before.
+			continue
+		}
+
 		slices.SortStableFunc(entries, func(a, b atEntry) int { return cmp.Compare(a.at, b.at) })
 
 		_, prev, _ := strings.Cut(key, "/")
@@ -2301,7 +2309,18 @@ func collectAnchorGaps(action *omap, gaps map[string][]atEntry) {
 		number, isNumber := placement.get("at").(int)
 		seq := placement.str("sequence")
 
-		if !isNumber || seq != seqExecute && seq != seqUI {
+		if seq != seqExecute && seq != seqUI {
+			continue
+		}
+
+		if after := placement.str(keyAfter); !isNumber && chainAnchor(after) {
+			key := seq + "/" + after
+			gaps[key] = append(gaps[key], atEntry{placement: placement, id: action.str("id")})
+
+			continue
+		}
+
+		if !isNumber {
 			continue
 		}
 

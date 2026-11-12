@@ -374,6 +374,12 @@ func (c *converter) launchDocument(wizard, launch *omap) bool {
 			continue
 		}
 
+		if strings.Contains(file.name, "{{") || strings.Contains(file.name, "$(") {
+			// A name from a variable, such as a project's TargetPath:
+			// its extension is not known.
+			return false
+		}
+
 		switch ext := strings.ToLower(path.Ext(file.name)); ext {
 		case ".exe", ".com", "":
 			return false

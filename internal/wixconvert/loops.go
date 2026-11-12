@@ -75,7 +75,7 @@ func expandStaticLoops(data []byte, lines map[int]bool, values map[string]string
 	text := string(data)
 
 	out := rewriteLoops(text, func(blk loopBlock) (string, bool) {
-		if !lines[strings.Count(text[:blk.start], "\n")+1] {
+		if !lines[strings.Count(text[:blk.start], "\n")+1] || readsLaterDefine(text[blk.start:], blk) {
 			return "", false
 		}
 
@@ -91,6 +91,26 @@ func expandStaticLoops(data []byte, lines map[int]bool, values map[string]string
 	})
 
 	return []byte(out)
+}
+
+// laterDefine matches a <?define?> or <?undef?> and the variable it sets.
+var laterDefine = regexp.MustCompile(`<\?(?:define|undef)\s+([A-Za-z_][A-Za-z0-9_.]*)`)
+
+// readsLaterDefine reports whether the list or body of blk reads a
+// variable that a define after the loop (rest starts at the loop) sets:
+// the file's static values hold the last value of each variable, which is
+// not the one the loop sees. Such a loop is not expanded.
+func readsLaterDefine(rest string, blk loopBlock) bool {
+	after := rest[len(rest)-len(blk.outside)+blk.start:]
+	read := "<?foreach " + blk.name + " in " + blk.list + "?>" + blk.body
+
+	for _, m := range laterDefine.FindAllStringSubmatch(after, -1) {
+		if readsVar(read, varName(m[1])) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // loopBlock is a <?foreach?> block that rewriteLoops found.
@@ -216,13 +236,13 @@ type copyFrame struct {
 // component code per Python version that way. Otherwise only the loop
 // variable is filled in, and the blocks are converted as usual.
 func resolveCopy(body, loopVar, item, outside string, values map[string]string, arch string) string {
-	plain := replaceVars(body, func(v string) (string, bool) { return item, v == loopVar })
+	plain := replaceVars(body, func(v string) (string, bool) { return item, varName(v) == varName(loopVar) })
 
 	// A nested loop over a static list, such as QTTabBar's loop over its
 	// classes inside the loop over x86;x64, is written out first.
 	body, ok := unrollLoops(body, func(text string) string {
 		return replaceVars(text, func(v string) (string, bool) {
-			if v == loopVar {
+			if varName(v) == varName(loopVar) {
 				return item, true
 			}
 
@@ -415,8 +435,18 @@ func copyCondition(sim *ppSim, target, inst string, reading bool) (bool, bool) {
 	return taken, err == nil
 }
 
-// readsVar reports whether text reads the preprocessor variable name.
+// ifdefName matches the variable an <?ifdef?> or <?ifndef?> tests.
+var ifdefName = regexp.MustCompile(`<\?ifn?def\s+([A-Za-z_][A-Za-z0-9_.]*)\s*\?>`)
+
+// readsVar reports whether text reads the preprocessor variable name,
+// also by testing whether it is defined.
 func readsVar(text, name string) bool {
+	for _, m := range ifdefName.FindAllStringSubmatch(text, -1) {
+		if varName(m[1]) == name {
+			return true
+		}
+	}
+
 	found := false
 
 	replaceVars(text, func(v string) (string, bool) {
@@ -445,7 +475,7 @@ func unrollLoops(body string, fill func(string) string) (string, bool) {
 		}
 
 		return joinCopies(list, blk.body, func(item string) string {
-			copyText, ok := unrollLoops(replaceVars(blk.body, func(v string) (string, bool) { return item, v == blk.name }), fill)
+			copyText, ok := unrollLoops(replaceVars(blk.body, func(v string) (string, bool) { return item, varName(v) == varName(blk.name) }), fill)
 			static = static && ok
 
 			return copyText

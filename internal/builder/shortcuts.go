@@ -262,6 +262,11 @@ func (b *build) shortcutComponent(info *componentInfo, dirID string) string {
 	}
 
 	guid := b.carrierGUID(info, own, bitness, carrier)
+	if guid == nil {
+		// Never removed without a ComponentId; the Permanent bit on it
+		// would be an ICE92 error.
+		attributes &^= compPermanent
+	}
 
 	b.table("Component").Add(carrier, guid, dirID, attributes, componentCondition(comp), registry)
 	b.table("Registry").Add(registry, registryRoots["HKCU"], `Software\[Manufacturer]\[ProductName]`, valueName, "#1", carrier)
