@@ -7,7 +7,8 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
-	go.yaml.in/yaml/v3 v3.0.6
+	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/text v0.43.0
 	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
