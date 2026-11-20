@@ -1,7 +1,7 @@
 # mise (https://mise.jdx.dev) pins the toolchain and names local tasks that
 # mirror the commands CI runs.
 [tools]
-go = "1.27.3"
+go = "1.27.4"
 
 [tasks.test]
 description = "Unit tests on this OS (on Windows this includes the msi.dll and msiexec tests)"
