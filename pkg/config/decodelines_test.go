@@ -28,6 +28,19 @@ func TestDecodeErrorLines(t *testing.T) {
 			"construct errors: line 7: field bogus not found in type config.DirectorySearch",
 		},
 		"raw type name": {head + "upgrade:\n  bogus: 1\n", "construct errors: line 3: field bogus not found in type config.Upgrade"},
+		"close value": {
+			head + "components:\n  - files:\n      - source: a.exe\n        close: soon\n",
+			"construct errors: line 5: close is true, false or a mapping: cannot construct !!str `soon` into bool",
+		},
+		"purge value": {
+			head + "components:\n  - directory: d\n    purge: sometimes\n",
+			"construct errors: line 4: purge is true, false or a mapping: cannot construct !!str `sometimes` into bool",
+		},
+		"merge in property": {head + "properties:\n  P: {<<: 1, value: a}\n", "construct errors: line 3: map merge requires map"},
+		"merge in search": {
+			head + "properties:\n  P:\n    search: {<<: 1, directory: {path: 'C:\\a'}}\n",
+			"construct errors: line 4: map merge requires map",
+		},
 	} {
 		_, err := config.Parse([]byte(tc.yaml), config.Options{})
 		if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Count(err.Error(), "line ") != 1 {

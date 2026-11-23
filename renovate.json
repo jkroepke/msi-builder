@@ -12,6 +12,19 @@
       "matchPackageNames": [
         "*"
       ]
+    },
+    {
+      "description": "yaml.v3 stays for the frozen productCode digest encoding (internal/builder/tree.go); everything else uses yaml.v4",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "go.yaml.in/yaml/v3"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ]
 }

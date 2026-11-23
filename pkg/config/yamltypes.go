@@ -195,7 +195,7 @@ func (c *Close) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var on bool
 		if err := node.Decode(&on); err != nil {
-			return lineError(node.Line, fmt.Errorf("close is true, false or a mapping: %w", err))
+			return lineError(node.Line, fmt.Errorf("close is true, false or a mapping: %s", decodeMessage(err)))
 		}
 
 		c.Disabled = !on
@@ -225,7 +225,7 @@ func (p *Purge) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var on bool
 		if err := node.Decode(&on); err != nil {
-			return lineError(node.Line, fmt.Errorf("purge is true, false or a mapping: %w", err))
+			return lineError(node.Line, fmt.Errorf("purge is true, false or a mapping: %s", decodeMessage(err)))
 		}
 
 		p.Disabled = !on
@@ -413,7 +413,23 @@ func (p Properties) Names() []string {
 // does not honour Decoder.KnownFields, so mappings decoded by hand ask for
 // the check themselves.
 func decodeStrict(node *yaml.Node, out any) error {
-	return node.Load(out, yaml.WithKnownFields()) //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	return publicTypeNames(node.Load(out, yaml.WithV3Defaults(), yaml.WithKnownFields()))
+}
+
+// decodeMessage returns the messages of a decoding error without the line
+// numbers, for an error that names the line itself.
+func decodeMessage(err error) string {
+	var loadErrs *yaml.LoadErrors
+	if !errors.As(err, &loadErrs) {
+		return err.Error()
+	}
+
+	msgs := make([]string, len(loadErrs.Errors))
+	for i, e := range loadErrs.Errors {
+		msgs[i] = e.Message
+	}
+
+	return strings.Join(msgs, "; ")
 }
 
 // lineError reports err at line as one of the decoder's own errors. yaml.v4
@@ -438,11 +454,20 @@ type (
 )
 
 // publicTypeNames rewrites decoding errors that name the raw types above,
-// so that messages say config.Component, not config.rawComponent.
+// so that messages say config.Component, not config.rawComponent, and
+// returns a lone *yaml.LoadError as a *yaml.LoadErrors, which yaml.v4 lists
+// with its own errors instead of putting a second line in front.
 func publicTypeNames(err error) error {
 	var loadErrs *yaml.LoadErrors
 	if !errors.As(err, &loadErrs) {
-		return err
+		// A decoder failure that stops the decoding comes as one
+		// *yaml.LoadError; listed as one of many it keeps its line.
+		var loadErr *yaml.LoadError
+		if !errors.As(err, &loadErr) {
+			return err
+		}
+
+		loadErrs = &yaml.LoadErrors{Errors: []*yaml.LoadError{loadErr}}
 	}
 
 	out := &yaml.LoadErrors{Errors: make([]*yaml.LoadError, len(loadErrs.Errors))}
@@ -557,7 +582,7 @@ func (s *Searches) UnmarshalYAML(unmarshal func(any) error) error {
 		return publicTypeNames(err)
 	}
 
-	return listErr
+	return publicTypeNames(listErr)
 }
 
 // MarshalYAML writes a single search as a mapping, so that the product code

@@ -545,9 +545,11 @@ go test ./... -shuffle=on -race
   `node.Decode` errors as they are, wrap your own with `lineError`, and decode
   a hand-handled mapping with `decodeStrict` (`node.Load` with
   `WithKnownFields`). `TestDecodeErrorLines` checks for one line number.
-  `productCode: auto` hashes `yaml.Marshal` output, so a YAML module update
-  must keep it byte-identical; compare old and new output over the builder
-  tests before merging one.
+  `productCode: auto` hashes yaml.v3's `Marshal` output on purpose
+  (`internal/builder/tree.go`): yaml.v4 writes some multi-line strings in
+  another style, which would change the code of an unchanged configuration.
+  Keep that import on v3 (renovate.json blocks its major update);
+  `TestProductCodeGolden` pins one code.
 - A null list entry decodes to a nil pointer. `nullEntries`
   (`pkg/config/nulls.go`) finds them by reflection over the YAML keys, in
   `Parse` and in `Validate`, before the defaults dereference anything, so a
