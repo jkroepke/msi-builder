@@ -541,10 +541,12 @@ go test ./... -shuffle=on -race
   `TestBuilderChainsMatchValidate` checks the counts against a build.
 - Decoding hooks in `pkg/config` return `*yaml.LoadErrors`: yaml.v4 lists
   those with its own errors, but puts the hook node's line in front of any
-  other error, so a message that names its own line would show two. Return
-  `node.Decode` errors as they are, wrap your own with `lineError`, and decode
-  a hand-handled mapping with `decodeStrict` (`node.Load` with
-  `WithKnownFields`). `TestDecodeErrorLines` checks for one line number.
+  other error (also a lone `*yaml.LoadError`, which a fatal decoder failure
+  such as bad `!!binary` returns), so a message would show two lines. Decode
+  nodes with `decodeNode`, pass callback errors through `publicTypeNames`,
+  wrap your own with `lineError`, and decode a hand-handled mapping with
+  `decodeStrict` (`node.Load` with `WithKnownFields`).
+  `TestDecodeErrorLines` checks for one line number.
   `productCode: auto` hashes yaml.v3's `Marshal` output on purpose
   (`internal/builder/tree.go`): yaml.v4 writes some multi-line strings in
   another style, which would change the code of an unchanged configuration.

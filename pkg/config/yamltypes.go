@@ -35,8 +35,8 @@ var platformNames = map[string]Platform{ //nolint:gochecknoglobals // lookup tab
 // exact token, since the engine compares tokens case-sensitively (SUM-02).
 func (p *Platform) UnmarshalYAML(node *yaml.Node) error {
 	var text string
-	if err := node.Decode(&text); err != nil {
-		return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	if err := decodeNode(node, &text); err != nil {
+		return err
 	}
 
 	v, ok := platformNames[strings.ToLower(strings.TrimSpace(text))]
@@ -81,8 +81,8 @@ func (s Scope) MayBePerUser() bool {
 // UnmarshalYAML accepts the scope names in any case.
 func (s *Scope) UnmarshalYAML(node *yaml.Node) error {
 	var text string
-	if err := node.Decode(&text); err != nil {
-		return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	if err := decodeNode(node, &text); err != nil {
+		return err
 	}
 
 	switch strings.ToLower(text) {
@@ -108,8 +108,8 @@ type StringList []string
 func (l *StringList) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var s string
-		if err := node.Decode(&s); err != nil {
-			return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+		if err := decodeNode(node, &s); err != nil {
+			return err
 		}
 
 		*l = StringList{s}
@@ -118,8 +118,8 @@ func (l *StringList) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	var list []string
-	if err := node.Decode(&list); err != nil {
-		return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	if err := decodeNode(node, &list); err != nil {
+		return err
 	}
 
 	*l = list
@@ -133,8 +133,8 @@ type Duration time.Duration
 // UnmarshalYAML parses a Go duration string.
 func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	var s string
-	if err := node.Decode(&s); err != nil {
-		return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	if err := decodeNode(node, &s); err != nil {
+		return err
 	}
 
 	v, err := time.ParseDuration(s)
@@ -153,11 +153,7 @@ const recoveryRestart = "restart"
 // UnmarshalYAML accepts a scalar action name or a one-key {restart: delay} map.
 func (a *RecoveryAction) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
-		if err := node.Decode(&a.Action); err != nil {
-			return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
-		}
-
-		return nil
+		return decodeNode(node, &a.Action)
 	}
 
 	if node.Kind != yaml.MappingNode || len(node.Content) != 2 || node.Content[0].Value != recoveryRestart {
@@ -170,8 +166,8 @@ func (a *RecoveryAction) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	var delay Duration
-	if err := node.Content[1].Decode(&delay); err != nil {
-		return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	if err := decodeNode(node.Content[1], &delay); err != nil {
+		return err
 	}
 
 	a.Action = recoveryRestart
@@ -194,7 +190,7 @@ func (a RecoveryAction) MarshalYAML() (any, error) {
 func (c *Close) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var on bool
-		if err := node.Decode(&on); err != nil {
+		if err := decodeNode(node, &on); err != nil {
 			return lineError(node.Line, fmt.Errorf("close is true, false or a mapping: %s", decodeMessage(err)))
 		}
 
@@ -224,7 +220,7 @@ func (c Close) MarshalYAML() (any, error) {
 func (p *Purge) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var on bool
-		if err := node.Decode(&on); err != nil {
+		if err := decodeNode(node, &on); err != nil {
 			return lineError(node.Line, fmt.Errorf("purge is true, false or a mapping: %s", decodeMessage(err)))
 		}
 
@@ -416,11 +412,17 @@ func decodeStrict(node *yaml.Node, out any) error {
 	return publicTypeNames(node.Load(out, yaml.WithV3Defaults(), yaml.WithKnownFields()))
 }
 
+// decodeNode decodes node into out like node.Decode, with the error as a
+// *yaml.LoadErrors (see publicTypeNames).
+func decodeNode(node *yaml.Node, out any) error {
+	return publicTypeNames(node.Decode(out))
+}
+
 // decodeMessage returns the messages of a decoding error without the line
 // numbers, for an error that names the line itself.
 func decodeMessage(err error) string {
 	var loadErrs *yaml.LoadErrors
-	if !errors.As(err, &loadErrs) {
+	if !errors.As(publicTypeNames(err), &loadErrs) {
 		return err.Error()
 	}
 
@@ -536,7 +538,7 @@ func (a *Arguments) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var list []Argument
 	if err := unmarshal(&list); err != nil {
-		return err
+		return publicTypeNames(err)
 	}
 
 	*a = list

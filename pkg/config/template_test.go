@@ -409,6 +409,12 @@ func TestTemplateHeader(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "line 5: field bogus") {
 		t.Errorf("header line: got %v", err)
 	}
+
+	// So do syntax errors.
+	_, err = config.Parse([]byte("vars:\n  V: 1\n---\nschema: msi-builder/v1\nproduct: @x\nfoo: 1\n"), config.Options{})
+	if err == nil || !strings.Contains(err.Error(), "line 5: found character") {
+		t.Errorf("header syntax line: got %v", err)
+	}
 }
 
 // TestTemplateUnknownKeyLine checks that an unknown key names its line.

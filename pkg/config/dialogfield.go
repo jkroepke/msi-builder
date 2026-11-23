@@ -20,7 +20,7 @@ const maxChoiceText = 64
 // UnmarshalYAML accepts a scalar as the short form of {value: scalar}.
 func (o *ChoiceOption) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
-		return node.Decode(&o.Value) //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+		return decodeNode(node, &o.Value)
 	}
 
 	type plain ChoiceOption
@@ -44,8 +44,8 @@ func (o *ChoiceOptions) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	var options []ChoiceOption
-	if err := node.Decode(&options); err != nil {
-		return err //nolint:wrapcheck // yaml.v4 lists a returned *yaml.LoadErrors with the others
+	if err := decodeNode(node, &options); err != nil {
+		return err
 	}
 
 	*o = options

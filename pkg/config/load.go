@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -117,6 +118,8 @@ func decode(body []byte) (*Config, error) {
 		return nil, errors.Join(errs...)
 	}
 
+	intNegativeZero(cfg)
+
 	return cfg, nil
 }
 
@@ -153,4 +156,20 @@ func fileVars(root *yaml.Node) (map[string]string, map[string]int, error) {
 	}
 
 	return make(map[string]string), lines, nil
+}
+
+// intNegativeZero turns -0 in custom table rows back into the integer 0.
+// yaml.v4 resolves a plain -0 to the float -0, where yaml.v3 gave an int;
+// table cells hold only integers and strings, so a float zero can only be
+// meant as 0.
+func intNegativeZero(cfg *Config) {
+	for _, table := range cfg.Tables {
+		for _, row := range table.Rows {
+			for i, cell := range row {
+				if f, ok := cell.(float64); ok && f == 0 && math.Signbit(f) {
+					row[i] = 0
+				}
+			}
+		}
+	}
 }
