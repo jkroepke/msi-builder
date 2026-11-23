@@ -26,12 +26,12 @@ msi-builder sign [flags] package.msi
       --cert string            sign with this PEM certificate chain (signing certificate first)
       --description string     program name shown in the UAC prompt
       --hash string            signature digest: sha256, sha384, sha512 or sha1 (default "sha256")
-  -h, --help                   help for sign
+  -h, --help[=true|false]      help for sign
       --key string             PEM private key for --cert
   -o, --output string          output file (default: sign in place)
       --password-env string    environment variable holding the --pfx password
       --pfx string             sign with the key and certificates in this PKCS #12 file
-  -q, --quiet                  print nothing on success
+  -q, --quiet[=true|false]     print nothing on success
       --timestamp-url string   RFC 3161 time-stamping authority
       --url string             more-information link of the signature
 ```

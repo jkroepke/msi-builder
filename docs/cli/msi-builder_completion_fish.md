@@ -21,8 +21,8 @@ msi-builder completion fish [flags]
 ## Flags
 
 ```text
-  -h, --help              help for fish
-      --no-descriptions   leave out the descriptions of the completions
+  -h, --help[=true|false]              help for fish
+      --no-descriptions[=true|false]   leave out the descriptions of the completions
 ```
 
 ## See also

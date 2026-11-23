@@ -19,8 +19,8 @@ msi-builder completion powershell [flags]
 ## Flags
 
 ```text
-  -h, --help              help for powershell
-      --no-descriptions   leave out the descriptions of the completions
+  -h, --help[=true|false]              help for powershell
+      --no-descriptions[=true|false]   leave out the descriptions of the completions
 ```
 
 ## See also

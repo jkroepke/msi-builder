@@ -22,8 +22,8 @@ msi-builder completion zsh [flags]
 ## Flags
 
 ```text
-  -h, --help              help for zsh
-      --no-descriptions   leave out the descriptions of the completions
+  -h, --help[=true|false]              help for zsh
+      --no-descriptions[=true|false]   leave out the descriptions of the completions
 ```
 
 ## See also
