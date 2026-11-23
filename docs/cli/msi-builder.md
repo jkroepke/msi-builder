@@ -15,8 +15,8 @@ msi-builder [command]
 ## Flags
 
 ```text
-  -h, --help      help for msi-builder
-      --version   print the version
+  -h, --help[=true|false]      help for msi-builder
+      --version[=true|false]   print the version
 ```
 
 ## See also

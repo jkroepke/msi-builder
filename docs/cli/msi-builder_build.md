@@ -27,21 +27,21 @@ msi-builder build [flags] msi.yaml
 ## Flags
 
 ```text
-      --cert string            sign with this PEM certificate chain (signing certificate first)
-      --cfb int                compound file version, 3 (512-byte sectors) or 4 (4096-byte sectors) (default 4)
-      --description string     program name shown in the UAC prompt
-      --env                    let environment variables fill {{ .NAME }}
-      --hash string            signature digest: sha256, sha384, sha512 or sha1 (default "sha256")
-  -h, --help                   help for build
-      --key string             PEM private key for --cert
-  -o, --output string          output file (default: <product name>-<version>.msi next to the YAML file, characters a file name cannot hold replaced by _)
-      --password-env string    environment variable holding the --pfx password
-      --pfx string             sign with the key and certificates in this PKCS #12 file
-  -q, --quiet                  print nothing on success
-      --skip-verify            do not read the finished package back
-      --timestamp-url string   RFC 3161 time-stamping authority
-      --url string             more-information link of the signature
-      --var NAME=VALUE         set a variable read as {{ .NAME }}; repeatable
+      --cert string                sign with this PEM certificate chain (signing certificate first)
+      --cfb int                    compound file version, 3 (512-byte sectors) or 4 (4096-byte sectors) (default 4)
+      --description string         program name shown in the UAC prompt
+      --env[=true|false]           let environment variables fill {{ .NAME }}
+      --hash string                signature digest: sha256, sha384, sha512 or sha1 (default "sha256")
+  -h, --help[=true|false]          help for build
+      --key string                 PEM private key for --cert
+  -o, --output string              output file (default: <product name>-<version>.msi next to the YAML file, characters a file name cannot hold replaced by _)
+      --password-env string        environment variable holding the --pfx password
+      --pfx string                 sign with the key and certificates in this PKCS #12 file
+  -q, --quiet[=true|false]         print nothing on success
+      --skip-verify[=true|false]   do not read the finished package back
+      --timestamp-url string       RFC 3161 time-stamping authority
+      --url string                 more-information link of the signature
+      --var NAME=VALUE             set a variable read as {{ .NAME }}; repeatable
 ```
 
 ## See also

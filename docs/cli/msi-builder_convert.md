@@ -59,12 +59,12 @@ msi-builder convert [flags] app.wxs
 ## Flags
 
 ```text
-      --arch string     the platform WiX built for (wix build -arch): x86, x64 or arm64; also sets package.platform
-      --bcgg            WiX 6 or later built the package with -bcgg (WiX 3 codes for registry key paths)
-      --force           overwrite an existing output file
-  -h, --help            help for convert
-      --msi string      keep the component codes of this package, built by WiX from app.wxs
-  -o, --output string   write the YAML file here instead of stdout
+      --arch string          the platform WiX built for (wix build -arch): x86, x64 or arm64; also sets package.platform
+      --bcgg[=true|false]    WiX 6 or later built the package with -bcgg (WiX 3 codes for registry key paths)
+      --force[=true|false]   overwrite an existing output file
+  -h, --help[=true|false]    help for convert
+      --msi string           keep the component codes of this package, built by WiX from app.wxs
+  -o, --output string        write the YAML file here instead of stdout
 ```
 
 ## See also

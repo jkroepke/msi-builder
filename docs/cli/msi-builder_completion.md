@@ -15,7 +15,7 @@ msi-builder completion [command]
 ## Flags
 
 ```text
-  -h, --help   help for completion
+  -h, --help[=true|false]   help for completion
 ```
 
 ## See also

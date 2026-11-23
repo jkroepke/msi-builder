@@ -22,8 +22,8 @@ msi-builder completion bash [flags]
 ## Flags
 
 ```text
-  -h, --help              help for bash
-      --no-descriptions   leave out the descriptions of the completions
+  -h, --help[=true|false]              help for bash
+      --no-descriptions[=true|false]   leave out the descriptions of the completions
 ```
 
 ## See also
