@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/jkroepke/msi-builder/internal/cab"
 	"github.com/jkroepke/msi-builder/internal/msidb"
@@ -118,7 +118,7 @@ func pruneEmpty(node *yaml.Node) bool {
 		return len(node.Content) == 0
 	case yaml.ScalarNode:
 		return node.Tag == "!!null" || node.Tag == "!!str" && node.Value == ""
-	case yaml.AliasNode:
+	case yaml.AliasNode, yaml.StreamNode:
 		return false
 	}
 

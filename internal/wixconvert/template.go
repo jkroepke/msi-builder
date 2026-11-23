@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // literalBraces is the action that writes a literal "{{". It uses a raw
@@ -103,11 +103,15 @@ func encodeDocs(docs []*yaml.Node) ([]byte, error) {
 
 	var buf bytes.Buffer
 
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
+	// yaml.v4's encoders wrap long lines at 80 columns unless told
+	// otherwise; template actions must stay on one line.
+	enc, err := yaml.NewDumper(&buf, yaml.WithV3Defaults(), yaml.WithIndent(2), yaml.WithLineWidth(-1))
+	if err != nil {
+		return nil, fmt.Errorf("encode: %w", err)
+	}
 
 	for _, doc := range docs {
-		if err := enc.Encode(doc); err != nil {
+		if err := enc.Dump(doc); err != nil {
 			return nil, fmt.Errorf("encode: %w", err)
 		}
 	}

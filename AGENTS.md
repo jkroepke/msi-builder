@@ -539,6 +539,15 @@ go test ./... -shuffle=on -race
   the chains come before every placement that shares their anchor, because
   `launchBeforeFind` compares positions inside a block, not only its size.
   `TestBuilderChainsMatchValidate` checks the counts against a build.
+- Decoding hooks in `pkg/config` return `*yaml.LoadErrors`: yaml.v4 lists
+  those with its own errors, but puts the hook node's line in front of any
+  other error, so a message that names its own line would show two. Return
+  `node.Decode` errors as they are, wrap your own with `lineError`, and decode
+  a hand-handled mapping with `decodeStrict` (`node.Load` with
+  `WithKnownFields`). `TestDecodeErrorLines` checks for one line number.
+  `productCode: auto` hashes `yaml.Marshal` output, so a YAML module update
+  must keep it byte-identical; compare old and new output over the builder
+  tests before merging one.
 - A null list entry decodes to a nil pointer. `nullEntries`
   (`pkg/config/nulls.go`) finds them by reflection over the YAML keys, in
   `Parse` and in `Validate`, before the defaults dereference anything, so a

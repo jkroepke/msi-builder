@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/jkroepke/msi-builder/pkg/config"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func load(t *testing.T, path string, vars map[string]string) *config.Config {

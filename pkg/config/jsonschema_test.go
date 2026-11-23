@@ -12,7 +12,7 @@ import (
 
 	"github.com/jkroepke/msi-builder/pkg/config"
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func compileSchema(t *testing.T) *jsonschema.Schema {
