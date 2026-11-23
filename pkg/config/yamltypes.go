@@ -453,6 +453,7 @@ type (
 	rawUpgrade    Upgrade
 	rawInstallDir InstallDir
 	rawArgument   Argument
+	rawTable      Table
 )
 
 // publicTypeNames rewrites decoding errors that name the raw types above,
@@ -490,7 +491,8 @@ func publicTypeNames(err error) error {
 }
 
 // unplacedError is a decoder error without a position, shown as its bare
-// message.
+// message. yaml.v4 lists it under the line of the hook's node, which
+// placeUnplaced corrects where it finds the scalar.
 type unplacedError struct{ err *yaml.LoadError }
 
 func (e *unplacedError) Error() string {
@@ -618,9 +620,7 @@ func (s Searches) MarshalYAML() (any, error) {
 // UnmarshalYAML keeps a plain -0 in a row the integer 0: yaml.v4 resolves
 // it to the float -0, where yaml.v3 gave an int. -0.0 stays a float.
 func (t *Table) UnmarshalYAML(node *yaml.Node) error {
-	type plain Table
-
-	if err := decodeStrict(node, (*plain)(t)); err != nil {
+	if err := decodeStrict(node, (*rawTable)(t)); err != nil {
 		return err
 	}
 
@@ -649,11 +649,32 @@ func intNegativeZero(row []any, node *yaml.Node) {
 	}
 }
 
-// mappingValue returns the value of key in mapping node, or nil.
+// mappingValue returns the value of key in mapping node, or nil. A key of
+// the mapping itself wins over one merged in with <<.
 func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	node = deref(node)
+
+	var merges []*yaml.Node
+
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
+		switch node.Content[i].Value {
+		case key:
 			return node.Content[i+1]
+		case "<<":
+			merges = append(merges, node.Content[i+1])
+		}
+	}
+
+	for _, merge := range merges {
+		sources := []*yaml.Node{merge}
+		if merge = deref(merge); merge.Kind == yaml.SequenceNode {
+			sources = merge.Content
+		}
+
+		for _, source := range sources {
+			if value := mappingValue(source, key); value != nil {
+				return value
+			}
 		}
 	}
 
@@ -667,4 +688,51 @@ func deref(node *yaml.Node) *yaml.Node {
 	}
 
 	return node
+}
+
+// unplacedValue matches the resolver's message for an explicitly tagged
+// scalar that does not fit its tag.
+var unplacedValue = regexp.MustCompile("^cannot construct !!\\w+ `(.*)` as a (!!\\w+)$")
+
+// placeUnplaced moves each unplacedError in err to the line of the tagged
+// scalar it is about: the first one with that tag and text at or below the
+// line yaml.v4 gave, which is the line of the enclosing hook's node.
+func placeUnplaced(err error, doc *yaml.Node) {
+	var loadErrs *yaml.LoadErrors
+	if !errors.As(err, &loadErrs) {
+		return
+	}
+
+	for _, loadErr := range loadErrs.Errors {
+		var unplaced *unplacedError
+		if !errors.As(loadErr, &unplaced) {
+			continue
+		}
+
+		match := unplacedValue.FindStringSubmatch(unplaced.err.Message)
+		if match == nil {
+			continue
+		}
+
+		if line := taggedScalarLine(doc, match[2], match[1], loadErr.Mark.Line); line > 0 {
+			loadErr.Mark.Line = line
+		}
+	}
+}
+
+// taggedScalarLine returns the line of the first scalar below node with an
+// explicit tag and value at or after line minLine, or 0.
+func taggedScalarLine(node *yaml.Node, tag, value string, minLine int) int {
+	if node.Kind == yaml.ScalarNode && node.Style&yaml.TaggedStyle != 0 &&
+		node.Tag == tag && node.Value == value && node.Line >= minLine {
+		return node.Line
+	}
+
+	for _, child := range node.Content {
+		if line := taggedScalarLine(child, tag, value, minLine); line > 0 {
+			return line
+		}
+	}
+
+	return 0
 }

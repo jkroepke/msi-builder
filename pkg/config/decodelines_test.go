@@ -52,8 +52,13 @@ func TestDecodeErrorLines(t *testing.T) {
 		},
 		"int tag": {
 			head + "components:\n  - files:\n      - source: !!int abc\n",
-			"construct errors: line 3: cannot construct !!str `abc` as a !!int",
+			"construct errors: line 4: cannot construct !!str `abc` as a !!int",
 		},
+		"table cell": {
+			head + "tables:\n  - name: T\n    columns: [{name: K, type: s72, key: true}, {name: V, type: I2}]\n    rows:\n      - [a, 1]\n      - [b, !!int abc]\n",
+			"construct errors: line 7: cannot construct !!str `abc` as a !!int",
+		},
+		"table key":   {head + "tables:\n  - name: T\n    bogus: 1\n", "construct errors: line 4: field bogus not found in type config.Table"},
 		"vars header": {"vars:\n  A: !!binary \"@@@\"\n---\n" + head, "vars: yaml: construct errors: line 2: !!binary value contains invalid base64 data"},
 		"merge in search": {
 			head + "properties:\n  P:\n    search: {<<: 1, directory: {path: 'C:\\a'}}\n",
@@ -90,5 +95,20 @@ func TestTableNegativeZero(t *testing.T) {
 
 	if row[3] != "-0" {
 		t.Errorf("'-0': %#v, want the string", row[3])
+	}
+
+	// Rows merged in, from a mapping or another table.
+	for _, doc := range []string{
+		"tables:\n  - {<<: {rows: [[a, -0]]}, name: T}\n",
+		"tables:\n  - &t {name: T, rows: [[a, -0]]}\n  - {<<: *t, name: U}\n",
+	} {
+		cfg, err := config.Parse([]byte("schema: msi-builder/v1\n"+doc), config.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got := cfg.Tables[len(cfg.Tables)-1].Rows[0][1]; got != 0 {
+			t.Errorf("%s: %#v, want the int 0", doc, got)
+		}
 	}
 }

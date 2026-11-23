@@ -97,6 +97,8 @@ func decode(body []byte) (*Config, error) {
 
 	cfg := &Config{}
 	if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
+		placeUnplaced(err, &doc)
+
 		return nil, fmt.Errorf("%w%s", err, renderedLines)
 	}
 
