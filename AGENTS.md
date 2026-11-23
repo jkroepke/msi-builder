@@ -546,6 +546,11 @@ go test ./... -shuffle=on -race
   nodes with `decodeNode`, pass callback errors through `publicTypeNames`,
   wrap your own with `lineError`, and decode a hand-handled mapping with
   `decodeStrict` (`node.Load` with `WithKnownFields`).
+  Resolver errors for explicitly tagged scalars (`!!int abc`) carry no
+  position; hooks return them as `unplacedError`, and `decode` moves them to
+  the first matching tagged scalar at or below the hook's line
+  (`placeUnplaced`, which needs the parsed document). A matching scalar in an
+  overridden merge source can take the line instead; accepted.
   `TestDecodeErrorLines` checks for one line number.
   `productCode: auto` hashes yaml.v3's `Marshal` output on purpose
   (`internal/builder/tree.go`): yaml.v4 writes some multi-line strings in

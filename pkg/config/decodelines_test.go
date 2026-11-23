@@ -58,8 +58,9 @@ func TestDecodeErrorLines(t *testing.T) {
 			head + "tables:\n  - name: T\n    columns: [{name: K, type: s72, key: true}, {name: V, type: I2}]\n    rows:\n      - [a, 1]\n      - [b, !!int abc]\n",
 			"construct errors: line 7: cannot construct !!str `abc` as a !!int",
 		},
-		"table key":   {head + "tables:\n  - name: T\n    bogus: 1\n", "construct errors: line 4: field bogus not found in type config.Table"},
-		"vars header": {"vars:\n  A: !!binary \"@@@\"\n---\n" + head, "vars: yaml: construct errors: line 2: !!binary value contains invalid base64 data"},
+		"block scalar": {head + "components:\n  - files:\n      - source: !!int |\n          abc\n", "construct errors: line 4: cannot construct"},
+		"table key":    {head + "tables:\n  - name: T\n    bogus: 1\n", "construct errors: line 4: field bogus not found in type config.Table"},
+		"vars header":  {"vars:\n  A: !!binary \"@@@\"\n---\n" + head, "vars: yaml: construct errors: line 2: !!binary value contains invalid base64 data"},
 		"merge in search": {
 			head + "properties:\n  P:\n    search: {<<: 1, directory: {path: 'C:\\a'}}\n",
 			"construct errors: line 4: map merge requires map",
@@ -97,6 +98,22 @@ func TestTableNegativeZero(t *testing.T) {
 		t.Errorf("'-0': %#v, want the string", row[3])
 	}
 
+	// The table's own rows win over merged ones, and the first merge source
+	// over the next.
+	for _, doc := range []string{
+		"tables:\n  - {<<: {rows: [[a, -0]]}, name: T, rows: [[a, '-0'], [b, -0]]}\n",
+		"tables:\n  - {<<: [{rows: [[a, '-0'], [b, -0]]}, {rows: [[a, -0]]}], name: T}\n",
+	} {
+		cfg, err := config.Parse([]byte("schema: msi-builder/v1\n"+doc), config.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if rows := cfg.Tables[0].Rows; len(rows) != 2 || rows[0][1] != "-0" || rows[1][1] != 0 {
+			t.Errorf("%s: rows %#v", doc, rows)
+		}
+	}
+
 	// Rows merged in, from a mapping or another table.
 	for _, doc := range []string{
 		"tables:\n  - {<<: {rows: [[a, -0]]}, name: T}\n",
@@ -110,5 +127,18 @@ func TestTableNegativeZero(t *testing.T) {
 		if got := cfg.Tables[len(cfg.Tables)-1].Rows[0][1]; got != 0 {
 			t.Errorf("%s: %#v, want the int 0", doc, got)
 		}
+	}
+}
+
+// TestDecodeErrorLinesEach checks that two tagged-scalar errors keep their
+// own lines.
+func TestDecodeErrorLinesEach(t *testing.T) {
+	t.Parallel()
+
+	doc := "schema: msi-builder/v1\ncomponents:\n  - files:\n      - source: !!int abc\n  - files:\n      - source: !!int abc\n"
+
+	_, err := config.Parse([]byte(doc), config.Options{})
+	if err == nil || !strings.Contains(err.Error(), "line 4: cannot construct") || !strings.Contains(err.Error(), "line 6: cannot construct") {
+		t.Errorf("got %v, want lines 4 and 6", err)
 	}
 }

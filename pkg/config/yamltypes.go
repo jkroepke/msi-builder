@@ -692,7 +692,7 @@ func deref(node *yaml.Node) *yaml.Node {
 
 // unplacedValue matches the resolver's message for an explicitly tagged
 // scalar that does not fit its tag.
-var unplacedValue = regexp.MustCompile("^cannot construct !!\\w+ `(.*)` as a (!!\\w+)$")
+var unplacedValue = regexp.MustCompile("(?s)^cannot construct !!\\w+ `(.*)` as a (!!\\w+)$")
 
 // placeUnplaced moves each unplacedError in err to the line of the tagged
 // scalar it is about: the first one with that tag and text at or below the
