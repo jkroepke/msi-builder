@@ -469,6 +469,13 @@ func publicTypeNames(err error) error {
 			return err
 		}
 
+		// The resolver's errors carry no position; as a plain error the
+		// message gets the line of the node being decoded instead of
+		// "<unknown position>".
+		if loadErr.Mark.Line == 0 {
+			return &unplacedError{loadErr}
+		}
+
 		loadErrs = &yaml.LoadErrors{Errors: []*yaml.LoadError{loadErr}}
 	}
 
@@ -481,6 +488,16 @@ func publicTypeNames(err error) error {
 
 	return out
 }
+
+// unplacedError is a decoder error without a position, shown as its bare
+// message.
+type unplacedError struct{ err *yaml.LoadError }
+
+func (e *unplacedError) Error() string {
+	return rawTypeName.ReplaceAllString(e.err.Message, "config.$1")
+}
+
+func (e *unplacedError) Unwrap() error { return e.err }
 
 var rawTypeName = regexp.MustCompile(`config\.raw([A-Z]\w*)`)
 
@@ -596,4 +613,58 @@ func (s Searches) MarshalYAML() (any, error) {
 	}
 
 	return []*Search(s), nil
+}
+
+// UnmarshalYAML keeps a plain -0 in a row the integer 0: yaml.v4 resolves
+// it to the float -0, where yaml.v3 gave an int. -0.0 stays a float.
+func (t *Table) UnmarshalYAML(node *yaml.Node) error {
+	type plain Table
+
+	if err := decodeStrict(node, (*plain)(t)); err != nil {
+		return err
+	}
+
+	if rows := mappingValue(node, "rows"); rows != nil {
+		for i, row := range deref(rows).Content {
+			if i < len(t.Rows) {
+				intNegativeZero(t.Rows[i], deref(row))
+			}
+		}
+	}
+
+	return nil
+}
+
+// intNegativeZero sets the cells of row written as a plain -0 to 0.
+func intNegativeZero(row []any, node *yaml.Node) {
+	if len(node.Content) != len(row) {
+		return
+	}
+
+	for j, cell := range node.Content {
+		cell = deref(cell)
+		if f, ok := row[j].(float64); ok && f == 0 && cell.Style == 0 && cell.Value == "-0" {
+			row[j] = 0
+		}
+	}
+}
+
+// mappingValue returns the value of key in mapping node, or nil.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+
+	return nil
+}
+
+// deref follows an alias node to its anchor.
+func deref(node *yaml.Node) *yaml.Node {
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return node.Alias
+	}
+
+	return node
 }

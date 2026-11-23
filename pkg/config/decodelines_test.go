@@ -50,6 +50,11 @@ func TestDecodeErrorLines(t *testing.T) {
 			head + "components:\n  - services:\n      - name: S\n        arguments: [a, !!binary \"@@@\"]\n",
 			"construct errors: line 5: !!binary value contains invalid base64 data",
 		},
+		"int tag": {
+			head + "components:\n  - files:\n      - source: !!int abc\n",
+			"construct errors: line 3: cannot construct !!str `abc` as a !!int",
+		},
+		"vars header": {"vars:\n  A: !!binary \"@@@\"\n---\n" + head, "vars: yaml: construct errors: line 2: !!binary value contains invalid base64 data"},
 		"merge in search": {
 			head + "properties:\n  P:\n    search: {<<: 1, directory: {path: 'C:\\a'}}\n",
 			"construct errors: line 4: map merge requires map",
@@ -57,23 +62,33 @@ func TestDecodeErrorLines(t *testing.T) {
 	} {
 		_, err := config.Parse([]byte(tc.yaml), config.Options{})
 		if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Count(err.Error(), "line ") != 1 ||
-			strings.Contains(err.Error(), "go-yaml load error") {
+			strings.Contains(err.Error(), "go-yaml load error") || strings.Contains(err.Error(), "unknown position") {
 			t.Errorf("%s: got %v, want one line number and %q", name, err, tc.want)
 		}
 	}
 }
 
-// TestTableNegativeZero checks that -0 in a custom table row is the integer
-// 0, as it was before yaml.v4 resolved it to a float.
+// TestTableNegativeZero checks that a plain -0 in a custom table row is the
+// integer 0, as it was before yaml.v4 resolved it to a float, and that -0.0
+// stays a float.
 func TestTableNegativeZero(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Parse([]byte("schema: msi-builder/v1\ntables:\n  - name: T\n    rows: [[a, -0]]\n"), config.Options{})
+	cfg, err := config.Parse([]byte("schema: msi-builder/v1\ntables:\n  - name: T\n    rows: [[a, -0, -0.0, '-0']]\n"), config.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := cfg.Tables[0].Rows[0][1]; got != 0 {
-		t.Errorf("cell %#v, want the int 0", got)
+	row := cfg.Tables[0].Rows[0]
+	if row[1] != 0 {
+		t.Errorf("-0: %#v, want the int 0", row[1])
+	}
+
+	if f, ok := row[2].(float64); !ok || f != 0 {
+		t.Errorf("-0.0: %#v, want a float", row[2])
+	}
+
+	if row[3] != "-0" {
+		t.Errorf("'-0': %#v, want the string", row[3])
 	}
 }
