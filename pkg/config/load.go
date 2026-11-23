@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Options control how a file is loaded.
@@ -97,6 +97,8 @@ func decode(body []byte) (*Config, error) {
 
 	cfg := &Config{}
 	if err := dec.Decode(cfg); err != nil && !errors.Is(err, io.EOF) {
+		placeUnplaced(err, &doc)
+
 		return nil, fmt.Errorf("%w%s", err, renderedLines)
 	}
 
@@ -133,7 +135,7 @@ func fileVars(root *yaml.Node) (map[string]string, map[string]int, error) {
 		node := root.Content[i+1]
 
 		vars := make(map[string]string)
-		if err := node.Decode(&vars); err != nil {
+		if err := decodeNode(node, &vars); err != nil {
 			return nil, nil, fmt.Errorf("vars: %w", err)
 		}
 

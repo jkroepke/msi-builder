@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // omap is a YAML mapping that keeps its keys in insertion order and carries
@@ -239,7 +239,25 @@ func sequence[T any](items []T, convert func(T) *yaml.Node, style yaml.Style) *y
 }
 
 func scalar(s string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s}
+	item := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s}
+	if spaceAtBreak(s) {
+		// yaml.v4 would write a literal block whose lines end in blanks,
+		// which editors that trim trailing whitespace change silently.
+		item.Style = yaml.DoubleQuotedStyle
+	}
+
+	return item
+}
+
+// spaceAtBreak reports whether text has a line break and a blank at the end of
+// a line, including its last.
+func spaceAtBreak(text string) bool {
+	if !strings.Contains(text, "\n") {
+		return false
+	}
+
+	return strings.HasSuffix(text, " ") || strings.HasSuffix(text, "\t") ||
+		strings.Contains(text, " \n") || strings.Contains(text, "\t\n")
 }
 
 // node writes the mapping. Comments of keys that ended up without a value

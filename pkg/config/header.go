@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // varsKey is the key of the vars header.

@@ -12,7 +12,11 @@ import (
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	// The automatic ProductCode hashes yaml.v3's encoding, which is frozen:
+	// a newer encoder picks other scalar styles (yaml.v4 writes literal
+	// blocks for lines that end in blanks) and would change the code of
+	// an unchanged configuration.
+	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/jkroepke/msi-builder/internal/cab"
 	"github.com/jkroepke/msi-builder/internal/msidb"

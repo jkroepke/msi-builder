@@ -2341,10 +2341,10 @@ func TestSearchDecodeErrors(t *testing.T) {
 	for doc, want := range map[string]string{
 		"{directory: {path: 'C:\\a', bogus: 1}}":     "field bogus not found",
 		"{reg: {root: HKLM, key: X}}":                "field reg not found",
-		"{file: {name: [a, b], path: 'C:\\a'}}":      "cannot unmarshal !!seq into string",
+		"{file: {name: [a, b], path: 'C:\\a'}}":      "cannot construct !!seq into string",
 		"[{directory: {path: 'C:\\a'}}, {bogus: 1}]": "field bogus not found",
-		"[{file: {name: {x: 1}, path: 'C:\\a'}}]":    "cannot unmarshal !!map into string",
-		"x": "cannot unmarshal",
+		"[{file: {name: {x: 1}, path: 'C:\\a'}}]":    "cannot construct !!map into string",
+		"x": "cannot construct",
 	} {
 		_, err := config.Parse([]byte(head+doc+"\n"), config.Options{})
 		if err == nil || !strings.Contains(err.Error(), want) {

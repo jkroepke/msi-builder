@@ -404,10 +404,16 @@ func TestTemplateHeader(t *testing.T) {
 		}
 	}
 
-	// The body keeps the lines of the file.
-	_, err := config.Parse([]byte("vars:\n  V: 1\n---\nschema: msi-builder/v1\nproduct: [\n"), config.Options{})
-	if err == nil || !strings.Contains(err.Error(), "line 5") {
+	// The body keeps the lines of the file: the unknown key is on line 5.
+	_, err := config.Parse([]byte("vars:\n  V: 1\n---\nschema: msi-builder/v1\nbogus: 1\n"), config.Options{})
+	if err == nil || !strings.Contains(err.Error(), "line 5: field bogus") {
 		t.Errorf("header line: got %v", err)
+	}
+
+	// So do syntax errors.
+	_, err = config.Parse([]byte("vars:\n  V: 1\n---\nschema: msi-builder/v1\nproduct: @x\nfoo: 1\n"), config.Options{})
+	if err == nil || !strings.Contains(err.Error(), "line 5: found character") {
+		t.Errorf("header syntax line: got %v", err)
 	}
 }
 

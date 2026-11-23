@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Platform is the target architecture. Its value is the exact Template
@@ -35,13 +35,13 @@ var platformNames = map[string]Platform{ //nolint:gochecknoglobals // lookup tab
 // exact token, since the engine compares tokens case-sensitively (SUM-02).
 func (p *Platform) UnmarshalYAML(node *yaml.Node) error {
 	var text string
-	if err := node.Decode(&text); err != nil {
-		return err //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+	if err := decodeNode(node, &text); err != nil {
+		return err
 	}
 
 	v, ok := platformNames[strings.ToLower(strings.TrimSpace(text))]
 	if !ok {
-		return fmt.Errorf("line %d: unknown platform %q, want x86, x64 or arm64", node.Line, text)
+		return lineError(node.Line, fmt.Errorf("unknown platform %q, want x86, x64 or arm64", text))
 	}
 
 	*p = v
@@ -81,8 +81,8 @@ func (s Scope) MayBePerUser() bool {
 // UnmarshalYAML accepts the scope names in any case.
 func (s *Scope) UnmarshalYAML(node *yaml.Node) error {
 	var text string
-	if err := node.Decode(&text); err != nil {
-		return err //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+	if err := decodeNode(node, &text); err != nil {
+		return err
 	}
 
 	switch strings.ToLower(text) {
@@ -95,7 +95,7 @@ func (s *Scope) UnmarshalYAML(node *yaml.Node) error {
 	case "permachineoruser":
 		*s = ScopePerMachineOrUser
 	default:
-		return fmt.Errorf("line %d: unknown scope %q, want perMachine, perUser, perUserOrMachine or perMachineOrUser", node.Line, text)
+		return lineError(node.Line, fmt.Errorf("unknown scope %q, want perMachine, perUser, perUserOrMachine or perMachineOrUser", text))
 	}
 
 	return nil
@@ -108,8 +108,8 @@ type StringList []string
 func (l *StringList) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var s string
-		if err := node.Decode(&s); err != nil {
-			return err //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+		if err := decodeNode(node, &s); err != nil {
+			return err
 		}
 
 		*l = StringList{s}
@@ -118,8 +118,8 @@ func (l *StringList) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	var list []string
-	if err := node.Decode(&list); err != nil {
-		return err //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+	if err := decodeNode(node, &list); err != nil {
+		return err
 	}
 
 	*l = list
@@ -133,13 +133,13 @@ type Duration time.Duration
 // UnmarshalYAML parses a Go duration string.
 func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 	var s string
-	if err := node.Decode(&s); err != nil {
-		return err //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+	if err := decodeNode(node, &s); err != nil {
+		return err
 	}
 
 	v, err := time.ParseDuration(s)
 	if err != nil {
-		return fmt.Errorf("line %d: %w", node.Line, err)
+		return lineError(node.Line, err)
 	}
 
 	*d = Duration(v)
@@ -153,25 +153,21 @@ const recoveryRestart = "restart"
 // UnmarshalYAML accepts a scalar action name or a one-key {restart: delay} map.
 func (a *RecoveryAction) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
-		if err := node.Decode(&a.Action); err != nil {
-			return fmt.Errorf("line %d: %w", node.Line, err)
-		}
-
-		return nil
+		return decodeNode(node, &a.Action)
 	}
 
 	if node.Kind != yaml.MappingNode || len(node.Content) != 2 || node.Content[0].Value != recoveryRestart {
-		return fmt.Errorf("line %d: a recovery action is restart, none or {restart: <delay>}", node.Line)
+		return lineError(node.Line, errors.New("a recovery action is restart, none or {restart: <delay>}"))
 	}
 
-	// yaml.v3 skips UnmarshalYAML for a null value, which would leave a 0 delay.
+	// The decoder skips UnmarshalYAML for a null value, which would leave a 0 delay.
 	if node.Content[1].Tag == tagNull {
-		return fmt.Errorf("line %d: a restart step needs a delay", node.Line)
+		return lineError(node.Line, errors.New("a restart step needs a delay"))
 	}
 
 	var delay Duration
-	if err := node.Content[1].Decode(&delay); err != nil {
-		return fmt.Errorf("line %d: %w", node.Line, err)
+	if err := decodeNode(node.Content[1], &delay); err != nil {
+		return err
 	}
 
 	a.Action = recoveryRestart
@@ -194,8 +190,8 @@ func (a RecoveryAction) MarshalYAML() (any, error) {
 func (c *Close) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var on bool
-		if err := node.Decode(&on); err != nil {
-			return fmt.Errorf("line %d: close is true, false or a mapping: %w", node.Line, err)
+		if err := decodeNode(node, &on); err != nil {
+			return lineError(node.Line, fmt.Errorf("close is true, false or a mapping: %s", decodeMessage(err)))
 		}
 
 		c.Disabled = !on
@@ -224,8 +220,8 @@ func (c Close) MarshalYAML() (any, error) {
 func (p *Purge) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var on bool
-		if err := node.Decode(&on); err != nil {
-			return fmt.Errorf("line %d: purge is true, false or a mapping: %w", node.Line, err)
+		if err := decodeNode(node, &on); err != nil {
+			return lineError(node.Line, fmt.Errorf("purge is true, false or a mapping: %s", decodeMessage(err)))
 		}
 
 		p.Disabled = !on
@@ -363,7 +359,7 @@ type Properties map[string]*Property
 // UnmarshalYAML accepts "NAME: value" as a short form of "NAME: {value: value}".
 func (p *Properties) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("line %d: properties must be a mapping", node.Line)
+		return lineError(node.Line, errors.New("properties must be a mapping"))
 	}
 
 	out := make(Properties, len(node.Content)/2)
@@ -371,7 +367,7 @@ func (p *Properties) UnmarshalYAML(node *yaml.Node) error {
 	for i := 0; i < len(node.Content); i += 2 {
 		name, value := node.Content[i].Value, node.Content[i+1]
 		if _, dup := out[name]; dup {
-			return fmt.Errorf("line %d: property %s defined twice", node.Content[i].Line, name)
+			return lineError(node.Content[i].Line, fmt.Errorf("property %s defined twice", name))
 		}
 
 		prop := &Property{}
@@ -385,8 +381,8 @@ func (p *Properties) UnmarshalYAML(node *yaml.Node) error {
 			if err := decodeStrict(value, prop); err != nil {
 				return err
 			}
-		case yaml.DocumentNode, yaml.SequenceNode, yaml.AliasNode:
-			return fmt.Errorf("line %d: property %s must be a value or a mapping", value.Line, name)
+		case yaml.DocumentNode, yaml.SequenceNode, yaml.AliasNode, yaml.StreamNode:
+			return lineError(value.Line, fmt.Errorf("property %s must be a value or a mapping", name))
 		}
 
 		out[name] = prop
@@ -410,22 +406,42 @@ func (p Properties) Names() []string {
 }
 
 // decodeStrict decodes node into v and rejects unknown keys. yaml.Node.Decode
-// does not honour Decoder.KnownFields, so mappings decoded by hand go through
-// a re-encoded document.
+// does not honour Decoder.KnownFields, so mappings decoded by hand ask for
+// the check themselves.
 func decodeStrict(node *yaml.Node, out any) error {
-	data, err := yaml.Marshal(node)
-	if err != nil {
-		return err //nolint:wrapcheck // re-encoding a decoded node
+	return publicTypeNames(node.Load(out, yaml.WithV3Defaults(), yaml.WithKnownFields()))
+}
+
+// decodeNode decodes node into out like node.Decode, with the error as a
+// *yaml.LoadErrors (see publicTypeNames).
+func decodeNode(node *yaml.Node, out any) error {
+	return publicTypeNames(node.Decode(out))
+}
+
+// decodeMessage returns the messages of a decoding error without the line
+// numbers, for an error that names the line itself.
+func decodeMessage(err error) string {
+	var loadErrs *yaml.LoadErrors
+	if !errors.As(publicTypeNames(err), &loadErrs) {
+		return err.Error()
 	}
 
-	dec := yaml.NewDecoder(strings.NewReader(string(data)))
-	dec.KnownFields(true)
-
-	if err := dec.Decode(out); err != nil {
-		return fmt.Errorf("line %d: %w", node.Line, err)
+	msgs := make([]string, len(loadErrs.Errors))
+	for i, e := range loadErrs.Errors {
+		msgs[i] = e.Message
 	}
 
-	return nil
+	return strings.Join(msgs, "; ")
+}
+
+// lineError reports err at line as one of the decoder's own errors. yaml.v4
+// lists a returned *yaml.LoadErrors with the others; any other error gets the
+// line of the node being decoded put in front, which is the wrong line for
+// an entry inside it.
+func lineError(line int, err error) error {
+	return &yaml.LoadErrors{Errors: []*yaml.LoadError{
+		yaml.NewLoadError(yaml.ConstructorStage, err.Error(), yaml.Mark{Line: line}, err),
+	}}
 }
 
 // The UnmarshalYAML methods below take the decoder's unmarshal function
@@ -437,23 +453,53 @@ type (
 	rawUpgrade    Upgrade
 	rawInstallDir InstallDir
 	rawArgument   Argument
+	rawTable      Table
 )
 
 // publicTypeNames rewrites decoding errors that name the raw types above,
-// so that messages say config.Component, not config.rawComponent.
+// so that messages say config.Component, not config.rawComponent, and
+// returns a lone *yaml.LoadError as a *yaml.LoadErrors, which yaml.v4 lists
+// with its own errors instead of putting a second line in front.
 func publicTypeNames(err error) error {
-	var typeErr *yaml.TypeError
-	if !errors.As(err, &typeErr) {
-		return err
+	var loadErrs *yaml.LoadErrors
+	if !errors.As(err, &loadErrs) {
+		// A decoder failure that stops the decoding comes as one
+		// *yaml.LoadError; listed as one of many it keeps its line.
+		var loadErr *yaml.LoadError
+		if !errors.As(err, &loadErr) {
+			return err
+		}
+
+		// The resolver's errors carry no position; as a plain error the
+		// message gets the line of the node being decoded instead of
+		// "<unknown position>".
+		if loadErr.Mark.Line == 0 {
+			return &unplacedError{loadErr}
+		}
+
+		loadErrs = &yaml.LoadErrors{Errors: []*yaml.LoadError{loadErr}}
 	}
 
-	out := &yaml.TypeError{Errors: make([]string, len(typeErr.Errors))}
-	for i, msg := range typeErr.Errors {
-		out.Errors[i] = rawTypeName.ReplaceAllString(msg, "config.$1")
+	out := &yaml.LoadErrors{Errors: make([]*yaml.LoadError, len(loadErrs.Errors))}
+	for i, e := range loadErrs.Errors {
+		renamed := *e
+		renamed.Message = rawTypeName.ReplaceAllString(e.Message, "config.$1")
+		out.Errors[i] = &renamed
 	}
 
 	return out
 }
+
+// unplacedError is a decoder error without a position, shown as its bare
+// message. yaml.v4 lists it under the line of the hook's node, which
+// placeUnplaced corrects where it finds the scalar.
+type unplacedError struct{ err *yaml.LoadError }
+
+func (e *unplacedError) Error() string {
+	return rawTypeName.ReplaceAllString(e.err.Message, "config.$1")
+}
+
+func (e *unplacedError) Unwrap() error { return e.err }
 
 var rawTypeName = regexp.MustCompile(`config\.raw([A-Z]\w*)`)
 
@@ -511,7 +557,7 @@ func (a *Arguments) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var list []Argument
 	if err := unmarshal(&list); err != nil {
-		return err
+		return publicTypeNames(err)
 	}
 
 	*a = list
@@ -531,9 +577,7 @@ func (a *Argument) UnmarshalYAML(unmarshal func(any) error) error {
 	return publicTypeNames(unmarshal((*rawArgument)(a)))
 }
 
-// UnmarshalYAML accepts one search or a list of them. The decoder reuses
-// its error between attempts, so the list attempt's message is kept as text
-// before the single search is tried.
+// UnmarshalYAML accepts one search or a list of them.
 func (s *Searches) UnmarshalYAML(unmarshal func(any) error) error {
 	var list []*Search
 
@@ -543,8 +587,6 @@ func (s *Searches) UnmarshalYAML(unmarshal func(any) error) error {
 
 		return nil
 	}
-
-	listMsg := listErr.Error()
 
 	var one Search
 
@@ -557,11 +599,11 @@ func (s *Searches) UnmarshalYAML(unmarshal func(any) error) error {
 
 	// A mapping fails the list attempt as a whole; anything else is a
 	// list whose entries the list attempt describes.
-	if strings.Contains(listMsg, "!!map into []") {
+	if strings.Contains(listErr.Error(), "!!map into []") {
 		return publicTypeNames(err)
 	}
 
-	return errors.New(strings.TrimPrefix(listMsg, "yaml: ")) //nolint:err113 // the decoder's own message, kept as text
+	return publicTypeNames(listErr)
 }
 
 // MarshalYAML writes a single search as a mapping, so that the product code
@@ -573,4 +615,124 @@ func (s Searches) MarshalYAML() (any, error) {
 	}
 
 	return []*Search(s), nil
+}
+
+// UnmarshalYAML keeps a plain -0 in a row the integer 0: yaml.v4 resolves
+// it to the float -0, where yaml.v3 gave an int. -0.0 stays a float.
+func (t *Table) UnmarshalYAML(node *yaml.Node) error {
+	if err := decodeStrict(node, (*rawTable)(t)); err != nil {
+		return err
+	}
+
+	if rows := mappingValue(node, "rows"); rows != nil {
+		for i, row := range deref(rows).Content {
+			if i < len(t.Rows) {
+				intNegativeZero(t.Rows[i], deref(row))
+			}
+		}
+	}
+
+	return nil
+}
+
+// intNegativeZero sets the cells of row written as a plain -0 to 0.
+func intNegativeZero(row []any, node *yaml.Node) {
+	if len(node.Content) != len(row) {
+		return
+	}
+
+	for j, cell := range node.Content {
+		cell = deref(cell)
+		if f, ok := row[j].(float64); ok && f == 0 && cell.Style == 0 && cell.Value == "-0" {
+			row[j] = 0
+		}
+	}
+}
+
+// mappingValue returns the value of key in mapping node, or nil. A key of
+// the mapping itself wins over one merged in with <<.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	node = deref(node)
+
+	var merges []*yaml.Node
+
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		switch node.Content[i].Value {
+		case key:
+			return node.Content[i+1]
+		case "<<":
+			merges = append(merges, node.Content[i+1])
+		}
+	}
+
+	for _, merge := range merges {
+		sources := []*yaml.Node{merge}
+		if merge = deref(merge); merge.Kind == yaml.SequenceNode {
+			sources = merge.Content
+		}
+
+		for _, source := range sources {
+			if value := mappingValue(source, key); value != nil {
+				return value
+			}
+		}
+	}
+
+	return nil
+}
+
+// deref follows an alias node to its anchor.
+func deref(node *yaml.Node) *yaml.Node {
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return node.Alias
+	}
+
+	return node
+}
+
+// unplacedValue matches the resolver's message for an explicitly tagged
+// scalar that does not fit its tag.
+var unplacedValue = regexp.MustCompile("(?s)^cannot construct !!\\w+ `(.*)` as a (!!\\w+)$")
+
+// placeUnplaced moves each unplacedError in err to the line of the tagged
+// scalar it is about: the first one with that tag and text at or below the
+// line yaml.v4 gave, which is the line of the enclosing hook's node.
+func placeUnplaced(err error, doc *yaml.Node) {
+	var loadErrs *yaml.LoadErrors
+	if !errors.As(err, &loadErrs) {
+		return
+	}
+
+	for _, loadErr := range loadErrs.Errors {
+		var unplaced *unplacedError
+		if !errors.As(loadErr, &unplaced) {
+			continue
+		}
+
+		match := unplacedValue.FindStringSubmatch(unplaced.err.Message)
+		if match == nil {
+			continue
+		}
+
+		if line := taggedScalarLine(doc, match[2], match[1], loadErr.Mark.Line); line > 0 {
+			loadErr.Mark.Line = line
+		}
+	}
+}
+
+// taggedScalarLine returns the line of the first scalar below node with an
+// explicit tag and value at or after line minLine, or 0.
+func taggedScalarLine(node *yaml.Node, tag, value string, minLine int) int {
+	if node.Kind == yaml.ScalarNode && node.Style&yaml.TaggedStyle != 0 &&
+		node.Tag == tag && node.Value == value && node.Line >= minLine {
+		return node.Line
+	}
+
+	for _, child := range node.Content {
+		if line := taggedScalarLine(child, tag, value, minLine); line > 0 {
+			return line
+		}
+	}
+
+	return 0
 }

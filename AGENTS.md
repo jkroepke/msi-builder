@@ -539,6 +539,24 @@ go test ./... -shuffle=on -race
   the chains come before every placement that shares their anchor, because
   `launchBeforeFind` compares positions inside a block, not only its size.
   `TestBuilderChainsMatchValidate` checks the counts against a build.
+- Decoding hooks in `pkg/config` return `*yaml.LoadErrors`: yaml.v4 lists
+  those with its own errors, but puts the hook node's line in front of any
+  other error (also a lone `*yaml.LoadError`, which a fatal decoder failure
+  such as bad `!!binary` returns), so a message would show two lines. Decode
+  nodes with `decodeNode`, pass callback errors through `publicTypeNames`,
+  wrap your own with `lineError`, and decode a hand-handled mapping with
+  `decodeStrict` (`node.Load` with `WithKnownFields`).
+  Resolver errors for explicitly tagged scalars (`!!int abc`) carry no
+  position; hooks return them as `unplacedError`, and `decode` moves them to
+  the first matching tagged scalar at or below the hook's line
+  (`placeUnplaced`, which needs the parsed document). A matching scalar in an
+  overridden merge source can take the line instead; accepted.
+  `TestDecodeErrorLines` checks for one line number.
+  `productCode: auto` hashes yaml.v3's `Marshal` output on purpose
+  (`internal/builder/tree.go`): yaml.v4 writes some multi-line strings in
+  another style, which would change the code of an unchanged configuration.
+  Keep that import on v3 (renovate.json blocks its major update);
+  `TestProductCodeGolden` pins one code.
 - A null list entry decodes to a nil pointer. `nullEntries`
   (`pkg/config/nulls.go`) finds them by reflection over the YAML keys, in
   `Parse` and in `Validate`, before the defaults dereference anything, so a

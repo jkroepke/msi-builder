@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // translations are the built-in translations of the wizard texts, one YAML

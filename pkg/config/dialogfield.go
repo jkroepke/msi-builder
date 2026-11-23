@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // tagNull is the YAML tag of a null node.
@@ -20,7 +20,7 @@ const maxChoiceText = 64
 // UnmarshalYAML accepts a scalar as the short form of {value: scalar}.
 func (o *ChoiceOption) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
-		return node.Decode(&o.Value) //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+		return decodeNode(node, &o.Value)
 	}
 
 	type plain ChoiceOption
@@ -39,13 +39,13 @@ var errNullOption = errors.New("an option cannot be empty")
 func (o *ChoiceOptions) UnmarshalYAML(node *yaml.Node) error {
 	for _, item := range node.Content {
 		if item.Tag == tagNull {
-			return fmt.Errorf("line %d: %w", item.Line, errNullOption)
+			return lineError(item.Line, errNullOption)
 		}
 	}
 
 	var options []ChoiceOption
-	if err := node.Decode(&options); err != nil {
-		return err //nolint:wrapcheck // yaml.v3 collects an unwrapped *yaml.TypeError with the others
+	if err := decodeNode(node, &options); err != nil {
+		return err
 	}
 
 	*o = options

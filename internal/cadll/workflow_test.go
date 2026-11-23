@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // jobNeeds is a job's needs, written as one name or a list.
