@@ -22,7 +22,7 @@ msi-builder verify package.msi [flags]
 ## Flags
 
 ```text
-  -h, --help   help for verify
+  -h, --help[=true|false]   help for verify
 ```
 
 ## See also

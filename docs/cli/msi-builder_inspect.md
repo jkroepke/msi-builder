@@ -25,8 +25,8 @@ msi-builder inspect [flags] package.msi
 ## Flags
 
 ```text
-  -h, --help           help for inspect
-      --table string   print only this table
+  -h, --help[=true|false]   help for inspect
+      --table string        print only this table
 ```
 
 ## See also
